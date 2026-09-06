@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeKnowledgeWorkspace, type KnowledgePage } from "./knowledge-model"
-import { isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
+import { isIgnoredVaultPath, mergeObsidianNotes, normalizeObsidianBaseUrl, obsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
 
 describe("Obsidian export", () => {
   const state = normalizeKnowledgeWorkspace({
@@ -127,6 +127,14 @@ describe("Obsidian export", () => {
     expect(isIgnoredVaultPath("Campanhas/Anotações/Sessão.md")).toBe(true)
     expect(isIgnoredVaultPath("Ordem x Caos/Templates/Modelo.md")).toBe(true)
     expect(isIgnoredVaultPath("Geografia/Campanhas/Cidade.md")).toBe(false)
+  })
+
+  it("limita a API do Obsidian a HTTPS no dispositivo local", () => {
+    expect(normalizeObsidianBaseUrl("https://127.0.0.1:27124/")).toBe("https://127.0.0.1:27124")
+    expect(normalizeObsidianBaseUrl("https://localhost:27124/vault?x=1")).toBe("https://localhost:27124")
+    expect(() => normalizeObsidianBaseUrl("http://127.0.0.1:27123")).toThrow(/HTTPS/)
+    expect(() => normalizeObsidianBaseUrl("https://runas-dm.pages.dev")).toThrow(/127\.0\.0\.1/)
+    expect(() => normalizeObsidianBaseUrl("/api/campaign-data")).toThrow(/HTTPS local/)
   })
 
   it("lê antes de gravar, cria páginas na raiz e preserva colisões", async () => {

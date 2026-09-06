@@ -45,6 +45,7 @@ A galeria do Runas Tools usa o limite de produto `GALLERY_MAX_CHARACTERS = 100`,
 - `/api/campaign-data` guarda o snapshot privado e normalizado de Campanhas e Wiki no D1; o estado primário continua no IndexedDB.
 - A API local do Obsidian recebe Markdown diretamente do navegador, sem encaminhar sua chave para o Worker.
 - O banco remoto não participa dos cálculos nem bloqueia o uso offline.
+- As rotas reais do Runas DM usam navegação de documento por âncoras HTML. O Vinext beta não oferece transições RSC confiáveis em produção; por isso `next/link` e `useRouter` não podem controlar Bestiário, Mesa, Campanhas ou Wiki. A sessão recente fica no `sessionStorage`, e o estado `checking` nunca renderiza o formulário de login.
 
 ## Política para mudanças
 

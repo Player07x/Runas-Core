@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Check, Download, FolderOpen, FolderPlus, KeyRound, Power, RefreshCw, Settings2, X } from "lucide-react"
 import type { KnowledgeWorkspaceState } from "../lib/knowledge-model"
-import { exportKnowledgeZip, syncWorkspaceToObsidian, testObsidianConnection, type ObsidianConnection, type VaultSyncResult } from "../lib/obsidian-sync"
+import { exportKnowledgeZip, normalizeObsidianBaseUrl, syncWorkspaceToObsidian, testObsidianConnection, type ObsidianConnection, type VaultSyncResult } from "../lib/obsidian-sync"
 import { localVaultName, selectLocalVault, supportsLocalVault, syncWorkspaceToLocalVault } from "../lib/local-vault"
 
 const DEFAULT_URL = "https://127.0.0.1:27124"
@@ -16,7 +16,7 @@ export interface ObsidianPreferences {
   automatic: boolean
 }
 
-const defaults: ObsidianPreferences = { enabled: true, mode: "api", baseUrl: DEFAULT_URL, rootFolder: "", automatic: false }
+const defaults: ObsidianPreferences = { enabled: true, mode: "folder", baseUrl: DEFAULT_URL, rootFolder: "", automatic: false }
 
 export function readObsidianPreferences(): ObsidianPreferences {
   if (typeof window === "undefined") return defaults
@@ -25,8 +25,11 @@ export function readObsidianPreferences(): ObsidianPreferences {
     const legacyRoot = typeof value?.rootFolder === "string" ? value.rootFolder : ""
     return {
       enabled: value?.enabled !== false,
-      mode: value?.mode === "folder" ? "folder" : "api",
-      baseUrl: typeof value?.baseUrl === "string" ? value.baseUrl : DEFAULT_URL,
+      mode: value?.mode === "api" ? "api" : "folder",
+      baseUrl: (() => {
+        try { return normalizeObsidianBaseUrl(typeof value?.baseUrl === "string" ? value.baseUrl : DEFAULT_URL) }
+        catch { return DEFAULT_URL }
+      })(),
       // A configuração antiga criava Runas DM/Wiki. Ela migra para a raiz do vault.
       rootFolder: legacyRoot === "Runas DM" ? "" : legacyRoot,
       automatic: value?.automatic === true,
@@ -103,7 +106,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
       {preferences.enabled && <>
         <div className="obsidian-mode wide" role="group" aria-label="Forma de acesso ao vault"><button className={preferences.mode === "folder" ? "active" : ""} onClick={() => setPreferences((current) => ({ ...current, mode: "folder" }))}>Pasta local</button><button className={preferences.mode === "api" ? "active" : ""} onClick={() => setPreferences((current) => ({ ...current, mode: "api" }))}>API do Obsidian</button></div>
         {preferences.mode === "folder" ? <div className="local-vault-panel wide"><div><FolderOpen size={20} /><span><strong>{folderName ? `Vault selecionado: ${folderName}` : "Nenhum vault selecionado"}</strong><small>{localFolderSupported ? "Funciona diretamente no Chrome/Edge, mesmo com o Obsidian fechado." : "Acesso direto a pastas não está disponível neste navegador."}</small></span></div><div><button className="secondary-button" disabled={working || !localFolderSupported} onClick={() => void chooseFolder("existing")}><FolderOpen size={16} /> Selecionar existente</button><button className="secondary-button" disabled={working || !localFolderSupported} onClick={() => void chooseFolder("new")}><FolderPlus size={16} /> Criar novo vault</button></div></div> : <>
-          <label><span>Endereço da API</span><input value={preferences.baseUrl} onChange={(event) => setPreferences((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={DEFAULT_URL} /></label>
+          <label><span>Endereço HTTPS local da API</span><input value={preferences.baseUrl} onChange={(event) => setPreferences((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={DEFAULT_URL} inputMode="url" /></label>
           <label><span>Raiz do arquivo no vault (opcional)</span><input value={preferences.rootFolder} onChange={(event) => setPreferences((current) => ({ ...current, rootFolder: event.target.value }))} placeholder="Vazio = raiz do vault" /></label>
           <label className="wide"><span>Chave da API local</span><div className="secret-input"><KeyRound size={16} /><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" placeholder="Cole a chave exibida pelo plugin" /></div></label>
         </>}

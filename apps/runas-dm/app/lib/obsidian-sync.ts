@@ -494,8 +494,17 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
   return { state, imported }
 }
 
-function normalizeBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "")
+export function normalizeObsidianBaseUrl(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw new Error("Informe um endereço HTTPS local válido para a API do Obsidian.")
+  }
+  if (url.protocol !== "https:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password) {
+    throw new Error("Por segurança, a API do Obsidian deve usar HTTPS em 127.0.0.1, localhost ou ::1.")
+  }
+  return url.origin
 }
 
 function encodedVaultPath(path: string): string {
@@ -507,7 +516,14 @@ function headers(connection: ObsidianConnection, accept = "application/json"): H
 }
 
 async function requestObsidian(path: string, connection: ObsidianConnection, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${normalizeBaseUrl(connection.baseUrl)}${path}`, { ...init, headers: { ...headers(connection), ...(init.headers ?? {}) } })
+  return fetch(`${normalizeObsidianBaseUrl(connection.baseUrl)}${path}`, {
+    ...init,
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
+    headers: { ...headers(connection), ...(init.headers ?? {}) },
+  })
 }
 
 async function listObsidianDirectory(path: string, connection: ObsidianConnection): Promise<string[]> {

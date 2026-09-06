@@ -19,7 +19,7 @@ Depois do primeiro acesso online e da conclusão do cache, cálculos, fichas, te
 
 ## Atualizações
 
-Cada mudança incompatível no shell exige um novo nome de cache. O service worker novo prepara seu cache e remove apenas caches antigos que usem o prefixo do próprio aplicativo. Nunca remova caches de outro projeto.
+Cada build publicado recebe automaticamente um novo nome de cache, derivado do commit ou do conteúdo do artefato. O service worker novo prepara seu cache e remove apenas caches antigos que usem o prefixo do próprio aplicativo. Payloads RSC e respostas de prefetch nunca entram no Cache Storage, pois pertencem a um único build. Nunca remova caches de outro projeto.
 
 Uma atualização que altera `Character` também exige incremento de `CHARACTER_VERSION` e migração do IndexedDB. O cache de aplicação e os dados do usuário têm ciclos independentes.
 

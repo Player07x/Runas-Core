@@ -38,5 +38,7 @@ Antes de alterar qualquer parte desta suíte, leia integralmente:
 - Mudanças compartilhadas exigem teste no `@runas/core`, typecheck e build dos dois aplicativos.
 - Os dois aplicativos são PWAs. A opção de instalação existe somente nas telas iniciais e nenhum fluxo principal pode depender da rede.
 - Service workers nunca armazenam `/api/backup`, autenticação ou respostas do Cloudflare Access/Sites.
+- No Runas DM publicado por Vinext, navegação entre rotas reais usa âncoras HTML e carregamento de documento. Não substitua os links de Bestiário, Mesa, Campanhas ou Wiki por `next/link`/`useRouter`: as transições RSC do Vinext beta quebram após deploys. `navigation-safety.test.ts` protege esse contrato.
+- O nome do cache do service worker do Runas DM recebe o identificador do build em `scripts/prepare-pages.mjs`. Nunca volte a usar uma versão manual fixa nem armazene payloads RSC.
 - Leia `docs/offline-pwa.md` antes de alterar cache, manifesto, IndexedDB ou instalação.
 - Leia `docs/deployment.md` antes de alterar workflows, bindings, migrações, segredos ou acesso de produção.

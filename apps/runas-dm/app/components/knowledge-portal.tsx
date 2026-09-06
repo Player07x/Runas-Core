@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+/* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, BookMarked, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
@@ -53,11 +53,9 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 export function KnowledgePortal({ area }: { area: PortalArea }) {
-  const router = useRouter()
   // O valor inicial precisa ser idêntico no servidor e na primeira hidratação.
-  // Depois disso, o módulo cliente preserva o estado entre Wiki e Campanhas.
-  // O servidor e a primeira hidratação sempre começam iguais. O estado em memória
-  // só é consultado no efeito; assim uma navegação não invalida os eventos do menu.
+  // A sessão recente só é consultada no efeito. Enquanto isso, uma tela neutra
+  // evita expor o formulário de login durante uma navegação autenticada.
   const [auth, setAuth] = useState<AuthState>("checking")
   const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 2, campaigns: [], categories: [], pages: [], updatedAt: 0 }))
   const [syncState, setSyncState] = useState<SyncState>("loading")
@@ -311,7 +309,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (actors.length === 0) { setNotice("Nenhuma ficha válida do bestiário foi encontrada neste encontro."); return }
     const encounterNotes = [page.title, page.summary].filter(Boolean).map((value, index) => `<p>${index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value)}</p>`).join("")
     await saveLocalState({ ...dmState, encounter: actors, workspaceNotesHtml: encounterNotes, updatedAt: Date.now() })
-    router.push("/?view=encounter")
+    window.location.assign("/?view=encounter")
   }
 
   const scopedPages = useMemo(() => state.pages.filter((page) => area === "wiki" ? page.scope === "wiki" : page.scope === "campaign" && page.campaignId === selectedCampaignId), [area, selectedCampaignId, state.pages])
@@ -328,7 +326,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       .sort((left, right) => (right.date || String(right.updatedAt)).localeCompare(left.date || String(left.updatedAt)))
   }, [categoryFilter, dateFrom, dateTo, scopedPages, search, selectedKind, statusFilter, tagFilter])
 
-  if (auth !== "ready") return <AccessScreen auth={auth} token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} area={area} />
+  if (auth === "checking") return <SessionCheckingScreen area={area} />
+  if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} area={area} />
 
   const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : CAMPAIGN_PAGE_KINDS
   return <main className="knowledge-shell knowledge-app">
@@ -350,10 +349,21 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   </main>
 }
 
-function AccessScreen({ auth, token, password, error, isLocal, onToken, onPassword, onSubmit, onLocal, area }: { auth: AuthState; token: string; password: string; error: string; isLocal: boolean; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void; onLocal: () => void; area: PortalArea }) {
+function SessionCheckingScreen({ area }: { area: PortalArea }) {
   return <main className="knowledge-shell">
     <header className="topbar knowledge-appbar">
-      <Link className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></Link>
+      <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
+      <KnowledgeNavigation area={area} />
+      <span aria-hidden="true" />
+    </header>
+    <div className="loading-screen knowledge-session-loading"><span className="brand-rune">R</span><p>Reabrindo o arquivo do mestre…</p></div>
+  </main>
+}
+
+function AccessScreen({ token, password, error, isLocal, onToken, onPassword, onSubmit, onLocal, area }: { token: string; password: string; error: string; isLocal: boolean; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void; onLocal: () => void; area: PortalArea }) {
+  return <main className="knowledge-shell">
+    <header className="topbar knowledge-appbar">
+      <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
       <KnowledgeNavigation area={area} />
       <span aria-hidden="true" />
     </header>
@@ -367,13 +377,13 @@ function AccessScreen({ auth, token, password, error, isLocal, onToken, onPasswo
       <form className="knowledge-access-card" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
         <span className="knowledge-access-icon"><LockKeyhole size={25} /></span>
         <div><p className="eyebrow">Acesso do mestre</p><h2>Desbloquear arquivo</h2><p>As credenciais são verificadas no servidor e não ficam salvas neste dispositivo.</p></div>
-        {auth === "checking" ? <p className="auth-checking"><RefreshCw className="spin" size={18} /> Verificando sessão segura…</p> : <>
+        <>
           <label><span>Token privado</span><div><KeyRound size={17} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label>
           <label><span>Senha da campanha</span><div><LockKeyhole size={17} /><input type="password" value={password} onChange={(event) => onPassword(event.target.value)} autoComplete="current-password" placeholder="Digite sua senha" /></div></label>
           {error && <p className="auth-error"><CircleAlert size={15} /> {error}</p>}
           <button className="primary-button" type="submit" disabled={!token || !password}>Entrar e sincronizar</button>
           {isLocal && <button className="secondary-button" type="button" onClick={onLocal}>Abrir modo local de desenvolvimento</button>}
-        </>}
+        </>
         <small>Protegido também pelo acesso privado do Cloudflare.</small>
       </form>
     </section>
@@ -384,18 +394,21 @@ function KnowledgeHeader({ area, syncState, onObsidian }: { area: PortalArea; sy
   const sync = syncState === "synced" ? { icon: Cloud, label: "Sincronizado" } : syncState === "syncing" || syncState === "loading" ? { icon: RefreshCw, label: "Sincronizando" } : syncState === "error" ? { icon: CircleAlert, label: "Falha ao salvar" } : { icon: WifiOff, label: "Salvo localmente" }
   const Icon = sync.icon
   return <header className="topbar knowledge-appbar">
-    <Link className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></Link>
+    <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
     <KnowledgeNavigation area={area} />
     <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
   </header>
 }
 
 function KnowledgeNavigation({ area }: { area: PortalArea }) {
+  // Vinext beta currently breaks next/link RSC transitions after production
+  // updates. Real anchors deliberately keep every destination independently
+  // reloadable and make stale client-router state irrelevant.
   return <nav className="view-switch" aria-label="Áreas do Runas DM">
-    <Link href="/"><Archive size={17} /> Bestiário</Link>
-    <Link href="/?view=encounter"><Swords size={17} /> Mesa</Link>
-    <Link className={area === "campaigns" ? "active" : ""} href="/campaigns"><BookMarked size={17} /> Campanhas</Link>
-    <Link className={area === "wiki" ? "active" : ""} href="/wiki"><LibraryBig size={17} /> Wiki</Link>
+    <a href="/"><Archive size={17} /> Bestiário</a>
+    <a href="/?view=encounter"><Swords size={17} /> Mesa</a>
+    <a className={area === "campaigns" ? "active" : ""} href="/campaigns"><BookMarked size={17} /> Campanhas</a>
+    <a className={area === "wiki" ? "active" : ""} href="/wiki"><LibraryBig size={17} /> Wiki</a>
   </nav>
 }
 

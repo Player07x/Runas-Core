@@ -7,7 +7,7 @@ import { readCachedVaultAsset } from "../lib/vault-assets"
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "H1", "H2", "H3", "BLOCKQUOTE", "A", "IMG", "HR", "CODE", "PRE"])
 
 function safeImageSource(value: string): boolean {
-  return value.startsWith("data:image/") || value.startsWith("blob:") || value.startsWith("https://")
+  return value.startsWith("data:image/") || value.startsWith("blob:") || (value.startsWith("/") && !value.startsWith("//"))
 }
 
 export function sanitizeRichText(value: string): string {
@@ -20,7 +20,7 @@ export function sanitizeRichText(value: string): string {
     }
     for (const attribute of [...element.attributes]) {
       const keepLink = element.tagName === "A" && (
-        (attribute.name === "href" && /^(https?:|obsidian:|#)/i.test(attribute.value))
+        (attribute.name === "href" && /^(https:|obsidian:|#)/i.test(attribute.value))
         || (attribute.name === "data-wiki-title" && Boolean(attribute.value.trim()))
       )
       const keepImageStyle = attribute.name === "style" && /^width:\s*(?:100|[2-9]\d)%\s*;?$/i.test(attribute.value)
@@ -212,7 +212,7 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
 
   function createLink() {
     const href = window.prompt("Endereço do link (https:// ou obsidian://)")?.trim()
-    if (!href || !/^(https?:|obsidian:|#)/i.test(href)) return
+    if (!href || !/^(https:|obsidian:|#)/i.test(href)) return
     command("createLink", href)
   }
 

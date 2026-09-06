@@ -1,5 +1,6 @@
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { createHash } from "node:crypto"
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -9,6 +10,23 @@ const serverDir = join(distRoot, "server")
 const pagesDir = join(distRoot, "pages")
 const workerModulesDir = join(pagesDir, "_worker")
 const pagesDatabaseId = "afe0dde7-ffcd-4fe7-8cf1-dee50595e74f"
+
+async function hashDirectory(root) {
+  const hash = createHash("sha256")
+  async function visit(directory) {
+    const entries = await readdir(directory, { withFileTypes: true })
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) await visit(path)
+      else {
+        hash.update(relative(root, path).replaceAll("\\", "/"))
+        hash.update(await readFile(path))
+      }
+    }
+  }
+  await visit(root)
+  return hash.digest("hex").slice(0, 16)
+}
 
 const workerConfigPath = join(serverDir, "wrangler.json")
 const workerConfig = JSON.parse(await readFile(workerConfigPath, "utf8"))
@@ -26,6 +44,12 @@ await rm(pagesDir, { force: true, recursive: true })
 await mkdir(pagesDir, { recursive: true })
 await cp(clientDir, pagesDir, { recursive: true })
 await cp(serverDir, workerModulesDir, { recursive: true })
+
+const buildId = (process.env.GITHUB_SHA || process.env.CF_PAGES_COMMIT_SHA || await hashDirectory(clientDir)).slice(0, 16)
+const serviceWorkerPath = join(pagesDir, "sw.js")
+const serviceWorker = await readFile(serviceWorkerPath, "utf8")
+if (!serviceWorker.includes("__RUNAS_DM_BUILD_ID__")) throw new Error("O service worker não contém o marcador de versão do build.")
+await writeFile(serviceWorkerPath, serviceWorker.replaceAll("__RUNAS_DM_BUILD_ID__", buildId), "utf8")
 // Pages receives bindings from the project-level wrangler.jsonc. The Vinext
 // build emits its own Worker configuration with placeholder bindings, which
 // must not be bundled as a second Pages configuration.
@@ -38,7 +62,7 @@ await writeFile(
   `import application from "./_worker/index.js";
 
 const securityHeaders = {
-  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://127.0.0.1:* https://localhost:*; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob: https:; manifest-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; upgrade-insecure-requests",
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://127.0.0.1:* https://localhost:* https://[::1]:*; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data: blob:; manifest-src 'self'; media-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; upgrade-insecure-requests",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -46,6 +70,7 @@ const securityHeaders = {
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
+  "X-Permitted-Cross-Domain-Policies": "none",
 };
 
 export default {

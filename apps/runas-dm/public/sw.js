@@ -1,4 +1,4 @@
-const CACHE_NAME = "runas-dm-shell-v5"
+const CACHE_NAME = "runas-dm-shell-__RUNAS_DM_BUILD_ID__"
 const APP_SHELL = ["/", "/campaigns", "/wiki", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/runas-red-tree-bg.webp"]
 
 function isCacheableUrl(url) {
@@ -7,6 +7,13 @@ function isCacheableUrl(url) {
     && !url.pathname.startsWith("/cdn-cgi/")
     && !url.pathname.startsWith("/signin")
     && !url.pathname.startsWith("/callback")
+}
+
+function isRouterPayload(request, url) {
+  return request.headers.has("RSC")
+    || request.headers.has("Next-Router-Prefetch")
+    || request.headers.has("Next-Router-State-Tree")
+    || url.searchParams.has("_rsc")
 }
 
 async function cacheResponse(request, response) {
@@ -32,6 +39,14 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return
   const url = new URL(request.url)
   if (!isCacheableUrl(url)) return
+
+  // RSC payloads are tied to one build and must never survive a deployment.
+  // The HTML shell remains available offline and cross-route navigation uses
+  // full documents, so bypassing these responses does not reduce offline use.
+  if (isRouterPayload(request, url)) {
+    event.respondWith(fetch(request))
+    return
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(fetch(request)
