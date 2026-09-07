@@ -258,6 +258,7 @@ function KnowledgeGraphView({ graph: calculatedGraph, onOpen }: { graph: ReturnT
 
   function onWheel(event: ReactWheelEvent<SVGSVGElement>) {
     event.preventDefault()
+    event.stopPropagation()
     const position = pointerPosition(event as unknown as ReactPointerEvent<SVGSVGElement>)
     const factor = event.deltaY < 0 ? 1.12 : 0.89
     setView((current) => {

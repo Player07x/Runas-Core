@@ -37,6 +37,10 @@ export interface CampaignRecord {
   tags: string[]
   createdAt: number
   updatedAt: number
+  accentColor?: string
+  backgroundColor?: string
+  textColor?: string
+  backgroundImageDataUrl?: string
 }
 
 export interface KnowledgeCategory {
@@ -103,7 +107,7 @@ export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
   const now = Date.now()
-  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], createdAt: now, updatedAt: now }
+  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], createdAt: now, updatedAt: now, accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "" }
 }
 
 export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgePageKind, campaignId: string | null): KnowledgePage {
@@ -129,7 +133,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     const record = item as CampaignRecord
     if (typeof record.id !== "string") return []
     const now = Date.now()
-    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now }]
+    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
   }) : []
   const categories = Array.isArray(candidate.categories) ? candidate.categories.flatMap((item) => {
     if (!item || typeof item !== "object") return []
