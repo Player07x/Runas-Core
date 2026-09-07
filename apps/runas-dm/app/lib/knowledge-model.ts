@@ -63,6 +63,12 @@ export interface KnowledgePage {
   contentHtml: string
   status: CampaignStatus
   date: string
+  /** Ordem narrativa para missões e eventos da campanha. */
+  order?: string
+  accentColor?: string
+  backgroundColor?: string
+  textColor?: string
+  backgroundImageDataUrl?: string
   tags: string[]
   categoryIds: string[]
   linkedPageIds: string[]
@@ -104,7 +110,7 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
   const now = Date.now()
   return {
     id: createKnowledgeId("page"), scope, campaignId, kind,
-    title: kind === "encounter" ? "Novo encontro" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "",
+    title: kind === "encounter" ? "Novo encontro" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
     tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [],
     obsidianPath: "", obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
     createdAt: now, updatedAt: now,
@@ -142,7 +148,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       campaignId: typeof page.campaignId === "string" ? page.campaignId : null, kind: page.kind,
       title: typeof page.title === "string" ? page.title : "Página sem nome", summary: typeof page.summary === "string" ? page.summary : "",
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
-      date: typeof page.date === "string" ? page.date : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
+      date: typeof page.date === "string" ? page.date : "", order: typeof page.order === "string" ? page.order : "", accentColor: typeof page.accentColor === "string" ? page.accentColor : "", backgroundColor: typeof page.backgroundColor === "string" ? page.backgroundColor : "", textColor: typeof page.textColor === "string" ? page.textColor : "", backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
       obsidianPath: typeof page.obsidianPath === "string" ? page.obsidianPath : "",
