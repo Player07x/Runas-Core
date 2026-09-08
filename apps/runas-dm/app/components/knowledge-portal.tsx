@@ -2,17 +2,21 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, BookMarked, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
-import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
+import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianApiKey, readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { syncWorkspaceToObsidian, type VaultSyncResult } from "../lib/obsidian-sync"
 import { syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
+import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
+import { ChronologyTimeline, EraHeading } from "./chronology-timeline"
+import { normalizeUniverseEras } from "../lib/chronology"
+import { KnowledgeCardImage } from "./knowledge-card-image"
 import { KnowledgeGraph } from "./knowledge-graph"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
 
@@ -65,11 +69,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [isLocal, setIsLocal] = useState(false)
   const [bestiary, setBestiary] = useState<BestiaryEntry[]>([])
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
-  const [selectedKind, setSelectedKind] = useState<KnowledgePageKind | "graph">(area === "wiki" ? "chronology" : "mission")
+  const [selectedKind, setSelectedKind] = useState<KnowledgePageKind | "graph" | "appearance">(area === "wiki" ? "chronology" : "mission")
   const [hydrated, setHydrated] = useState(false)
   const [search, setSearch] = useState("")
   const [tagFilter, setTagFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [dateSort, setDateSort] = useState<PageSort>(area === "campaigns" ? "order" : "recent")
+  const [eraFilter, setEraFilter] = useState("estrelas")
   const [statusFilter, setStatusFilter] = useState("all")
   const [editing, setEditing] = useState<KnowledgePage | null>(null)
   const [categoryName, setCategoryName] = useState("")
@@ -261,18 +267,14 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   function addPage() {
     const campaignId = area === "campaigns" ? selectedCampaignId : null
     if (area === "campaigns" && !campaignId) { addCampaign(); return }
-    if (selectedKind === "graph") return
-    setEditing(createKnowledgePage(area === "wiki" ? "wiki" : "campaign", selectedKind, campaignId))
+    if (selectedKind === "graph" || selectedKind === "appearance") return
+    setEditing({ ...createKnowledgePage(area === "wiki" ? "wiki" : "campaign", selectedKind, campaignId), eraId: selectedKind === "chronology" && eraFilter !== "unassigned" ? eraFilter : "" })
   }
 
   function savePage(page: KnowledgePage) {
     const typedLinks = [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)]
     const automaticLinks = state.pages.filter((candidate) => candidate.id !== page.id && typedLinks.some((title) => title.toLocaleLowerCase("pt-BR") === candidate.title.toLocaleLowerCase("pt-BR"))).map((candidate) => candidate.id)
-    const orderNumber = page.order?.trim()
-    const orderLinks = orderNumber && page.scope === "campaign" && ["mission", "event"].includes(page.kind)
-      ? state.pages.filter((candidate) => candidate.id !== page.id && candidate.scope === "campaign" && candidate.campaignId === page.campaignId && ["mission", "event"].includes(candidate.kind) && candidate.order && Number.parseInt(candidate.order, 10) === Number.parseInt(orderNumber, 10) - 1).map((candidate) => candidate.id)
-      : []
-    const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks, ...orderLinks])] }
+    const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks])] }
     const next = mutate((current) => ({ ...current, pages: current.pages.some((candidate) => candidate.id === readyPage.id) ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate) : [readyPage, ...current.pages] }))
     setEditing(null)
     if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
@@ -315,35 +317,37 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const scopedPages = useMemo(() => state.pages.filter((page) => area === "wiki" ? page.scope === "wiki" : page.scope === "campaign" && page.campaignId === selectedCampaignId), [area, selectedCampaignId, state.pages])
   const scopedCategories = useMemo(() => state.categories.filter((category) => area === "wiki" ? category.scope === "wiki" : category.scope === "campaign" && category.campaignId === selectedCampaignId), [area, selectedCampaignId, state.categories])
   const tags = useMemo(() => [...new Set(scopedPages.flatMap((page) => page.tags))].sort((a, b) => a.localeCompare(b, "pt-BR")), [scopedPages])
+  const eras = useMemo(() => normalizeUniverseEras(state.eras), [state.eras])
+  const selectedEra = eras.find((era) => era.id === eraFilter)
   const filteredPages = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("pt-BR")
-    return scopedPages.filter((page) => selectedKind === "graph" || page.kind === selectedKind)
+    return sortKnowledgePages(scopedPages.filter((page) => selectedKind === "graph" || page.kind === selectedKind)
       .filter((page) => !term || [page.title, page.summary, ...(page.kind === "encounter" ? [] : [plainTextFromHtml(page.contentHtml)]), ...page.tags].some((value) => value.toLocaleLowerCase("pt-BR").includes(term)))
       .filter((page) => tagFilter === "all" || page.tags.includes(tagFilter))
       .filter((page) => categoryFilter === "all" || page.categoryIds.includes(categoryFilter))
       .filter((page) => statusFilter === "all" || page.status === statusFilter)
-      .sort((left, right) => (right.date || "").localeCompare(left.date || "") || right.updatedAt - left.updatedAt)
-  }, [categoryFilter, scopedPages, search, selectedKind, statusFilter, tagFilter])
+      .filter((page) => selectedKind !== "chronology" || (eraFilter === "unassigned" ? !page.eraId || !eras.some((era) => era.id === page.eraId) : page.eraId === eraFilter)), dateSort)
+  }, [categoryFilter, scopedPages, search, selectedKind, statusFilter, tagFilter, dateSort, eraFilter, eras])
 
   if (auth === "checking") return <SessionCheckingScreen area={area} />
   if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} area={area} />
 
-  const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS.filter((kind) => kind.id !== "session-note"), { id: "graph", label: "Gráfico" } as const]
-  return <main className="knowledge-shell knowledge-app">
+  const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS.filter((kind) => kind.id !== "session-note"), { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
+  return <main className={`knowledge-shell knowledge-app ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
     <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} />
     <div className={`knowledge-layout ${area === "wiki" ? "wiki-layout" : ""}`}>
       {area === "campaigns" && <aside className="campaign-sidebar"><header><span><BookMarked size={18} /> Campanhas</span><button onClick={addCampaign} aria-label="Criar campanha"><Plus size={17} /></button></header><div>{state.campaigns.map((campaign) => { const pageCount = state.pages.filter((page) => page.campaignId === campaign.id).length; return <button key={campaign.id} className={campaign.id === selectedCampaignId ? "active" : ""} onClick={() => setSelectedCampaignId(campaign.id)}><span>{campaign.title || "Campanha sem nome"}</span><small>{countLabel(pageCount, "registro", "registros")}</small><ChevronRight size={15} /></button> })}</div>{state.campaigns.length === 0 && <p>Crie sua primeira campanha para organizar missões e sessões.</p>}</aside>}
       <section className="knowledge-workspace">
         {area === "campaigns" && selectedCampaign ? <CampaignHeading campaign={selectedCampaign} onChange={updateCampaign} onDelete={removeCampaign} /> : <div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>{area === "wiki" ? "Wiki" : "Campanhas"}</h1><p>{area === "wiki" ? "Seu mundo interligado, pesquisável e compatível com Obsidian." : "Organize aventuras, sessões e encontros em um único lugar."}</p></div>{area === "campaigns" && !selectedCampaign && <button className="primary-button" onClick={addCampaign}><Plus size={17} /> Criar campanha</button>}</div>}
         {(area === "wiki" || selectedCampaign) && <>
-          <nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => setSelectedKind(kind.id as KnowledgePageKind | "graph")}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>
-          {selectedKind !== "graph" && <div className="knowledge-toolbar"><label className="knowledge-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no título, texto, tag ou resumo…" /><kbd>{filteredPages.length}</kbd></label><div className="knowledge-filters"><label><Filter size={14} /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">Todas as tags</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Todas as categorias</option>{scopedCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>{area === "campaigns" && ["mission", "event"].includes(selectedKind) && <label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos os status</option>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}<span className="date-sort-hint"><CalendarDays size={14} /> Mais novas primeiro</span><button className="filter-clear" title="Limpar filtros" onClick={() => { setSearch(""); setTagFilter("all"); setCategoryFilter("all"); setStatusFilter("all") }}><X size={15} /></button></div><div className="category-creator"><label><FolderPlus size={16} /><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCategory() }} placeholder="Nova categoria" /></label><button onClick={addCategory}>Adicionar</button><button className="primary-button" onClick={addPage}><Plus size={17} /> {selectedKind === "encounter" ? "Novo encontro" : "Nova página"}</button></div></div>}
-          {selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <ChronologyTimeline pages={filteredPages} onOpen={setEditing} /> : <PageGrid pages={filteredPages} categories={scopedCategories} onOpen={setEditing} onCreate={addPage} />}
+          <nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as KnowledgePageKind | "graph" | "appearance"); if (kind.id === "mission") setDateSort("order"); else if (dateSort === "order") setDateSort("recent"); setStatusFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>
+          {selectedKind !== "graph" && selectedKind !== "appearance" && <div className="knowledge-toolbar"><label className="knowledge-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no título, texto, tag ou resumo…" /><kbd>{filteredPages.length}</kbd></label><div className="knowledge-filters"><label><Filter size={14} /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">Todas as tags</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Todas as categorias</option>{scopedCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>{area === "campaigns" && ["mission", "event"].includes(selectedKind) && <label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos os status</option>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}<label><CalendarDays size={14} /><select aria-label="Organizar por data" value={dateSort} onChange={(event) => setDateSort(event.target.value as PageSort)}><option value="recent">Mais Recentes</option><option value="oldest">Mais Antigas</option>{selectedKind === "mission" && <option value="order">Ordem das missões</option>}</select></label>{selectedKind === "chronology" && <label><select aria-label="Era" value={eraFilter} onChange={(event) => setEraFilter(event.target.value)}>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}<option value="unassigned">Sem era definida</option></select></label>}<button className="filter-clear" title="Limpar filtros" onClick={() => { setSearch(""); setTagFilter("all"); setCategoryFilter("all"); setStatusFilter("all"); setDateSort("recent") }}><X size={15} /></button></div><div className="category-creator"><label><FolderPlus size={16} /><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCategory() }} placeholder="Nova categoria" /></label><button onClick={addCategory}>Adicionar</button><button className="primary-button" onClick={addPage}><Plus size={17} /> {selectedKind === "encounter" ? "Novo encontro" : "Nova página"}</button></div></div>}
+          {selectedKind === "appearance" && selectedCampaign ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <>{selectedEra && <EraHeading key={selectedEra.id} era={selectedEra} onChange={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} />}<ChronologyTimeline pages={filteredPages} era={selectedEra} onOpen={setEditing} /></> : <PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} onOpen={setEditing} onCreate={addPage} />}
         </>}
       </section>
     </div>
     {notice && <button className="knowledge-toast" onClick={() => setNotice("")}><Check size={15} /> {notice}<X size={14} /></button>}
-    {editing && <KnowledgeEditor page={editing} pages={scopedPages} categories={scopedCategories} bestiary={bestiary} backlinks={scopedPages.filter((page) => page.linkedPageIds.includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
+    {editing && <KnowledgeEditor eras={eras} page={editing} pages={scopedPages} categories={scopedCategories} bestiary={bestiary} backlinks={scopedPages.filter((page) => effectivePageLinks(page, scopedPages).includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
     {obsidianOpen && <ObsidianDialog state={state} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} onStateChange={(next) => { setState(next); void saveKnowledgeWorkspace(next) }} />}
   </main>
 }
@@ -412,17 +416,27 @@ function KnowledgeNavigation({ area }: { area: PortalArea }) {
 }
 
 function CampaignHeading({ campaign, onChange, onDelete }: { campaign: CampaignRecord; onChange: (values: Partial<CampaignRecord>) => void; onDelete: () => void }) {
-  const style = { ...(campaign.backgroundColor ? { backgroundColor: campaign.backgroundColor } : {}), ...(campaign.textColor ? { color: campaign.textColor } : {}), ...(campaign.backgroundImageDataUrl ? { backgroundImage: `linear-gradient(#171316bb,#171316dd),url(${campaign.backgroundImageDataUrl})`, backgroundSize: "cover" } : {}) }
-  return <div className="campaign-heading" style={style}><div><p className="eyebrow">Campanha ativa</p><input className="campaign-title-input" value={campaign.title} onChange={(event) => onChange({ title: event.target.value })} aria-label="Nome da campanha" /><ExpandableTextarea resizeKey={campaign.id} value={campaign.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="Resumo da campanha, tom e objetivo central…" /><div className="visual-settings campaign-visual-settings"><label>Cor de destaque <input type="color" value={campaign.accentColor || "#58a667"} onChange={(event) => onChange({ accentColor: event.target.value })} /></label><label>Cor do fundo <input type="color" value={campaign.backgroundColor || "#171316"} onChange={(event) => onChange({ backgroundColor: event.target.value })} /></label><label>Cor do texto <input type="color" value={campaign.textColor || "#f5eeee"} onChange={(event) => onChange({ textColor: event.target.value })} /></label><label>Imagem <input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => onChange({ backgroundImageDataUrl: String(reader.result) }); reader.readAsDataURL(file) }} /></label>{campaign.backgroundImageDataUrl && <button className="secondary-button" onClick={() => onChange({ backgroundImageDataUrl: "" })}>Remover imagem</button>}</div></div><button className="icon-button danger-icon" title="Excluir campanha" onClick={onDelete}><Trash2 size={17} /></button></div>
+  return <div className={`campaign-heading ${campaign.backgroundImageDataUrl ? "has-cover" : ""}`}>
+    {campaign.backgroundImageDataUrl && <img className="campaign-cover-image" src={campaign.backgroundImageDataUrl} alt="" style={{ filter: `blur(${campaign.imageBlur ?? 8}px)` }} />}
+    <div className="campaign-heading-content"><p className="eyebrow">Campanha ativa</p><input className="campaign-title-input" value={campaign.title} onChange={(event) => onChange({ title: event.target.value })} aria-label="Nome da campanha" /><ExpandableTextarea resizeKey={campaign.id} value={campaign.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="Resumo da campanha, tom e objetivo central…" /></div>
+    <button className="icon-button danger-icon" title="Excluir campanha" onClick={onDelete}><Trash2 size={17} /></button>
+  </div>
 }
 
-function ChronologyTimeline({ pages, onOpen }: { pages: KnowledgePage[]; onOpen: (page: KnowledgePage) => void }) {
-  const ordered = [...pages].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || a.createdAt - b.createdAt)
-  if (!ordered.length) return <div className="knowledge-empty"><CalendarDays size={32} /><strong>Nenhum evento cronológico.</strong><p>Adicione páginas com data para formar a linha do tempo do universo.</p></div>
-  return <div className="chronology-timeline">{ordered.map((page) => <button className="chronology-event" key={page.id} onClick={() => onOpen(page)}><time>{page.date ? new Date(`${page.date}T12:00:00`).toLocaleDateString("pt-BR") : "Sem data"}</time><span className="chronology-dot" /><div><small>{page.tags.slice(0, 2).map((tag) => `#${tag}`).join(" ")}</small><h2>{page.title}</h2><p>{page.summary || plainTextFromHtml(page.contentHtml).slice(0, 220) || "Sem descrição."}</p></div></button>)}</div>
-}
-
-function PageGrid({ pages, categories, onOpen, onCreate }: { pages: KnowledgePage[]; categories: KnowledgeCategory[]; onOpen: (page: KnowledgePage) => void; onCreate: () => void }) {
+function PageGrid({ pages, allPages, categories, onOpen, onCreate }: { pages: KnowledgePage[]; allPages: KnowledgePage[]; categories: KnowledgeCategory[]; onOpen: (page: KnowledgePage) => void; onCreate: () => void }) {
   if (pages.length === 0) return <div className="knowledge-empty"><BookMarked size={32} /><strong>Nenhum registro encontrado.</strong><p>Crie o primeiro registro ou ajuste os filtros desta seção.</p><button className="primary-button" onClick={onCreate}><Plus size={16} /> Criar</button></div>
-  return <div className="knowledge-grid">{pages.map((page) => { const creatureCount = page.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0); const style = { ...(page.accentColor ? { borderColor: page.accentColor } : {}), ...(page.backgroundColor ? { backgroundColor: page.backgroundColor } : {}), ...(page.textColor ? { color: page.textColor } : {}), ...(page.backgroundImageDataUrl ? { backgroundImage: `linear-gradient(#171316bb,#171316dd),url(${page.backgroundImageDataUrl})`, backgroundSize: "cover" } : {}) }; return <button key={page.id} className="knowledge-card" style={style} onClick={() => onOpen(page)}><header><span>{page.order ? `${page.order} · ` : ""}{kindLabel(page.kind)}</span>{["mission", "event"].includes(page.kind) && <b className={statusClass(page.status)}>{page.status}</b>}</header><h2>{page.title || (page.kind === "encounter" ? "Encontro sem nome" : "Página sem nome")}</h2><p>{page.summary || (page.kind === "encounter" ? "Sem notas do mestre." : plainTextFromHtml(page.contentHtml).slice(0, 180) || "Sem resumo.")}</p><div className="knowledge-card-meta">{page.date && <span><CalendarDays size={13} /> {new Date(`${page.date}T12:00:00`).toLocaleDateString("pt-BR")}</span>}{page.kind !== "encounter" && page.linkedPageIds.length > 0 && <span><Network size={13} /> {countLabel(page.linkedPageIds.length, "vínculo", "vínculos")}</span>}{creatureCount > 0 && <span><Swords size={13} /> {countLabel(creatureCount, "inimigo", "inimigos")}</span>}</div><footer>{categories.filter((category) => page.categoryIds.includes(category.id)).slice(0, 2).map((category) => <span key={category.id}>{category.name}</span>)}{page.tags.slice(0, 3).map((tag) => <i key={tag}>#{tag}</i>)}</footer></button> })}</div>
+  return <div className="knowledge-grid">{pages.map((page) => {
+    const creatureCount = page.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0)
+    const links = effectivePageLinks(page, allPages)
+    const hasStatus = page.scope === "campaign" && ["mission", "event"].includes(page.kind)
+    const color = page.status.includes("Concluída") ? "var(--green)" : page.status.includes("Fracassada") ? "var(--red)" : page.status === "Em Progresso" ? "var(--cyan)" : "var(--line)"
+    // Legacy per-page colors must not override campaign-wide appearance or status.
+    return <button key={page.id} className="knowledge-card" style={{ "--status-border": hasStatus ? color : "var(--line)" } as CSSProperties} onClick={() => onOpen(page)}>
+      <header><span>{page.order ? `${page.order} · ` : ""}{kindLabel(page.kind)}</span>{hasStatus && <b className={statusClass(page.status)}>{page.status}</b>}</header>
+      <div className="knowledge-card-body"><KnowledgeCardImage page={page} /><div className="knowledge-card-copy"><h2>{page.title || (page.kind === "encounter" ? "Encontro sem nome" : "Página sem nome")}</h2><p>{page.summary || (page.kind === "encounter" ? "Sem notas do mestre." : plainTextFromHtml(page.contentHtml).slice(0, 180) || "Sem resumo.")}</p>
+        <div className="knowledge-card-meta">{page.date && <span><CalendarDays size={13} /> {page.date.match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${page.date}T12:00:00`).toLocaleDateString("pt-BR") : page.date}</span>}{page.kind !== "encounter" && links.length > 0 && <span><Network size={13} /> {countLabel(links.length, "vínculo", "vínculos")}</span>}{creatureCount > 0 && <span><Swords size={13} /> {countLabel(creatureCount, "inimigo", "inimigos")}</span>}</div>
+        <footer>{categories.filter((category) => page.categoryIds.includes(category.id)).slice(0, 2).map((category) => <span key={category.id}>{category.name}</span>)}{page.tags.slice(0, 3).map((tag) => <i key={tag}>#{tag}</i>)}</footer>
+      </div></div>
+    </button>
+  })}</div>
 }

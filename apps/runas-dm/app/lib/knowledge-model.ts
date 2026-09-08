@@ -1,3 +1,5 @@
+import { fictionalYear, normalizeUniverseEras, type UniverseEra } from "./chronology"
+
 export const CAMPAIGN_STATUSES = [
   "Sem Status",
   "Não Iniciada",
@@ -41,6 +43,9 @@ export interface CampaignRecord {
   backgroundColor?: string
   textColor?: string
   backgroundImageDataUrl?: string
+  buttonColor?: string
+  boxColor?: string
+  imageBlur?: number
 }
 
 export interface KnowledgeCategory {
@@ -67,6 +72,8 @@ export interface KnowledgePage {
   contentHtml: string
   status: CampaignStatus
   date: string
+  eraId?: string
+  eventYear?: number | null
   /** Ordem narrativa para missões e eventos da campanha. */
   order?: string
   accentColor?: string
@@ -91,6 +98,7 @@ export interface KnowledgePage {
 
 export interface KnowledgeWorkspaceState {
   version: 2
+  eras?: UniverseEra[]
   campaigns: CampaignRecord[]
   categories: KnowledgeCategory[]
   pages: KnowledgePage[]
@@ -102,7 +110,7 @@ export function createKnowledgeId(prefix: string): string {
 }
 
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
-  return { version: 2, campaigns: [], categories: [], pages: [], updatedAt: 0 }
+  return { version: 2, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], pages: [], updatedAt: 0 }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
@@ -133,7 +141,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     const record = item as CampaignRecord
     if (typeof record.id !== "string") return []
     const now = Date.now()
-    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
+    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
   }) : []
   const categories = Array.isArray(candidate.categories) ? candidate.categories.flatMap((item) => {
     if (!item || typeof item !== "object") return []
@@ -152,7 +160,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       campaignId: typeof page.campaignId === "string" ? page.campaignId : null, kind: page.kind,
       title: typeof page.title === "string" ? page.title : "Página sem nome", summary: typeof page.summary === "string" ? page.summary : "",
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
-      date: typeof page.date === "string" ? page.date : "", order: typeof page.order === "string" ? page.order : "", accentColor: typeof page.accentColor === "string" ? page.accentColor : "", backgroundColor: typeof page.backgroundColor === "string" ? page.backgroundColor : "", textColor: typeof page.textColor === "string" ? page.textColor : "", backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
+      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
       obsidianPath: typeof page.obsidianPath === "string" ? page.obsidianPath : "",
@@ -162,7 +170,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       createdAt: Number.isFinite(page.createdAt) ? page.createdAt : now, updatedAt: Number.isFinite(page.updatedAt) ? page.updatedAt : now,
     }]
   }) : []
-  return { version: 2, campaigns, categories, pages, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+  return { version: 2, eras: normalizeUniverseEras(candidate.eras), campaigns, categories, pages, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
 }
 
 export function parseList(value: string): string[] {
@@ -189,9 +197,45 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
   }
   return {
     version: 2,
+    eras: normalizeUniverseEras(remote.updatedAt >= local.updatedAt ? remote.eras ?? local.eras : local.eras ?? remote.eras),
     campaigns: mergeById(local.campaigns, remote.campaigns),
     categories: mergeById(local.categories, remote.categories),
     pages: mergeById(local.pages, remote.pages),
     updatedAt: Math.max(local.updatedAt, remote.updatedAt),
   }
+}
+
+export function normalizeMissionOrder(value: unknown): string {
+  const order = String(value ?? "").trim().replace(",", ".")
+  return /^\d+(?:\.\d+)?$/.test(order) ? order : ""
+}
+
+/** Derived links never enter linkedPageIds, so renumbering cannot leave stale edges. */
+export function missionOrderLinks(page: KnowledgePage, pages: KnowledgePage[]): string[] {
+  const order = normalizeMissionOrder(page.order)
+  if (!order || page.scope !== "campaign" || page.kind !== "mission" || !page.campaignId) return []
+  const stage = Number(order.split(".")[0])
+  return pages.filter((candidate) => {
+    const other = normalizeMissionOrder(candidate.order)
+    return candidate.id !== page.id && candidate.scope === "campaign" && candidate.kind === "mission" && candidate.campaignId === page.campaignId && other && Math.abs(Number(other.split(".")[0]) - stage) === 1
+  }).map((candidate) => candidate.id)
+}
+
+export function effectivePageLinks(page: KnowledgePage, pages: KnowledgePage[]): string[] {
+  return [...new Set([...page.linkedPageIds, ...missionOrderLinks(page, pages)])]
+}
+
+export type PageSort = "recent" | "oldest" | "order"
+
+export function sortKnowledgePages(pages: KnowledgePage[], sort: PageSort): KnowledgePage[] {
+  const timestamp = (page: KnowledgePage) => page.kind === "chronology" ? page.eventYear ?? null : (page.date && Number.isFinite(Date.parse(page.date)) ? Date.parse(page.date) : page.createdAt)
+  return [...pages].sort((a, b) => {
+    if (sort === "order") {
+      const left = normalizeMissionOrder(a.order), right = normalizeMissionOrder(b.order)
+      if (left !== right) return left && right ? left.localeCompare(right, "pt-BR", { numeric: true }) : left ? -1 : 1
+    }
+    const left = timestamp(a), right = timestamp(b)
+    if (left == null || right == null) return left == null && right == null ? a.id.localeCompare(b.id) : left == null ? 1 : -1
+    return (sort === "oldest" ? 1 : -1) * (left - right || a.createdAt - b.createdAt) || a.id.localeCompare(b.id)
+  })
 }

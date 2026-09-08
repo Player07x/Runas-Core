@@ -1,6 +1,8 @@
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
 import { createTextZip, downloadBlob, safeFilename } from "./export"
 import { cacheVaultAsset } from "./vault-assets"
+import { fictionalYear } from "./chronology"
+import { normalizeMissionOrder } from "./knowledge-model"
 
 export const WIKI_VAULT_FOLDERS = WIKI_SECTIONS.map((section) => section.label)
 export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Campanhas"]
@@ -127,6 +129,9 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
     summary: page.summary, contentHtml: page.contentHtml, status: page.status, date: page.date,
     tags: [...page.tags].sort(), categories, links, bestiaryEntryId: page.bestiaryEntryId,
     encounterCreatures: page.encounterCreatures,
+    ...(page.order ? { order: page.order } : {}),
+    ...(page.eraId ? { eraId: page.eraId } : {}),
+    ...(page.eventYear != null ? { eventYear: page.eventYear } : {}),
   })
 }
 
@@ -249,6 +254,9 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     campaign ? `runas_campaign_id: ${yaml(campaign.id)}` : "",
     `tags: [${page.tags.map(yaml).join(", ")}]`, `categorias: [${categories.map(yaml).join(", ")}]`,
     `runas_linked_ids: [${page.linkedPageIds.map(yaml).join(", ")}]`,
+    page.order ? `ordem: ${yaml(page.order)}` : "",
+    page.eraId ? `runas_era: ${yaml(page.eraId)}` : "",
+    page.eventYear != null ? `ano_evento: ${page.eventYear}` : "",
     page.bestiaryEntryId ? `ficha_bestiario: ${yaml(page.bestiaryEntryId)}` : "", "---",
   ].filter(Boolean).join("\n")
   const relations = linked.length ? `\n\n## Páginas relacionadas\n${linked.map((title) => `- [[${title}]]`).join("\n")}` : ""
@@ -376,6 +384,10 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     contentHtml: markdownToHtml(content),
     status: statusFromValue(frontmatter.status),
     date: text(frontmatter.data ?? frontmatter.date),
+    order: normalizeMissionOrder(frontmatter.ordem ?? fallback?.order),
+    eraId: text(frontmatter.runas_era ?? fallback?.eraId),
+    eventYear: fictionalYear(frontmatter.ano_evento ?? fallback?.eventYear),
+    backgroundImageDataUrl: fallback?.backgroundImageDataUrl ?? "",
     tags: stringArray(frontmatter.tags),
     categoryIds: [],
     linkedPageIds: stringArray(frontmatter.runas_linked_ids),

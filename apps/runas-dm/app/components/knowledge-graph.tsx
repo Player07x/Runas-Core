@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { Focus, Network, Search, ZoomIn, ZoomOut } from "lucide-react"
-import { plainTextFromHtml, wikiLinkTitles, type KnowledgePage, type KnowledgePageKind } from "../lib/knowledge-model"
+import { effectivePageLinks, plainTextFromHtml, wikiLinkTitles, type KnowledgePage, type KnowledgePageKind } from "../lib/knowledge-model"
+import { bindGraphWheel } from "../lib/graph-wheel"
 
 const VIEWBOX_WIDTH = 1400
 const VIEWBOX_HEIGHT = 850
@@ -14,6 +15,9 @@ const GRAPH_GROUPS: Array<{ id: KnowledgePageKind; label: string; color: string 
   { id: "fauna", label: "Fauna", color: "#35aaa5" },
   { id: "monsters", label: "Monstros", color: "#d94343" },
   { id: "items", label: "Itens", color: "#f2aa17" },
+  { id: "mission", label: "Missões", color: "#ad95c6" },
+  { id: "event", label: "Eventos", color: "#e4b368" },
+  { id: "gm-note", label: "Notas do mestre", color: "#68babb" },
 ]
 
 const GROUP_BY_KIND = new Map<KnowledgePageKind, (typeof GRAPH_GROUPS)[number]>(GRAPH_GROUPS.map((group) => [group.id, group]))
@@ -51,7 +55,7 @@ function linksForPages(pages: KnowledgePage[]): KnowledgeGraphEdge[] {
     const implicit = wikiLinkTitles(plainTextFromHtml(page.contentHtml))
       .map((title) => byTitle.get(title.toLocaleLowerCase("pt-BR")))
       .filter((id): id is string => Boolean(id))
-    for (const targetId of [...page.linkedPageIds, ...implicit]) {
+    for (const targetId of [...effectivePageLinks(page, pages), ...implicit]) {
       if (!pageIds.has(targetId) || targetId === page.id) continue
       const [sourceId, normalizedTargetId] = [page.id, targetId].sort()
       const key = `${sourceId}:${normalizedTargetId}`
@@ -256,18 +260,20 @@ function KnowledgeGraphView({ graph: calculatedGraph, onOpen }: { graph: ReturnT
     event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
-  function onWheel(event: ReactWheelEvent<SVGSVGElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    const position = pointerPosition(event as unknown as ReactPointerEvent<SVGSVGElement>)
-    const factor = event.deltaY < 0 ? 1.12 : 0.89
-    setView((current) => {
-      const scale = Math.max(0.32, Math.min(3.8, current.scale * factor))
-      const worldX = (position.x - current.x) / current.scale
-      const worldY = (position.y - current.y) / current.scale
-      return { x: position.x - worldX * scale, y: position.y - worldY * scale, scale }
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    return bindGraphWheel(svg, (event) => {
+      const bounds = svg.getBoundingClientRect()
+      const position = { x: (event.clientX - bounds.left) * VIEWBOX_WIDTH / bounds.width, y: (event.clientY - bounds.top) * VIEWBOX_HEIGHT / bounds.height }
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? bounds.height : 1)
+      const factor = Math.exp(-Math.max(-120, Math.min(120, delta)) * 0.004)
+      setView((current) => {
+        const scale = Math.max(0.32, Math.min(3.8, current.scale * factor))
+        return { x: position.x - (position.x - current.x) * scale / current.scale, y: position.y - (position.y - current.y) * scale / current.scale, scale }
+      })
     })
-  }
+  }, [])
 
   function toggleKind(kind: KnowledgePageKind) {
     setHiddenKinds((current) => {
@@ -282,7 +288,7 @@ function KnowledgeGraphView({ graph: calculatedGraph, onOpen }: { graph: ReturnT
     <div className="graph-stage">
       <div className="graph-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar nós…" aria-label="Filtrar nós do gráfico" /><kbd>{visibleIds.size}</kbd></div>
       <div className="graph-controls" aria-label="Controles do gráfico"><button onClick={() => zoom(0.82)} aria-label="Diminuir zoom"><ZoomOut size={17} /></button><button onClick={resetView} aria-label="Centralizar gráfico"><Focus size={17} /></button><button onClick={() => zoom(1.22)} aria-label="Aumentar zoom"><ZoomIn size={17} /></button></div>
-      <svg ref={svgRef} viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} role="img" aria-label={`${visibleIds.size} páginas e ${calculatedGraph.edges.length} vínculos`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => { pointer.current = null }} onWheel={onWheel}>
+      <svg ref={svgRef} viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} role="img" aria-label={`${visibleIds.size} páginas e ${calculatedGraph.edges.length} vínculos`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => { pointer.current = null }}>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
           <g className="graph-edges">{calculatedGraph.edges.map((edge) => {
             const source = nodeById.get(edge.sourceId)
