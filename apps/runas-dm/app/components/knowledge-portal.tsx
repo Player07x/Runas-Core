@@ -268,7 +268,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   function savePage(page: KnowledgePage) {
     const typedLinks = [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)]
     const automaticLinks = state.pages.filter((candidate) => candidate.id !== page.id && typedLinks.some((title) => title.toLocaleLowerCase("pt-BR") === candidate.title.toLocaleLowerCase("pt-BR"))).map((candidate) => candidate.id)
-    const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks])] }
+    const orderNumber = page.order?.trim()
+    const orderLinks = orderNumber && page.scope === "campaign" && ["mission", "event"].includes(page.kind)
+      ? state.pages.filter((candidate) => candidate.id !== page.id && candidate.scope === "campaign" && candidate.campaignId === page.campaignId && ["mission", "event"].includes(candidate.kind) && candidate.order && Number.parseInt(candidate.order, 10) === Number.parseInt(orderNumber, 10) - 1).map((candidate) => candidate.id)
+      : []
+    const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks, ...orderLinks])] }
     const next = mutate((current) => ({ ...current, pages: current.pages.some((candidate) => candidate.id === readyPage.id) ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate) : [readyPage, ...current.pages] }))
     setEditing(null)
     if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
