@@ -1,4 +1,4 @@
-import { IGNORED_VAULT_FOLDERS, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncResult } from "./obsidian-sync"
+import { IGNORED_VAULT_FOLDERS, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncPriority, type VaultSyncResult } from "./obsidian-sync"
 import type { KnowledgeWorkspaceState } from "./knowledge-model"
 
 const DATABASE_NAME = "runas-dm-local-vault"
@@ -116,7 +116,7 @@ async function listMarkdownFiles(handle: DirectoryHandle, path = ""): Promise<st
   const directory = path ? await directoryAt(handle, path, false) : handle
   const files: string[] = []
   for await (const entry of directory.values()) {
-    if (!path && IGNORED_VAULT_FOLDERS.some((folder) => folder.localeCompare(entry.name, "pt-BR", { sensitivity: "base" }) === 0)) continue
+    if (!path && IGNORED_VAULT_FOLDERS.some((folder) => folder.localeCompare(entry.name, "pt-BR", { sensitivity: "base" }) === 0) && entry.name.localeCompare("Campanhas", "pt-BR", { sensitivity: "base" }) !== 0) continue
     const childPath = [path, entry.name].filter(Boolean).join("/")
     if (entry.kind === "directory") files.push(...await listMarkdownFiles(handle, childPath))
     else if (entry.name.toLocaleLowerCase("pt-BR").endsWith(".md")) files.push(childPath)
@@ -139,6 +139,7 @@ async function listAllFiles(handle: DirectoryHandle, path: string): Promise<stri
 function createLocalVaultAdapter(handle: DirectoryHandle): VaultAdapter {
   return {
     listMarkdownFiles: () => listMarkdownFiles(handle),
+    listBaseFiles: async () => (await listAllFiles(handle, "Bases")).filter((path) => path.toLocaleLowerCase("pt-BR").endsWith(".base")),
     async readNote(path) {
       const file = await (await fileAt(handle, path, false)).getFile()
       const markdown = await file.text()
@@ -157,10 +158,10 @@ export async function localVaultName(): Promise<string> {
   return (await readLocalVaultHandle())?.name ?? ""
 }
 
-export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, requestPermission = false, onProgress?: (done: number, total: number) => void): Promise<VaultSyncResult> {
+export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, requestPermission = false, onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
   const handle = await readLocalVaultHandle()
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador precisa renovar a permissão do vault.")
   await prepareLocalVault(handle)
-  return synchronizeWorkspaceWithVault(state, createLocalVaultAdapter(handle), "", onProgress)
+  return synchronizeWorkspaceWithVault(state, createLocalVaultAdapter(handle), "", onProgress, priority)
 }

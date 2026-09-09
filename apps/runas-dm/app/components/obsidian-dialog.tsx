@@ -16,7 +16,7 @@ export interface ObsidianPreferences {
   automatic: boolean
 }
 
-const defaults: ObsidianPreferences = { enabled: true, mode: "folder", baseUrl: DEFAULT_URL, rootFolder: "", automatic: false }
+const defaults: ObsidianPreferences = { enabled: true, mode: "folder", baseUrl: DEFAULT_URL, rootFolder: "", automatic: true }
 
 export function readObsidianPreferences(): ObsidianPreferences {
   if (typeof window === "undefined") return defaults
@@ -32,7 +32,9 @@ export function readObsidianPreferences(): ObsidianPreferences {
       })(),
       // A configuração antiga criava Runas DM/Wiki. Ela migra para a raiz do vault.
       rootFolder: legacyRoot === "Runas DM" ? "" : legacyRoot,
-      automatic: value?.automatic === true,
+      // A sincronização bidirecional é o comportamento padrão; o usuário
+      // ainda pode desligá-la explicitamente nas preferências.
+      automatic: value?.automatic !== false,
     }
   } catch { return defaults }
 }
@@ -99,7 +101,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
   }
 
   return <div className="knowledge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="obsidian-dialog" role="dialog" aria-modal="true" aria-labelledby="obsidian-title">
-    <header><div><p className="eyebrow"><Settings2 size={15} /> Integração local</p><h2 id="obsidian-title">Obsidian e vault local</h2><p>Leia e grave Markdown nos dois sentidos, mantendo páginas na raiz e anexos em Assets.</p></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19} /></button></header>
+    <header><div><p className="eyebrow"><Settings2 size={15} /> Integração local</p><h2 id="obsidian-title">Obsidian e vault local</h2><p>Leia e grave Markdown nos dois sentidos, respeitando a organização do vault e os anexos em Assets.</p></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19} /></button></header>
     <div className="obsidian-setup-note"><strong>Proteção de documentos</strong><span>O Runas DM nunca exclui notas. Antes de substituir conteúdo divergente, ele salva a versão anterior em <b>Assets/Runas DM Backups</b>. Notas já organizadas em subpastas são importadas e permanecem no caminho original.</span></div>
     <div className="obsidian-fields">
       <label className="obsidian-auto obsidian-enabled"><input type="checkbox" checked={preferences.enabled} onChange={(event) => setPreferences((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong><Power size={14} /> Integração com Obsidian ativa</strong><small>Desative para impedir completamente leitura, gravação e sincronização automática.</small></span></label>

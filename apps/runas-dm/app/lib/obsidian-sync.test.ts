@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeKnowledgeWorkspace, type KnowledgePage } from "./knowledge-model"
-import { isIgnoredVaultPath, mergeObsidianNotes, normalizeObsidianBaseUrl, obsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
+import { isIgnoredVaultPath, mergeObsidianNotes, normalizeObsidianBaseUrl, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
 
 describe("Obsidian export", () => {
   const state = normalizeKnowledgeWorkspace({
@@ -164,6 +164,75 @@ describe("Obsidian export", () => {
     await synchronizeWorkspaceWithVault(normalizeKnowledgeWorkspace({}), adapter)
     expect(writes).toBe(0)
     expect(files.get("Personagens/Runilitas/Roberto.md")).toBe(markdown)
+  })
+
+  it("deriva a campanha de 'Obra de Origem' e 'Campanha' gravadas como lista pelo Obsidian", () => {
+    const hub = "# Lion Heart (Campanha)\n\nHub da campanha.\n"
+    const event = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Novo Capitão\n\nUm evento.\n'
+    const session = '---\nCampanha:\n  - "[[Lion Heart (Campanha)]]"\nData: 2026-07-19\n---\n# Pacto de Ferruccio\n\nNotas da sessão.\n'
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Campanhas/Lion Heart (Campanha).md", markdown: hub, createdAt: 1, modifiedAt: 1 },
+      { path: "Campanhas/Eventos e Missões/Novo Capitão.md", markdown: event, createdAt: 1, modifiedAt: 1 },
+      { path: "Campanhas/Anotações/Sessões/Pacto de Ferruccio.md", markdown: session, createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.campaigns).toHaveLength(1)
+    expect(merged.state.campaigns[0].title).toBe("Lion Heart")
+    expect(merged.state.pages.every((page) => page.scope === "campaign" && page.campaignId === merged.state.campaigns[0].id)).toBe(true)
+    const session_ = merged.state.pages.find((page) => page.title === "Pacto de Ferruccio")
+    expect(session_?.date).toBe("2026-07-19")
+  })
+
+  it("preserva propriedades nativas desconhecidas do Obsidian ao regravar uma página editada pelo site", () => {
+    const markdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\nArco: Volta para Lion Heart\nEtapa: 1\nPrioridade:\n  - Alta\nStatus: false\n---\n# Novo Capitão\n\nTexto original.\n'
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Campanhas/Eventos e Missões/Novo Capitão.md", markdown, createdAt: 1, modifiedAt: 1 }])
+    const imported = merged.state.pages[0]
+    expect(imported.obsidianExtraFrontmatter).toMatchObject({ Arco: "Volta para Lion Heart", Etapa: 1, Prioridade: ["Alta"], Status: false })
+    const edited = { ...imported, summary: "Resumo adicionado pelo mestre." }
+    const regenerated = pageToMarkdown(edited, merged.state)
+    expect(regenerated).toContain('Obra de Origem:\n  - "[[Lion Heart (Campanha)]]"')
+    expect(regenerated).toContain('Arco: "Volta para Lion Heart"')
+    expect(regenerated).toContain("Etapa: 1")
+    expect(regenerated).toContain('Prioridade:\n  - "Alta"')
+    expect(regenerated).toContain("Status: false")
+  })
+
+  it("organiza novas páginas de campanha por tipo quando o vault tem arquivos .base", async () => {
+    const state_ = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      pages: [{ id: "mission-1", scope: "campaign", campaignId: "campaign-1", kind: "mission", title: "Nova missão", contentHtml: "", createdAt: 1, updatedAt: 1 }],
+      updatedAt: 1,
+    })
+    expect(organizedObsidianPathForPage(state_.pages[0], state_, "")).toBe("Campanhas/Eventos e Missões/Nova missao.md")
+    const files = new Map<string, string>()
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      listBaseFiles: async () => ["Bases/base_mission_events.base"],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+    }
+    await synchronizeWorkspaceWithVault(state_, adapter)
+    expect([...files.keys()]).toContain("Campanhas/Eventos e Missões/Nova missao.md")
+  })
+
+  it("prioriza a edição recém-salva pelo site sobre uma divergência antiga do vault", async () => {
+    const local = structuredClone(state)
+    const page = local.pages[0]
+    page.obsidianPath = "Portoes.md"
+    page.obsidianSourceMarkdown = "# Versão inicial\n"
+    page.obsidianFingerprint = pageObsidianFingerprint(page, local)
+    page.title = "Portões do Norte (revisado no site)"
+    page.updatedAt = 100
+    const files = new Map<string, string>([["Portoes.md", "# Alteração feita no Obsidian\n"]])
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => ["Portoes.md"],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 50 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+    }
+    const result = await synchronizeWorkspaceWithVault(local, adapter, "", undefined, "site")
+    const synced = result.state.pages.find((candidate) => candidate.id === page.id)
+    expect(synced?.title).toBe("Portões do Norte (revisado no site)")
   })
 
   it("cria backup e cópia de conflito quando site e vault mudaram", async () => {

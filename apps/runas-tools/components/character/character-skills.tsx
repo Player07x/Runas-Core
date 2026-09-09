@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowDown, ArrowUp, ChevronDown, ChevronsUpDown, Dices, ListPlus, Plus, Trash2, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronDown, ChevronsUpDown, Dices, ListPlus, Plus, Search, Trash2, X } from "lucide-react"
 import type { CharacterAttributes, CharacterSkill, SecondaryAttributeKey } from "@runas/core/types/character"
 import { damageAttributes } from "@runas/core/data/attributes"
 import { systemSkills } from "@runas/core/data/skills"
@@ -91,6 +91,8 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
   const [showImport, setShowImport] = useState(false)
   const [importText, setImportText] = useState("")
   const [importErrors, setImportErrors] = useState<string[]>([])
+  const [skillSearch, setSkillSearch] = useState("")
+  const [skillAttribute, setSkillAttribute] = useState<SecondaryAttributeKey | "all">("all")
 
   useEffect(() => {
     try {
@@ -100,8 +102,14 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
     }
   }, [sortState])
   const visibleSkills = useMemo(() => {
-    const fixedSkills = skills.filter((skill) => skill.locked)
-    const customSkills = skills.filter((skill) => !skill.locked)
+    const normalizedSearch = skillSearch.trim().toLocaleLowerCase("pt-BR")
+    const filteredSkills = skills.filter((skill) => {
+      const matchesName = !normalizedSearch || skill.name.toLocaleLowerCase("pt-BR").includes(normalizedSearch)
+      const matchesAttribute = skillAttribute === "all" || skill.attributeKey === skillAttribute
+      return matchesName && matchesAttribute
+    })
+    const fixedSkills = filteredSkills.filter((skill) => skill.locked)
+    const customSkills = filteredSkills.filter((skill) => !skill.locked)
     if (!sortState) return [...fixedSkills, ...customSkills]
 
     const valueFor = (skill: CharacterSkill): string | number | null => {
@@ -133,7 +141,7 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
       return comparison * direction
     })
     return [...fixedSkills, ...sortedCustomSkills]
-  }, [attributes, skills, sortState])
+  }, [attributes, skillAttribute, skillSearch, skills, sortState])
 
   function toggleSort(key: SkillSortKey) {
     setSortState((current) => {
@@ -192,6 +200,33 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
         {systemSkills.map((skill) => <option key={skill.name} value={skill.name} />)}
       </datalist>
         <div className="flex flex-col gap-2 border-b border-border px-0.5 pb-3 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between sm:px-0">
+          <div className="flex min-w-0 flex-1 flex-col gap-2 min-[430px]:flex-row">
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Pesquisar perícia</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="search"
+                value={skillSearch}
+                onChange={(event) => setSkillSearch(event.target.value)}
+                placeholder="Pesquisar perícia…"
+                aria-label="Pesquisar perícia pelo nome"
+                className="h-10 w-full rounded-xl border border-input bg-background/65 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25"
+              />
+            </label>
+            <label className="relative min-[430px]:w-52">
+              <span className="sr-only">Exibir perícias do atributo</span>
+              <select
+                value={skillAttribute}
+                onChange={(event) => setSkillAttribute(event.target.value as SecondaryAttributeKey | "all")}
+                aria-label="Exibir perícias baseadas em atributo"
+                className="h-10 w-full appearance-none rounded-xl border border-input bg-background/65 px-3 pr-8 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25"
+              >
+                <option value="all">Todos os atributos</option>
+                {damageAttributes.map((attribute) => <option key={attribute.key} value={attribute.key}>{attribute.name}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute bottom-3 right-2 size-4 text-muted-foreground" aria-hidden="true" />
+            </label>
+          </div>
           <div className="grid gap-2 min-[430px]:ml-auto min-[430px]:grid-cols-2">
             <button type="button" onClick={() => setShowImport(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground">
               <ListPlus className="size-4" /> Adicionar lista de perícias
@@ -289,6 +324,7 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
               </div>
             )
           })}
+          {visibleSkills.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma perícia encontrada com esses filtros.</p>}
         </div>
 
       {showImport && createPortal((

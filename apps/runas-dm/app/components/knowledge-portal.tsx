@@ -10,7 +10,7 @@ import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, 
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianApiKey, readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { syncWorkspaceToObsidian, type VaultSyncResult } from "../lib/obsidian-sync"
-import { syncWorkspaceToLocalVault } from "../lib/local-vault"
+import { localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
@@ -188,6 +188,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       if (running || stopped || document.visibilityState === "hidden") return
       const apiKey = readObsidianApiKey()
       if (obsidianPreferences.mode === "api" && !apiKey) return
+      if (obsidianPreferences.mode === "folder" && !await localVaultName()) return
       running = true
       setSyncState("syncing")
       try {
@@ -200,8 +201,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
         await saveKnowledgeWorkspace(result.state)
         setSyncState("synced")
         if (result.imported) setNotice(`${result.imported} página${result.imported === 1 ? " importada" : "s importadas"} do vault.`)
-      } catch {
-        if (!stopped) setSyncState("local")
+      } catch (error) {
+        if (!stopped) {
+          setSyncState("local")
+          setNotice(error instanceof Error ? `Obsidian: ${error.message}` : "Obsidian indisponível; alterações mantidas localmente.")
+        }
       } finally {
         running = false
       }
@@ -268,7 +272,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const campaignId = area === "campaigns" ? selectedCampaignId : null
     if (area === "campaigns" && !campaignId) { addCampaign(); return }
     if (selectedKind === "graph" || selectedKind === "appearance") return
-    setEditing({ ...createKnowledgePage(area === "wiki" ? "wiki" : "campaign", selectedKind, campaignId), eraId: selectedKind === "chronology" && eraFilter !== "unassigned" ? eraFilter : "" })
+    const today = new Date().toISOString().slice(0, 10)
+    setEditing({ ...createKnowledgePage(area === "wiki" ? "wiki" : "campaign", selectedKind, campaignId), date: today, eraId: selectedKind === "chronology" && eraFilter !== "unassigned" ? eraFilter : "" })
   }
 
   function savePage(page: KnowledgePage) {
@@ -280,8 +285,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
       const apiKey = readObsidianApiKey()
       const task: Promise<VaultSyncResult> | null = obsidianPreferences.mode === "folder"
-        ? syncWorkspaceToLocalVault(next, false)
-        : apiKey ? syncWorkspaceToObsidian(next, { baseUrl: obsidianPreferences.baseUrl, rootFolder: obsidianPreferences.rootFolder, apiKey }) : null
+        ? syncWorkspaceToLocalVault(next, false, undefined, "site")
+        : apiKey ? syncWorkspaceToObsidian(next, { baseUrl: obsidianPreferences.baseUrl, rootFolder: obsidianPreferences.rootFolder, apiKey }, undefined, "site") : null
       if (task) void task.then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) }).catch(() => setNotice("Página salva localmente. O vault será atualizado quando estiver disponível."))
     }
   }

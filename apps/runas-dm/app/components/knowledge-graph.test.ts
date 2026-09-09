@@ -6,7 +6,7 @@ function page(id: string, title: string, kind: KnowledgePageKind, linkedPageIds:
   return {
     id, title, kind, linkedPageIds, contentHtml,
     scope: "wiki", campaignId: null, summary: "", status: "Sem Status", date: "", tags: [], categoryIds: [], bestiaryEntryId: null,
-    encounterCreatures: [], obsidianPath: "", obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0, createdAt: 1, updatedAt: 1,
+    encounterCreatures: [], obsidianPath: "", obsidianExtraFrontmatter: {}, obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0, createdAt: 1, updatedAt: 1,
   }
 }
 

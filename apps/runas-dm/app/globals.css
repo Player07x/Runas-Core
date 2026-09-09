@@ -816,8 +816,9 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .campaign-themed .knowledge-tabs button.active { border-bottom: 2px solid var(--violet); }
 .campaign-heading { position: relative; isolation: isolate; overflow: hidden; }
 .campaign-heading.has-cover { min-height: 200px; }
-.campaign-heading .campaign-cover-image { position: absolute; z-index: -2; inset: -24px; width: calc(100% + 48px); height: calc(100% + 48px); object-fit: cover; pointer-events: none; }
-.campaign-heading.has-cover::after { content: ""; position: absolute; z-index: -1; inset: 0; background: color-mix(in srgb, var(--panel) 78%, transparent); pointer-events: none; }
+.campaign-heading .campaign-cover-image { position: absolute; z-index: 0; inset: -24px; width: calc(100% + 48px); height: calc(100% + 48px); object-fit: cover; pointer-events: none; }
+.campaign-heading.has-cover::after { content: ""; position: absolute; z-index: 1; inset: 0; background: color-mix(in srgb, var(--panel) 78%, transparent); pointer-events: none; }
+.campaign-heading.has-cover > :not(.campaign-cover-image) { position: relative; z-index: 2; }
 .campaign-heading .campaign-title-input { width: 100%; color: var(--text); }
 .campaign-heading .campaign-heading-content { min-width: 0; }
 .campaign-appearance { padding: 24px; border: 1px solid var(--line); border-radius: 18px; }

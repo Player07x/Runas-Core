@@ -87,6 +87,8 @@ export interface KnowledgePage {
   encounterCreatures: EncounterCreatureReference[]
   /** Caminho relativo ao vault usado para manter notas existentes no lugar. */
   obsidianPath: string
+  /** Propriedades do frontmatter que o site não modela, preservadas ao regravar a nota. */
+  obsidianExtraFrontmatter: Record<string, unknown>
   /** Cópia byte a byte do Markdown recebido no último sincronismo. */
   obsidianSourceMarkdown: string
   /** Assinatura dos campos importados, usada para detectar edições concorrentes. */
@@ -124,7 +126,7 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
     id: createKnowledgeId("page"), scope, campaignId, kind,
     title: kind === "encounter" ? "Novo encontro" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
     tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [],
-    obsidianPath: "", obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
+    obsidianPath: "", obsidianExtraFrontmatter: {}, obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
     createdAt: now, updatedAt: now,
   }
 }
@@ -164,6 +166,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
       obsidianPath: typeof page.obsidianPath === "string" ? page.obsidianPath : "",
+      obsidianExtraFrontmatter: page.obsidianExtraFrontmatter && typeof page.obsidianExtraFrontmatter === "object" ? page.obsidianExtraFrontmatter as Record<string, unknown> : {},
       obsidianSourceMarkdown: typeof page.obsidianSourceMarkdown === "string" ? page.obsidianSourceMarkdown : "",
       obsidianFingerprint: typeof page.obsidianFingerprint === "string" ? page.obsidianFingerprint : "",
       obsidianModifiedAt: Number.isFinite(page.obsidianModifiedAt) ? page.obsidianModifiedAt : 0,
