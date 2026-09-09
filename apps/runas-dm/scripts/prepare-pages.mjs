@@ -57,12 +57,17 @@ await rm(join(workerModulesDir, "wrangler.json"), { force: true })
 await rm(workerConfigPath, { force: true })
 await rm(join(projectRoot, ".wrangler", "deploy"), { force: true, recursive: true })
 
+// IPv6 literals (loopback ::1) are not supported by the host-source grammar
+// of CSP in any browser; including that entry only produced an "invalid
+// source" console warning and never actually allowed a connection. ::1
+// remains a valid API host for local dev (vinext dev applies no CSP), but it
+// can never work against this production policy.
 await writeFile(
   join(pagesDir, "_worker.js"),
   `import application from "./_worker/index.js";
 
 const securityHeaders = {
-  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://127.0.0.1:* https://localhost:* https://[::1]:*; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data: blob:; manifest-src 'self'; media-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; upgrade-insecure-requests",
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://127.0.0.1:* https://localhost:*; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data: blob:; manifest-src 'self'; media-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; upgrade-insecure-requests",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",

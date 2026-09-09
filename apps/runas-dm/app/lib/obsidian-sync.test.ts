@@ -166,6 +166,28 @@ describe("Obsidian export", () => {
     expect(files.get("Personagens/Runilitas/Roberto.md")).toBe(markdown)
   })
 
+  it("mantém um personagem da Wiki na Wiki mesmo referenciando a campanha de origem", () => {
+    const markdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Martim\n\nProtagonista da campanha.\n'
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Personagens/Runilitas/Martim.md", markdown, createdAt: 1, modifiedAt: 1 }])
+    const page = merged.state.pages.find((candidate) => candidate.title === "Martim")
+    expect(page?.scope).toBe("wiki")
+    expect(page?.kind).toBe("characters")
+    expect(page?.campaignId).toBeNull()
+    expect(merged.state.campaigns).toHaveLength(0)
+  })
+
+  it("reconhece uma campanha já existente com título mais longo do que o nome derivado da nota-hub", () => {
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart: Guerra Sangrenta", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      updatedAt: 1,
+    })
+    const markdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Novo Capitão\n\nUm evento.\n'
+    const merged = mergeObsidianNotes(local, [{ path: "Campanhas/Eventos e Missões/Novo Capitão.md", markdown, createdAt: 1, modifiedAt: 1 }])
+    expect(merged.state.campaigns).toHaveLength(1)
+    const page = merged.state.pages.find((candidate) => candidate.title === "Novo Capitão")
+    expect(page?.campaignId).toBe("campaign-1")
+  })
+
   it("deriva a campanha de 'Obra de Origem' e 'Campanha' gravadas como lista pelo Obsidian", () => {
     const hub = "# Lion Heart (Campanha)\n\nHub da campanha.\n"
     const event = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Novo Capitão\n\nUm evento.\n'

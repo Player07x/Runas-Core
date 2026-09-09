@@ -396,9 +396,24 @@ function contentMarkdown(body: string, title: string, summary: string): string {
   return result.trim()
 }
 
+/**
+ * O nome derivado da nota-hub (`Lion Heart (Campanha)` → `Lion Heart`) costuma
+ * ser só o prefixo do título completo que o mestre deu à campanha no site
+ * (`Lion Heart: Guerra Sangrenta`). Sem essa comparação por prefixo, toda
+ * importação criaria uma campanha duplicada.
+ */
+function campaignTitleMatches(existingTitle: string, reference: string): boolean {
+  const existing = normalizedLabel(existingTitle)
+  const target = normalizedLabel(reference)
+  if (!target || existing === target) return existing === target
+  if (!existing.startsWith(target)) return false
+  const boundary = existing[target.length]
+  return !boundary || /[^a-z0-9]/.test(boundary)
+}
+
 function ensureCampaign(campaigns: CampaignRecord[], idValue: string, titleValue: string, createdAt: number, updatedAt: number): CampaignRecord | null {
   if (!idValue && !titleValue) return null
-  const existing = campaigns.find((campaign) => campaign.id === idValue || normalizedLabel(campaign.title) === normalizedLabel(titleValue))
+  const existing = campaigns.find((campaign) => campaign.id === idValue || campaignTitleMatches(campaign.title, titleValue))
   if (existing) return existing
   const campaign = createCampaign(titleValue || "Campanha importada")
   campaign.id = idValue || campaign.id
@@ -441,11 +456,17 @@ function extraFrontmatter(frontmatter: Record<string, unknown>): Record<string, 
 function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: KnowledgePage): KnowledgePage {
   const parsed = parseMarkdownFrontmatter(note.markdown)
   const frontmatter = { ...parsed.frontmatter, ...(note.frontmatter ?? {}) }
-  const locationCampaign = campaignLocation(note.path)
+  // A localização física dentro de uma das seis pastas da Wiki vence qualquer
+  // sinal do frontmatter: personagens da Wiki costumam referenciar sua
+  // campanha de origem em "Obra de Origem"/"Campanha" sem deixar de pertencer
+  // à Wiki (ex.: Personagens/Runilitas/Martim.md aponta para a campanha
+  // "Lion Heart", mas continua sendo uma página da Wiki).
+  const wikiLocationMatch = wikiLocation(note.path)
+  const locationCampaign = wikiLocationMatch ? null : campaignLocation(note.path)
   const titleCandidate = titleFromMarkdown(parsed.body, note.path)
-  const campaignTitle = referencedCampaignTitle(frontmatter) || (locationCampaign && /\(campanha\)$/i.test(titleCandidate) ? titleCandidate.replace(/\s*\(campanha\)$/i, "").trim() : "")
-  const scope: "wiki" | "campaign" = text(frontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(locationCampaign) ? "campaign" : "wiki"
-  const location = scope === "wiki" ? wikiLocation(note.path) : null
+  const campaignTitle = wikiLocationMatch ? "" : referencedCampaignTitle(frontmatter) || (locationCampaign && /\(campanha\)$/i.test(titleCandidate) ? titleCandidate.replace(/\s*\(campanha\)$/i, "").trim() : "")
+  const scope: "wiki" | "campaign" = wikiLocationMatch ? "wiki" : (text(frontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(locationCampaign) ? "campaign" : "wiki")
+  const location = scope === "wiki" ? wikiLocationMatch : null
   const campaign = scope === "campaign" ? ensureCampaign(state.campaigns, text(frontmatter.runas_campaign_id), campaignTitle, note.createdAt, note.modifiedAt) : null
   const title = text(frontmatter.runas_title) || text(frontmatter.title) || titleFromMarkdown(parsed.body, note.path)
   const summary = text(frontmatter.runas_summary) || text(frontmatter.Resumo) || text(frontmatter.resumo)
@@ -499,8 +520,9 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
     let existingIndex = state.pages.findIndex((page) => (id && page.id === id) || normalizedLabel(page.obsidianPath) === normalizedLabel(note.path))
     if (existingIndex < 0 && !id) {
       const title = text(noteFrontmatter.runas_title) || text(noteFrontmatter.title) || titleFromMarkdown(parsed.body, note.path)
-      const campaignTitle = referencedCampaignTitle(noteFrontmatter)
-      const scope = text(noteFrontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(campaignLocation(note.path)) ? "campaign" : "wiki"
+      const isWikiLocation = Boolean(wikiLocation(note.path))
+      const campaignTitle = isWikiLocation ? "" : referencedCampaignTitle(noteFrontmatter)
+      const scope = isWikiLocation ? "wiki" : (text(noteFrontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(campaignLocation(note.path)) ? "campaign" : "wiki")
       const matches = state.pages.map((page, index) => ({ page, index })).filter(({ page }) => page.scope === scope && normalizedLabel(page.title) === normalizedLabel(title))
       if (matches.length === 1) existingIndex = matches[0].index
     }
@@ -621,7 +643,12 @@ async function requestObsidian(path: string, connection: ObsidianConnection, ini
     })
   } catch (error) {
     const detail = error instanceof Error && error.message ? ` (${error.message})` : ""
-    throw new Error(`Falha de rede ao acessar a API local do Obsidian${detail}. Confirme HTTPS, a porta do plugin e a permissão de CORS.`)
+    // Mesmo com o certificado aceito, o Chrome bloqueia silenciosamente (sem
+    // aviso de CSP) requisições de um site público para um endereço de rede
+    // privado quando o servidor não responde ao preflight de "Private Network
+    // Access". O plugin Local REST API do Obsidian ignora esse cabeçalho, então
+    // essa falha é esperada pela rede; a pasta local não depende de rede.
+    throw new Error(`Falha de rede ao acessar a API local do Obsidian${detail}. O Chrome costuma bloquear essa conexão por política de rede privada mesmo com o certificado aceito — isso é uma limitação do plugin Local REST API, não do Runas DM. Prefira o modo “Pasta local”, que funciona sem rede.`)
   }
 }
 
