@@ -35,6 +35,8 @@ export interface VaultAdapter {
   listAssetFiles?(rootFolder: string): Promise<string[]>
   writeText(path: string, content: string): Promise<void>
   writeBinary(path: string, content: Blob): Promise<void>
+  /** Usado somente para remover o caminho antigo depois de reorganizar uma nota já gravada pelo Runas DM. */
+  deleteFile?(path: string): Promise<void>
 }
 
 export interface VaultSyncResult {
@@ -710,6 +712,10 @@ export function createObsidianAdapter(connection: ObsidianConnection): VaultAdap
       const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { method: "PUT", headers: { ...headers(connection), "Content-Type": content.type || "application/octet-stream" }, body: content })
       if (!response.ok) throw new Error(`Falha ao escrever ${path} (${response.status}).`)
     },
+    async deleteFile(path) {
+      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { method: "DELETE" })
+      if (!response.ok && response.status !== 404) throw new Error(`Falha ao remover ${path} (${response.status}).`)
+    },
   }
 }
 
@@ -789,6 +795,11 @@ function collisionPath(path: string, page: KnowledgePage): string {
   return path.replace(/\.md$/i, ` (${page.id.slice(-8)}).md`)
 }
 
+/** Só reorganiza notas que o próprio Runas DM já gravou; nunca move conteúdo nativo do usuário. */
+function isManagedByRunasDm(page: KnowledgePage): boolean {
+  return /^runas_id:/m.test(page.obsidianSourceMarkdown)
+}
+
 export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspaceState, adapter: VaultAdapter, rootFolder = "", onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
   const paths = await adapter.listMarkdownFiles(rootFolder)
   const notes = await Promise.all(paths.map((path) => adapter.readNote(path)))
@@ -815,6 +826,18 @@ export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspa
       && originalPage.obsidianFingerprint === pageObsidianFingerprint(originalPage, state)
     const page = unchangedSinceLastSync ? originalPage : await pageWithVaultAttachments(originalPage, adapter, rootFolder)
     let path = useVaultOrganization ? organizedObsidianPathForPage(page, state, rootFolder) : obsidianPathForPage(page, state, rootFolder)
+    // Reorganiza retroativamente páginas de campanha que o próprio Runas DM já
+    // gravou fora da estrutura por .base (ex.: direto na raiz, de antes de o
+    // vault ter arquivos .base). Nunca move notas nativas do usuário (sem
+    // `runas_id`) nem sobrescreve um caminho já ocupado por outra nota.
+    let previousPath = ""
+    if (useVaultOrganization && page.scope === "campaign" && originalPage.obsidianPath && isManagedByRunasDm(originalPage)) {
+      const organized = organizedObsidianPathForPage({ ...page, obsidianPath: "" }, state, rootFolder)
+      if (normalizedLabel(organized) !== normalizedLabel(originalPage.obsidianPath) && !existingByPath.has(normalizedLabel(organized))) {
+        previousPath = originalPage.obsidianPath
+        path = organized
+      }
+    }
     let existing = existingByPath.get(normalizedLabel(path))
     if (existing && !originalPage.obsidianPath) {
       const existingId = text((existing.frontmatter ?? parseMarkdownFrontmatter(existing.markdown).frontmatter).runas_id)
@@ -830,6 +853,11 @@ export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspa
       await adapter.writeText(path, desired)
       exported += 1
     }
+    if (previousPath) {
+      if (adapter.deleteFile) await adapter.deleteFile(previousPath).catch(() => undefined)
+      existingByPath.delete(normalizedLabel(previousPath))
+    }
+    existingByPath.set(normalizedLabel(path), { path, markdown: desired, createdAt: originalPage.createdAt, modifiedAt: Date.now() })
     const syncedAt = Date.now()
     state = { ...state, pages: state.pages.map((candidate) => candidate.id === originalPage.id ? { ...candidate, obsidianPath: path, obsidianSourceMarkdown: desired, obsidianModifiedAt: syncedAt, obsidianFingerprint: pageObsidianFingerprint(candidate, state) } : candidate) }
     done += 1

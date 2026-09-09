@@ -237,6 +237,49 @@ describe("Obsidian export", () => {
     expect([...files.keys()]).toContain("Campanhas/Eventos e Missões/Nova missao.md")
   })
 
+  it("reorganiza retroativamente uma página de campanha gravada pelo Runas DM antes de o vault ter .base", async () => {
+    const legacyMarkdown = '---\nrunas: true\nrunas_id: "page-legacy-1"\nrunas_scope: "campaign"\nrunas_kind: "mission"\nrunas_title: "Novo Capitão"\nrunas_summary: ""\nrunas_created_at: 1\nrunas_updated_at: 1\ntipo: "Missão"\nstatus: "Não Iniciada"\ncampanha: "Lion Heart: Guerra Sangrenta"\nrunas_campaign_id: "campaign-1"\ntags: []\ncategorias: []\nrunas_linked_ids: []\n---\n\n# Novo Capitão\n\nConteúdo.\n'
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart: Guerra Sangrenta", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      pages: [{
+        id: "page-legacy-1", scope: "campaign", campaignId: "campaign-1", kind: "mission", title: "Novo Capitão", contentHtml: "<p>Conteúdo.</p>", status: "Não Iniciada",
+        obsidianPath: "Novo Capitao.md", obsidianSourceMarkdown: legacyMarkdown, createdAt: 1, updatedAt: 1,
+      }],
+      updatedAt: 1,
+    })
+    local.pages[0].obsidianFingerprint = pageObsidianFingerprint(local.pages[0], local)
+    const files = new Map<string, string>([["Novo Capitao.md", legacyMarkdown]])
+    let deleted = ""
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      listBaseFiles: async () => ["Bases/base_mission_events.base"],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+      deleteFile: async (path) => { deleted = path; files.delete(path) },
+    }
+    const result = await synchronizeWorkspaceWithVault(local, adapter)
+    expect(deleted).toBe("Novo Capitao.md")
+    expect([...files.keys()]).toEqual(["Campanhas/Eventos e Missões/Novo Capitao.md"])
+    expect(result.state.pages[0].obsidianPath).toBe("Campanhas/Eventos e Missões/Novo Capitao.md")
+  })
+
+  it("não reorganiza uma nota nativa do usuário sem runas_id mesmo com .base presente", async () => {
+    const nativeMarkdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Nota Antiga\n\nConteúdo do usuário.\n'
+    const local = normalizeKnowledgeWorkspace({})
+    const files = new Map<string, string>([["Nota Antiga.md", nativeMarkdown]])
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      listBaseFiles: async () => ["Bases/base_mission_events.base"],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+      deleteFile: async (path) => { files.delete(path) },
+    }
+    await synchronizeWorkspaceWithVault(local, adapter)
+    expect([...files.keys()]).toEqual(["Nota Antiga.md"])
+  })
+
   it("prioriza a edição recém-salva pelo site sobre uma divergência antiga do vault", async () => {
     const local = structuredClone(state)
     const page = local.pages[0]

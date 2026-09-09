@@ -284,10 +284,14 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setEditing(null)
     if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
       const apiKey = readObsidianApiKey()
+      // `true` permite renovar a permissão da pasta aqui: este código roda a
+      // partir do clique em "Salvar", então ainda está dentro da janela de
+      // ativação do usuário que a File System Access API exige para pedir
+      // permissão sem interação explícita adicional.
       const task: Promise<VaultSyncResult> | null = obsidianPreferences.mode === "folder"
-        ? syncWorkspaceToLocalVault(next, false, undefined, "site")
+        ? syncWorkspaceToLocalVault(next, true, undefined, "site")
         : apiKey ? syncWorkspaceToObsidian(next, { baseUrl: obsidianPreferences.baseUrl, rootFolder: obsidianPreferences.rootFolder, apiKey }, undefined, "site") : null
-      if (task) void task.then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) }).catch(() => setNotice("Página salva localmente. O vault será atualizado quando estiver disponível."))
+      if (task) void task.then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) }).catch((error) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
     }
   }
 

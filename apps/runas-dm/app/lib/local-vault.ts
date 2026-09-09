@@ -88,6 +88,14 @@ async function fileExists(handle: DirectoryHandle, path: string): Promise<boolea
   try { await fileAt(handle, path, false); return true } catch { return false }
 }
 
+async function deleteFileAt(handle: DirectoryHandle, path: string): Promise<void> {
+  const parts = path.split("/").filter(Boolean)
+  const filename = parts.pop()
+  if (!filename) return
+  const directory = await directoryAt(handle, parts.join("/"), false)
+  await directory.removeEntry(filename)
+}
+
 /** Cria somente o que estiver ausente; configura anexos sem tocar em preferências existentes. */
 export async function prepareLocalVault(handle: DirectoryHandle): Promise<void> {
   if (!await ensureWritePermission(handle, true)) throw new Error("Permissão de escrita no vault não foi concedida.")
@@ -151,6 +159,7 @@ function createLocalVaultAdapter(handle: DirectoryHandle): VaultAdapter {
     listAssetFiles: () => listAllFiles(handle, "Assets"),
     writeText: (path, content) => writeFile(handle, path, content),
     writeBinary: (path, content) => writeFile(handle, path, content),
+    deleteFile: (path) => deleteFileAt(handle, path),
   }
 }
 
@@ -161,7 +170,7 @@ export async function localVaultName(): Promise<string> {
 export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, requestPermission = false, onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
   const handle = await readLocalVaultHandle()
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
-  if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador precisa renovar a permissão do vault.")
+  if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   await prepareLocalVault(handle)
   return synchronizeWorkspaceWithVault(state, createLocalVaultAdapter(handle), "", onProgress, priority)
 }
