@@ -659,6 +659,26 @@ async function cacheEmbeddedVaultImages(state: KnowledgeWorkspaceState, adapter:
   return state
 }
 
+/**
+ * `fetch()` de uma URL `data:` é bloqueado pelo `connect-src` da CSP (que não
+ * inclui e não deveria precisar incluir o esquema `data:`), então a conversão
+ * decodifica a URI diretamente em vez de depender de rede para dados que já
+ * estão no próprio documento.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const match = dataUrl.match(/^data:([^;,]*)(;base64)?,([\s\S]*)$/)
+  if (!match) throw new Error("URL de imagem inválida.")
+  const [, mime, isBase64, data] = match
+  const type = mime || "application/octet-stream"
+  if (isBase64) {
+    const binary = atob(data)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return new Blob([bytes], { type })
+  }
+  return new Blob([decodeURIComponent(data)], { type })
+}
+
 async function pageWithVaultAttachments(page: KnowledgePage, adapter: VaultAdapter, rootFolder: string): Promise<KnowledgePage> {
   if (typeof DOMParser === "undefined" || !page.contentHtml.includes("data:image/")) return page
   const documentValue = new DOMParser().parseFromString(page.contentHtml, "text/html")
@@ -666,7 +686,7 @@ async function pageWithVaultAttachments(page: KnowledgePage, adapter: VaultAdapt
   for (const [index, image] of images.entries()) {
     const source = image.getAttribute("src")
     if (!source) continue
-    const blob = await fetch(source).then((response) => response.blob())
+    const blob = dataUrlToBlob(source)
     const extension = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : blob.type === "image/gif" ? "gif" : "jpg"
     const path = pathInsideRoot(`Assets/${filePart(page.title, "Imagem")}-${page.id.slice(-8)}-${index + 1}.${extension}`, rootFolder)
     await adapter.writeBinary(path, blob)

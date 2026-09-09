@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeKnowledgeWorkspace, type KnowledgePage } from "./knowledge-model"
-import { isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
+import { dataUrlToBlob, isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
 
 describe("Obsidian export", () => {
   const state = normalizeKnowledgeWorkspace({
@@ -127,6 +127,12 @@ describe("Obsidian export", () => {
     expect(isIgnoredVaultPath("Campanhas/Anotações/Sessão.md")).toBe(true)
     expect(isIgnoredVaultPath("Ordem x Caos/Templates/Modelo.md")).toBe(true)
     expect(isIgnoredVaultPath("Geografia/Campanhas/Cidade.md")).toBe(false)
+  })
+
+  it("decodifica uma data URL em vez de depender de fetch, que o CSP bloqueia para o esquema data:", () => {
+    const blob = dataUrlToBlob("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+    expect(blob.type).toBe("image/png")
+    expect(blob.size).toBeGreaterThan(0)
   })
 
   it("lê antes de gravar, cria páginas na raiz e preserva colisões", async () => {
