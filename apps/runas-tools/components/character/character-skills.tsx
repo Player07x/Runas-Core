@@ -199,9 +199,9 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
       <datalist id="system-skill-suggestions">
         {systemSkills.map((skill) => <option key={skill.name} value={skill.name} />)}
       </datalist>
-        <div className="flex flex-col gap-2 border-b border-border px-0.5 pb-3 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between sm:px-0">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 min-[430px]:flex-row">
-            <label className="relative min-w-0 flex-1">
+        <div className="flex flex-wrap flex-col gap-2 border-b border-border px-0.5 pb-3 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between sm:px-0">
+          <div className="flex min-w-0 flex-1 flex-wrap flex-col gap-2 min-[430px]:flex-row">
+            <label className="relative min-w-[160px] flex-1">
               <span className="sr-only">Pesquisar perícia</span>
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
