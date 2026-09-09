@@ -11,13 +11,6 @@ export const WIKI_VAULT_FOLDERS = WIKI_SECTIONS.map((section) => section.label)
 export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Campanhas"]
 export const CAMPAIGN_VAULT_FOLDER = "Campanhas"
 
-export interface ObsidianConnection {
-  baseUrl: string
-  apiKey: string
-  /** Pasta que funciona como raiz do arquivo. Vazio significa a raiz do vault. */
-  rootFolder: string
-}
-
 export interface VaultNote {
   path: string
   markdown: string
@@ -624,113 +617,6 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
   return { state, imported }
 }
 
-export function normalizeObsidianBaseUrl(value: string): string {
-  let url: URL
-  try {
-    url = new URL(value.trim())
-  } catch {
-    throw new Error("Informe um endereço HTTPS local válido para a API do Obsidian.")
-  }
-  if (url.protocol !== "https:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password) {
-    throw new Error("Por segurança, a API do Obsidian deve usar HTTPS em 127.0.0.1, localhost ou ::1.")
-  }
-  return url.origin
-}
-
-function encodedVaultPath(path: string): string {
-  return normalizePath(path).split("/").map(encodeURIComponent).join("/")
-}
-
-function headers(connection: ObsidianConnection, accept = "application/json"): HeadersInit {
-  return { Authorization: `Bearer ${connection.apiKey}`, Accept: accept }
-}
-
-async function requestObsidian(path: string, connection: ObsidianConnection, init: RequestInit = {}): Promise<Response> {
-  try {
-    return await fetch(`${normalizeObsidianBaseUrl(connection.baseUrl)}${path}`, {
-      ...init,
-      cache: "no-store",
-      credentials: "omit",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-      headers: { ...headers(connection), ...(init.headers ?? {}) },
-    })
-  } catch (error) {
-    const detail = error instanceof Error && error.message ? ` (${error.message})` : ""
-    // Mesmo com o certificado aceito, o Chrome bloqueia silenciosamente (sem
-    // aviso de CSP) requisições de um site público para um endereço de rede
-    // privado quando o servidor não responde ao preflight de "Private Network
-    // Access". O plugin Local REST API do Obsidian ignora esse cabeçalho, então
-    // essa falha é esperada pela rede; a pasta local não depende de rede.
-    throw new Error(`Falha de rede ao acessar a API local do Obsidian${detail}. O Chrome costuma bloquear essa conexão por política de rede privada mesmo com o certificado aceito — isso é uma limitação do plugin Local REST API, não do Runas DM. Prefira o modo “Pasta local”, que funciona sem rede.`)
-  }
-}
-
-async function listObsidianDirectory(path: string, connection: ObsidianConnection): Promise<string[]> {
-  const suffix = path ? `${encodedVaultPath(path)}/` : ""
-  const response = await requestObsidian(`/vault/${suffix}`, connection)
-  if (response.status === 404) return []
-  if (!response.ok) throw new Error(`Falha ao listar o vault (${response.status}).`)
-  const payload = await response.json() as { files?: unknown }
-  const entries = Array.isArray(payload.files) ? payload.files.filter((item): item is string => typeof item === "string") : []
-  const result: string[] = []
-  for (const entry of entries) {
-    const clean = entry.replace(/\/$/, "")
-    const fullPath = joinVaultPath(path, clean)
-    if (entry.endsWith("/")) {
-      if (normalizedLabel(path) === normalizedLabel(rootPath(connection.rootFolder)) && IGNORED_VAULT_FOLDERS.some((folder) => normalizedLabel(folder) === normalizedLabel(clean)) && normalizedLabel(clean) !== normalizedLabel(CAMPAIGN_VAULT_FOLDER)) continue
-      result.push(...await listObsidianDirectory(fullPath, connection))
-    } else if (entry.toLocaleLowerCase("pt-BR").endsWith(".md")) result.push(fullPath)
-  }
-  return result
-}
-
-async function listObsidianAssetDirectory(path: string, connection: ObsidianConnection): Promise<string[]> {
-  const response = await requestObsidian(`/vault/${path ? `${encodedVaultPath(path)}/` : ""}`, connection)
-  if (response.status === 404) return []
-  if (!response.ok) throw new Error(`Falha ao listar anexos do vault (${response.status}).`)
-  const payload = await response.json() as { files?: unknown }
-  const entries = Array.isArray(payload.files) ? payload.files.filter((item): item is string => typeof item === "string") : []
-  const result: string[] = []
-  for (const entry of entries) {
-    const clean = entry.replace(/\/$/, "")
-    const fullPath = joinVaultPath(path, clean)
-    if (entry.endsWith("/")) result.push(...await listObsidianAssetDirectory(fullPath, connection))
-    else result.push(fullPath)
-  }
-  return result
-}
-
-export function createObsidianAdapter(connection: ObsidianConnection): VaultAdapter {
-  return {
-    listMarkdownFiles: (rootFolder) => listObsidianDirectory(rootPath(rootFolder), connection),
-    listBaseFiles: async (rootFolder) => (await listObsidianAssetDirectory(pathInsideRoot("Bases", rootFolder), connection).catch(() => [])).filter((path) => path.toLocaleLowerCase("pt-BR").endsWith(".base")),
-    async readNote(path) {
-      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { headers: headers(connection, "application/vnd.olrapi.note+json") })
-      if (!response.ok) throw new Error(`Falha ao ler ${path} (${response.status}).`)
-      const payload = await response.json() as { content?: unknown; frontmatter?: unknown; stat?: { ctime?: unknown; mtime?: unknown } }
-      return { path, markdown: text(payload.content), frontmatter: payload.frontmatter && typeof payload.frontmatter === "object" ? payload.frontmatter as Record<string, unknown> : undefined, createdAt: Number(payload.stat?.ctime) || Date.now(), modifiedAt: Number(payload.stat?.mtime) || Date.now() }
-    },
-    async readBinary(path) {
-      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { headers: headers(connection, "*/*") })
-      return response.ok ? response.blob() : null
-    },
-    listAssetFiles: (rootFolder) => listObsidianAssetDirectory(pathInsideRoot("Assets", rootFolder), connection),
-    async writeText(path, content) {
-      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { method: "PUT", headers: { ...headers(connection), "Content-Type": "text/markdown; charset=utf-8" }, body: content })
-      if (!response.ok) throw new Error(`Falha ao escrever ${path} (${response.status}).`)
-    },
-    async writeBinary(path, content) {
-      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { method: "PUT", headers: { ...headers(connection), "Content-Type": content.type || "application/octet-stream" }, body: content })
-      if (!response.ok) throw new Error(`Falha ao escrever ${path} (${response.status}).`)
-    },
-    async deleteFile(path) {
-      const response = await requestObsidian(`/vault/${encodedVaultPath(path)}`, connection, { method: "DELETE" })
-      if (!response.ok && response.status !== 404) throw new Error(`Falha ao remover ${path} (${response.status}).`)
-    },
-  }
-}
-
 async function cacheEmbeddedVaultImages(state: KnowledgeWorkspaceState, adapter: VaultAdapter, rootFolder: string): Promise<KnowledgeWorkspaceState> {
   if (!adapter.readBinary || typeof DOMParser === "undefined") return state
   const assetPaths = adapter.listAssetFiles ? await adapter.listAssetFiles(rootFolder).catch(() => []) : []
@@ -877,30 +763,4 @@ export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspa
   }
   state.updatedAt = Date.now()
   return { state, imported: merged.imported, exported, backups }
-}
-
-export async function testObsidianConnection(connection: ObsidianConnection): Promise<void> {
-  const response = await requestObsidian("/", connection)
-  if (!response.ok) throw new Error(`Obsidian respondeu com ${response.status}.`)
-  const payload = await response.json().catch(() => null) as { authenticated?: unknown } | null
-  if (payload?.authenticated === false) throw new Error("A chave da API local não foi aceita pelo Obsidian.")
-}
-
-export async function importWorkspaceFromObsidian(state: KnowledgeWorkspaceState, connection: ObsidianConnection): Promise<VaultSyncResult> {
-  await testObsidianConnection(connection)
-  const adapter = createObsidianAdapter(connection)
-  const paths = await adapter.listMarkdownFiles(connection.rootFolder)
-  const notes = await Promise.all(paths.map((path) => adapter.readNote(path)))
-  const merged = mergeObsidianNotes(state, notes)
-  return { state: await cacheEmbeddedVaultImages(merged.state, adapter, connection.rootFolder), imported: merged.imported, exported: 0, backups: 0 }
-}
-
-export async function syncWorkspaceToObsidian(state: KnowledgeWorkspaceState, connection: ObsidianConnection, onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
-  await testObsidianConnection(connection)
-  return synchronizeWorkspaceWithVault(state, createObsidianAdapter(connection), connection.rootFolder, onProgress, priority)
-}
-
-export async function syncPageToObsidian(page: KnowledgePage, state: KnowledgeWorkspaceState, connection: ObsidianConnection): Promise<KnowledgeWorkspaceState> {
-  const next = { ...state, pages: state.pages.some((candidate) => candidate.id === page.id) ? state.pages.map((candidate) => candidate.id === page.id ? page : candidate) : [page, ...state.pages] }
-  return (await syncWorkspaceToObsidian(next, connection, undefined, "site")).state
 }

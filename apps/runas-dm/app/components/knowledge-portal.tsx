@@ -8,8 +8,7 @@ import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/
 import { loadLocalState, saveLocalState } from "../lib/storage"
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
-import { readObsidianApiKey, readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
-import { syncWorkspaceToObsidian, type VaultSyncResult } from "../lib/obsidian-sync"
+import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
@@ -186,15 +185,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     let running = false
     const syncVault = async () => {
       if (running || stopped || document.visibilityState === "hidden") return
-      const apiKey = readObsidianApiKey()
-      if (obsidianPreferences.mode === "api" && !apiKey) return
-      if (obsidianPreferences.mode === "folder" && !await localVaultName()) return
+      if (!await localVaultName()) return
       running = true
       setSyncState("syncing")
       try {
-        const result = obsidianPreferences.mode === "folder"
-          ? await syncWorkspaceToLocalVault(stateRef.current, false)
-          : await syncWorkspaceToObsidian(stateRef.current, { baseUrl: obsidianPreferences.baseUrl, rootFolder: obsidianPreferences.rootFolder, apiKey })
+        const result = await syncWorkspaceToLocalVault(stateRef.current, false)
         if (stopped) return
         stateRef.current = result.state
         setState(result.state)
@@ -221,7 +216,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       window.removeEventListener("focus", refreshOnFocus)
       document.removeEventListener("visibilitychange", refreshOnFocus)
     }
-  }, [hydrated, obsidianPreferences.automatic, obsidianPreferences.baseUrl, obsidianPreferences.enabled, obsidianPreferences.mode, obsidianPreferences.rootFolder])
+  }, [hydrated, obsidianPreferences.automatic, obsidianPreferences.enabled])
 
   async function authenticate(localPreview = false) {
     setAuthError("")
@@ -283,15 +278,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const next = mutate((current) => ({ ...current, pages: current.pages.some((candidate) => candidate.id === readyPage.id) ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate) : [readyPage, ...current.pages] }))
     setEditing(null)
     if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
-      const apiKey = readObsidianApiKey()
       // `true` permite renovar a permissão da pasta aqui: este código roda a
       // partir do clique em "Salvar", então ainda está dentro da janela de
       // ativação do usuário que a File System Access API exige para pedir
       // permissão sem interação explícita adicional.
-      const task: Promise<VaultSyncResult> | null = obsidianPreferences.mode === "folder"
-        ? syncWorkspaceToLocalVault(next, true, undefined, "site")
-        : apiKey ? syncWorkspaceToObsidian(next, { baseUrl: obsidianPreferences.baseUrl, rootFolder: obsidianPreferences.rootFolder, apiKey }, undefined, "site") : null
-      if (task) void task.then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) }).catch((error) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
+      void syncWorkspaceToLocalVault(next, true, undefined, "site")
+        .then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) })
+        .catch((error: unknown) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
     }
   }
 

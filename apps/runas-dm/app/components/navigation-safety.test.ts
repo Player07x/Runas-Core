@@ -24,9 +24,4 @@ describe("Runas DM production navigation contract", () => {
     expect(source).toContain("isRouterPayload(request, url)")
     expect(source).toContain('url.searchParams.has("_rsc")')
   })
-
-  it("keeps the local vault as the safe default for new Obsidian setups", async () => {
-    const source = await readFile(new URL("./obsidian-dialog.tsx", import.meta.url), "utf8")
-    expect(source).toContain('mode: value?.mode === "api" ? "api" : "folder"')
-  })
 })
