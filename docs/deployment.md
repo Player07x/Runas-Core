@@ -3,7 +3,7 @@
 ## Topologia
 
 ```text
-GitHub: Player07x/runas-tools (monorepo)
+GitHub: Player07x/Runas-Core (monorepo)
 ├── apps/runas-tools → Cloudflare Pages (`runas-tools.pages.dev`)
 ├── apps/runas-dm    → Cloudflare Pages privado + D1
 └── packages/runas-core → incorporado nos dois builds
