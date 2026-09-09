@@ -204,6 +204,19 @@ describe("Obsidian export", () => {
     expect(session_?.date).toBe("2026-07-19")
   })
 
+  it("não transforma a subpasta com o nome da campanha em categoria da página", () => {
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart: Guerra Sangrenta", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      updatedAt: 1,
+    })
+    const markdown = '---\ncampanha: "Lion Heart: Guerra Sangrenta"\nrunas_campaign_id: "campaign-1"\n---\n# Emboscada\n\nUm evento.\n'
+    const merged = mergeObsidianNotes(local, [{ path: "Campanhas/Lion Heart Guerra Sangrenta/Eventos e Missões/Emboscada.md", markdown, createdAt: 1, modifiedAt: 1 }])
+    const page = merged.state.pages.find((candidate) => candidate.title === "Emboscada")
+    const categoryNames = merged.state.categories.filter((category) => page?.categoryIds.includes(category.id)).map((category) => category.name)
+    expect(categoryNames).not.toContain("Lion Heart Guerra Sangrenta")
+    expect(categoryNames).toContain("Eventos e Missões")
+  })
+
   it("preserva propriedades nativas desconhecidas do Obsidian ao regravar uma página editada pelo site", () => {
     const markdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\nArco: Volta para Lion Heart\nEtapa: 1\nPrioridade:\n  - Alta\nStatus: false\n---\n# Novo Capitão\n\nTexto original.\n'
     const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Campanhas/Eventos e Missões/Novo Capitão.md", markdown, createdAt: 1, modifiedAt: 1 }])
@@ -224,7 +237,7 @@ describe("Obsidian export", () => {
       pages: [{ id: "mission-1", scope: "campaign", campaignId: "campaign-1", kind: "mission", title: "Nova missão", contentHtml: "", createdAt: 1, updatedAt: 1 }],
       updatedAt: 1,
     })
-    expect(organizedObsidianPathForPage(state_.pages[0], state_, "")).toBe("Campanhas/Eventos e Missões/Nova missao.md")
+    expect(organizedObsidianPathForPage(state_.pages[0], state_, "")).toBe("Campanhas/Lion Heart/Eventos e Missões/Nova missao.md")
     const files = new Map<string, string>()
     const adapter: VaultAdapter = {
       listMarkdownFiles: async () => [...files.keys()],
@@ -234,7 +247,7 @@ describe("Obsidian export", () => {
       writeBinary: async () => undefined,
     }
     await synchronizeWorkspaceWithVault(state_, adapter)
-    expect([...files.keys()]).toContain("Campanhas/Eventos e Missões/Nova missao.md")
+    expect([...files.keys()]).toContain("Campanhas/Lion Heart/Eventos e Missões/Nova missao.md")
   })
 
   it("reorganiza retroativamente uma página de campanha gravada pelo Runas DM antes de o vault ter .base", async () => {
@@ -260,8 +273,8 @@ describe("Obsidian export", () => {
     }
     const result = await synchronizeWorkspaceWithVault(local, adapter)
     expect(deleted).toBe("Novo Capitao.md")
-    expect([...files.keys()]).toEqual(["Campanhas/Eventos e Missões/Novo Capitao.md"])
-    expect(result.state.pages[0].obsidianPath).toBe("Campanhas/Eventos e Missões/Novo Capitao.md")
+    expect([...files.keys()]).toEqual(["Campanhas/Lion Heart Guerra Sangrenta/Eventos e Missões/Novo Capitao.md"])
+    expect(result.state.pages[0].obsidianPath).toBe("Campanhas/Lion Heart Guerra Sangrenta/Eventos e Missões/Novo Capitao.md")
   })
 
   it("não reorganiza uma nota nativa do usuário sem runas_id mesmo com .base presente", async () => {

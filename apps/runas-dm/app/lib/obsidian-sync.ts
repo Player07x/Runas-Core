@@ -142,11 +142,19 @@ function wikiLocation(path: string): { kind: KnowledgePageKind; category: string
   return section ? { kind: section.id, category: parts.length > index + 2 ? parts[index + 1] : "" } : null
 }
 
-function campaignLocation(path: string): { category: string } | null {
+/**
+ * `Campanhas/<Nome da campanha>/<Tipo>/arquivo.md` é a estrutura que o próprio
+ * Runas DM grava. Ao importar de volta, o segmento do nome da campanha nunca
+ * deve virar "categoria" da página — ele só identifica a campanha, que já é
+ * resolvida pelo frontmatter (`campanha`/`runas_campaign_id`).
+ */
+function campaignLocation(path: string, campaigns: CampaignRecord[] = []): { category: string } | null {
   const parts = normalizePath(path).split("/")
   const index = parts.findIndex((part) => normalizedLabel(part) === normalizedLabel(CAMPAIGN_VAULT_FOLDER))
   if (index < 0) return null
-  const category = parts[index + 1] ?? ""
+  const campaignSegment = parts[index + 1] ?? ""
+  const isCampaignFolder = campaigns.some((campaign) => normalizedLabel(folderPart(campaign.title, "")) === normalizedLabel(campaignSegment))
+  const category = parts[index + (isCampaignFolder ? 2 : 1)] ?? ""
   return { category: category && !category.toLocaleLowerCase("pt-BR").endsWith(".md") ? category : "" }
 }
 
@@ -328,13 +336,17 @@ export function organizedObsidianPathForPage(page: KnowledgePage, state: Knowled
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
   const filename = `${filePart(page.title, "Página sem nome")}.md`
   if (page.scope === "wiki") return obsidianPathForPage(page, state, rootFolder)
+  // Cada campanha ganha sua própria subpasta: sem isso, missões, anotações e
+  // encontros de campanhas diferentes cairiam todos nas mesmas pastas
+  // genéricas de "Campanhas", misturando o conteúdo de aventuras distintas.
+  const campaignFolder = folderPart(campaignFor(page, state.campaigns)?.title ?? "", "Sem campanha")
   const category = state.categories.find((item) => item.scope === "campaign" && item.campaignId === page.campaignId && page.categoryIds.includes(item.id))
   const defaultFolder = page.kind === "mission" || page.kind === "event"
     ? "Eventos e Missões"
     : page.kind === "session-note" ? "Anotações/Sessões"
       : page.kind === "encounter" ? "Encontros" : "Anotações"
   const folder = category ? folderPart(category.name, defaultFolder) : defaultFolder
-  return pathInsideRoot(joinVaultPath(CAMPAIGN_VAULT_FOLDER, folder, filename), rootFolder)
+  return pathInsideRoot(joinVaultPath(CAMPAIGN_VAULT_FOLDER, campaignFolder, folder, filename), rootFolder)
 }
 
 export function exportKnowledgeZip(state: KnowledgeWorkspaceState): void {
@@ -464,7 +476,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
   // à Wiki (ex.: Personagens/Runilitas/Martim.md aponta para a campanha
   // "Lion Heart", mas continua sendo uma página da Wiki).
   const wikiLocationMatch = wikiLocation(note.path)
-  const locationCampaign = wikiLocationMatch ? null : campaignLocation(note.path)
+  const locationCampaign = wikiLocationMatch ? null : campaignLocation(note.path, state.campaigns)
   const titleCandidate = titleFromMarkdown(parsed.body, note.path)
   const campaignTitle = wikiLocationMatch ? "" : referencedCampaignTitle(frontmatter) || (locationCampaign && /\(campanha\)$/i.test(titleCandidate) ? titleCandidate.replace(/\s*\(campanha\)$/i, "").trim() : "")
   const scope: "wiki" | "campaign" = wikiLocationMatch ? "wiki" : (text(frontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(locationCampaign) ? "campaign" : "wiki")
@@ -524,7 +536,7 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
       const title = text(noteFrontmatter.runas_title) || text(noteFrontmatter.title) || titleFromMarkdown(parsed.body, note.path)
       const isWikiLocation = Boolean(wikiLocation(note.path))
       const campaignTitle = isWikiLocation ? "" : referencedCampaignTitle(noteFrontmatter)
-      const scope = isWikiLocation ? "wiki" : (text(noteFrontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(campaignLocation(note.path)) ? "campaign" : "wiki")
+      const scope = isWikiLocation ? "wiki" : (text(noteFrontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(campaignLocation(note.path, state.campaigns)) ? "campaign" : "wiki")
       const matches = state.pages.map((page, index) => ({ page, index })).filter(({ page }) => page.scope === scope && normalizedLabel(page.title) === normalizedLabel(title))
       if (matches.length === 1) existingIndex = matches[0].index
     }
