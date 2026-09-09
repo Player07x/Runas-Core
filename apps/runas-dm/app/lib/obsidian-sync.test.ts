@@ -60,6 +60,17 @@ describe("Obsidian export", () => {
     expect(markdown).toContain("3× Lobo Rúnico")
   })
 
+  it("nunca grava o Estilo da campanha no Markdown: é uma personalização exclusiva do site", () => {
+    const styled = {
+      ...state,
+      campaigns: [{ ...state.campaigns[0], accentColor: "#9987a3", backgroundColor: "#100d0e", boxColor: "#1b1517", buttonColor: "#35242b", textColor: "#f5eeee", imageBlur: 12, backgroundImageDataUrl: "data:image/png;base64,zzzz" }],
+    }
+    const markdown = pageToMarkdown(styled.pages[0] as KnowledgePage, styled)
+    for (const forbidden of ["#9987a3", "#100d0e", "#1b1517", "#35242b", "#f5eeee", "accentColor", "backgroundColor", "boxColor", "buttonColor", "textColor", "imageBlur", "backgroundImageDataUrl", "data:image/png;base64,zzzz"]) {
+      expect(markdown).not.toContain(forbidden)
+    }
+  })
+
   it("exporta encontro como composição de fichas e notas, sem conteúdo de wiki", () => {
     const encounter = {
       ...state.pages[0],
