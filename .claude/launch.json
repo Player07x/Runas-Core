@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "runas-dm",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@runas/dm"],
+      "port": 3000
+    }
+  ]
+}

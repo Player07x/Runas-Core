@@ -191,9 +191,14 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       try {
         const result = await syncWorkspaceToLocalVault(stateRef.current, false)
         if (stopped) return
-        stateRef.current = result.state
-        setState(result.state)
-        await saveKnowledgeWorkspace(result.state)
+        // A sincronização lê o vault em segundos; edições feitas nesse meio
+        // tempo (como trocar a imagem da campanha em Estilo) já avançaram
+        // `stateRef.current` e não podem ser descartadas por um resultado
+        // calculado a partir de um instantâneo mais antigo.
+        const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
+        stateRef.current = merged
+        setState(merged)
+        await saveKnowledgeWorkspace(merged)
         setSyncState("synced")
         if (result.imported) setNotice(`${result.imported} página${result.imported === 1 ? " importada" : "s importadas"} do vault.`)
       } catch (error) {
@@ -283,7 +288,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       // ativação do usuário que a File System Access API exige para pedir
       // permissão sem interação explícita adicional.
       void syncWorkspaceToLocalVault(next, true, undefined, "site")
-        .then(async (result) => { setState(result.state); await saveKnowledgeWorkspace(result.state); setNotice(`“${readyPage.title}” sincronizada com o vault.`) })
+        .then(async (result) => {
+          const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
+          stateRef.current = merged
+          setState(merged)
+          await saveKnowledgeWorkspace(merged)
+          setNotice(`“${readyPage.title}” sincronizada com o vault.`)
+        })
         .catch((error: unknown) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
     }
   }

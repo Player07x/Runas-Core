@@ -44,4 +44,25 @@ describe("knowledge model", () => {
     })
     expect(mergeKnowledgeWorkspaces(local, remote).campaigns.map((campaign) => campaign.id).sort()).toEqual(["local", "remote"])
   })
+
+  it("preserva uma edição de aparência mais recente sobre um instantâneo de sincronização mais antigo", () => {
+    // A sincronização com o Obsidian lê o vault inteiro antes de terminar; se o
+    // mestre trocar a imagem da campanha em Estilo durante essa janela, o
+    // resultado da sincronização (baseado num instantâneo anterior à troca) não
+    // pode sobrescrever a edição mais nova.
+    const beforeSync = normalizeKnowledgeWorkspace({
+      updatedAt: 10,
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", createdAt: 1, updatedAt: 10, backgroundImageDataUrl: "" }],
+    })
+    const editedDuringSync = normalizeKnowledgeWorkspace({
+      updatedAt: 20,
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", createdAt: 1, updatedAt: 20, backgroundImageDataUrl: "data:image/webp;base64,AAA" }],
+    })
+    const syncResult = normalizeKnowledgeWorkspace({
+      updatedAt: 15,
+      campaigns: [{ ...beforeSync.campaigns[0] }],
+    })
+    const merged = mergeKnowledgeWorkspaces(editedDuringSync, syncResult)
+    expect(merged.campaigns.find((campaign) => campaign.id === "campaign-1")?.backgroundImageDataUrl).toBe("data:image/webp;base64,AAA")
+  })
 })
