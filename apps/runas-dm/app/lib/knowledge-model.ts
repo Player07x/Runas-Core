@@ -22,7 +22,7 @@ export const WIKI_SECTIONS = [
 export const CAMPAIGN_PAGE_KINDS = [
   { id: "mission", label: "Missão" },
   { id: "event", label: "Evento" },
-  { id: "session-note", label: "Anotação de sessão" },
+  { id: "session-note", label: "Sessões" },
   { id: "gm-note", label: "Nota de mestre" },
   { id: "encounter", label: "Encontro" },
 ] as const

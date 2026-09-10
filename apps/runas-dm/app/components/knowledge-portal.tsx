@@ -345,7 +345,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   if (auth === "checking") return <SessionCheckingScreen area={area} />
   if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} area={area} />
 
-  const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS.filter((kind) => kind.id !== "session-note"), { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
+  const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS, { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
   return <main className={`knowledge-shell knowledge-app ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
     <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} />
     <div className={`knowledge-layout ${area === "wiki" ? "wiki-layout" : ""}`}>
