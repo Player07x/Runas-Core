@@ -394,6 +394,16 @@ function titleFromMarkdown(body: string, path: string): string {
   return body.match(/^#\s+(.+)$/m)?.[1].trim() ?? decodeURIComponent(path.split("/").pop()?.replace(/\.md$/i, "") ?? "Página sem nome")
 }
 
+/**
+ * O plugin Bases do Obsidian mostra um catálogo dentro de uma nota comum que
+ * só serve de vitrine, com `![[arquivo.base]]` como único conteúdo. Essa nota
+ * não é uma página do site, assim como o próprio arquivo `.base` não é.
+ */
+function isBaseEmbedOnlyNote(body: string): boolean {
+  const withoutTitle = body.replace(/^#\s+.+\n+/, "").trim()
+  return /^!\[\[[^\]]+\.base\]\]$/i.test(withoutTitle)
+}
+
 function contentMarkdown(body: string, title: string, summary: string): string {
   let result = body.replace(new RegExp(`^#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n+`, "i"), "")
   result = result.replace(/\n*##\s+Páginas relacionadas\s*\n[\s\S]*?(?=\n##\s+Fichas do encontro|$)/i, "")
@@ -520,6 +530,14 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
     const parsed = parseMarkdownFrontmatter(note.markdown)
     const noteFrontmatter = { ...parsed.frontmatter, ...(note.frontmatter ?? {}) }
     if (noteFrontmatter.runas_system === true) continue
+    // Uma nota-vitrine de catálogo (Bases) não é conteúdo: remove qualquer
+    // página que uma sincronização antiga tenha criado a partir dela e nunca
+    // importa outra no lugar.
+    if (isBaseEmbedOnlyNote(parsed.body)) {
+      const existingCatalogIndex = state.pages.findIndex((page) => normalizedLabel(page.obsidianPath) === normalizedLabel(note.path))
+      if (existingCatalogIndex >= 0) state.pages.splice(existingCatalogIndex, 1)
+      continue
+    }
     // Índices e documentos de configuração do vault não são páginas do site.
     // Arquivos `.base` nem chegam a esta lista, pois somente Markdown é lido.
     if (normalizePath(note.path).split("/").some((part) => part.startsWith("_")) && !noteFrontmatter.runas_id) continue

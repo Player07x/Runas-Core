@@ -121,6 +121,15 @@ describe("Obsidian export", () => {
     expect(category?.name).toBe("Runilitas")
   })
 
+  it("nunca importa a nota-vitrine de um catálogo Bases, e remove uma versão antiga já importada", () => {
+    const markdown = "# Catálogo de Personagens\n\n![[base_characters.base]]\n"
+    const local = normalizeKnowledgeWorkspace({
+      pages: [{ ...state.pages[1], id: "old-catalog", title: "Catálogo de Personagens", kind: "characters", obsidianPath: "Personagens/Catálogo de Personagens.md" }],
+    })
+    const merged = mergeObsidianNotes(local, [{ path: "Personagens/Catálogo de Personagens.md", markdown, createdAt: 1, modifiedAt: 10 }])
+    expect(merged.state.pages.find((page) => page.obsidianPath === "Personagens/Catálogo de Personagens.md")).toBeUndefined()
+  })
+
   it("consolida o caminho legado de Cronologia sem duplicar a página", () => {
     const markdown = "# Primeiro Eclipse\n\nUm acontecimento global.\n"
     const local = normalizeKnowledgeWorkspace({
