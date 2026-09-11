@@ -1,6 +1,6 @@
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
 import { createTextZip, downloadBlob, safeFilename } from "./export"
-import { cacheVaultAsset } from "./vault-assets"
+import { cacheVaultAsset, readCachedVaultAsset } from "./vault-assets"
 import { fictionalYear } from "./chronology"
 import { normalizeMissionOrder } from "./knowledge-model"
 
@@ -652,6 +652,12 @@ async function cacheEmbeddedVaultImages(state: KnowledgeWorkspaceState, adapter:
       const raw = (element instanceof HTMLImageElement ? element.dataset.obsidianPath : element.dataset.obsidianEmbed)?.trim() ?? ""
       const target = raw.split("|")[0].split("#")[0].trim()
       if (!/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(target)) continue
+      // Uma imagem já convertida e com o binário em cache local não precisa
+      // ser relida do disco a cada sincronização: isso multiplicava a
+      // leitura de arquivos em vaults com muitos retratos, deixando a
+      // sincronização automática lenta demais para terminar antes de o
+      // usuário navegar para outra rota e interrompê-la sem gravar nada.
+      if (element instanceof HTMLImageElement && await readCachedVaultAsset(raw)) continue
       const basenameMatches = assetsByName.get(normalizedLabel(target.split("/").pop() ?? "")) ?? []
       const candidates = target.includes("/") ? [pathInsideRoot(target, rootFolder)] : [pathInsideRoot(`Assets/${target}`, rootFolder), ...basenameMatches, pathInsideRoot(target, rootFolder)]
       let content: Blob | null = null
