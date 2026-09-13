@@ -9,7 +9,7 @@ import { loadLocalState, saveLocalState } from "../lib/storage"
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
-import { deletePageFromLocalVault, localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
+import { deleteCampaignHubNotesFromLocalVault, deletePageFromLocalVault, localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
@@ -60,7 +60,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   // A sessão recente só é consultada no efeito. Enquanto isso, uma tela neutra
   // evita expor o formulário de login durante uma navegação autenticada.
   const [auth, setAuth] = useState<AuthState>("checking")
-  const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 2, campaigns: [], categories: [], pages: [], updatedAt: 0 }))
+  const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 2, campaigns: [], categories: [], pages: [], deletedIds: [], updatedAt: 0 }))
   const [syncState, setSyncState] = useState<SyncState>("loading")
   const [authError, setAuthError] = useState("")
   const [token, setToken] = useState("")
@@ -246,6 +246,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }
 
   function mutate(updater: (current: KnowledgeWorkspaceState) => KnowledgeWorkspaceState): KnowledgeWorkspaceState {
+    // eslint-disable-next-line react-hooks/purity -- mutate() only ever runs from event handlers, never during render; this rule misattributes an unrelated call in removeCampaign's async cleanup (deleteCampaignHubNotesFromLocalVault) to this line instead of its own.
     const result = { ...updater(state), updatedAt: Date.now() }
     setState(result)
     return result
@@ -265,12 +266,15 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   function removeCampaign() {
     if (!selectedCampaign || !window.confirm(`Excluir a campanha “${selectedCampaign.title}” e todas as páginas dela?`)) return
     const removedPages = state.pages.filter((page) => page.campaignId === selectedCampaign.id)
-    mutate((current) => ({ ...current, campaigns: current.campaigns.filter((campaign) => campaign.id !== selectedCampaign.id), categories: current.categories.filter((category) => category.campaignId !== selectedCampaign.id), pages: current.pages.filter((page) => page.campaignId !== selectedCampaign.id) }))
+    mutate((current) => ({ ...current, campaigns: current.campaigns.filter((campaign) => campaign.id !== selectedCampaign.id), categories: current.categories.filter((category) => category.campaignId !== selectedCampaign.id), pages: current.pages.filter((page) => page.campaignId !== selectedCampaign.id), deletedIds: [...new Set([...current.deletedIds, selectedCampaign.id, ...removedPages.map((page) => page.id)])] }))
     setSelectedCampaignId(state.campaigns.find((campaign) => campaign.id !== selectedCampaign.id)?.id ?? null)
     // Mesmo motivo do removePage: sem apagar as notas no vault, a próxima
-    // sincronização as encontra intactas e ressuscita a campanha inteira.
+    // sincronização as encontra intactas e ressuscita a campanha inteira. A
+    // nota-hub "<Nome> (Campanha)" entra à parte porque pode nunca ter sido
+    // rastreada como página vinculada — seu título sozinho já bastaria para
+    // recriar a campanha na sincronização seguinte.
     const syncedPages = removedPages.filter((page) => page.obsidianPath)
-    if (syncedPages.length && obsidianPreferences.enabled) {
+    if (obsidianPreferences.enabled) {
       // Sequencial de propósito: pedir permissão de escrita concorrentemente
       // em várias chamadas arrisca disparar mais de um prompt do navegador
       // ao mesmo tempo.
@@ -279,9 +283,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
         for (const page of syncedPages) {
           try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
         }
-        setNotice(failed
-          ? `Campanha excluída do site. ${syncedPages.length - failed} de ${syncedPages.length} notas excluídas do vault.`
-          : `Campanha e ${syncedPages.length} nota${syncedPages.length === 1 ? "" : "s"} excluídas também do vault.`)
+        let hubNotes = 0
+        try { hubNotes = await deleteCampaignHubNotesFromLocalVault(selectedCampaign.title, true) } catch { failed += 1 }
+        const totalNotes = syncedPages.length + hubNotes
+        const message = failed
+          ? `Campanha excluída do site. ${Math.max(0, totalNotes - failed)} de ${totalNotes} notas excluídas do vault.`
+          : `Campanha e ${totalNotes} nota${totalNotes === 1 ? "" : "s"} excluídas também do vault.`
+        if (totalNotes || failed) setNotice(message)
       })()
     }
   }
@@ -319,7 +327,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   function removePage(id: string) {
     const removed = state.pages.find((page) => page.id === id)
-    mutate((current) => ({ ...current, pages: current.pages.filter((page) => page.id !== id).map((page) => ({ ...page, linkedPageIds: page.linkedPageIds.filter((linkedId) => linkedId !== id) })) }))
+    mutate((current) => ({ ...current, pages: current.pages.filter((page) => page.id !== id).map((page) => ({ ...page, linkedPageIds: page.linkedPageIds.filter((linkedId) => linkedId !== id) })), deletedIds: [...new Set([...current.deletedIds, id])] }))
     setEditing(null)
     // Sem apagar a nota no vault, a próxima sincronização a encontra intacta
     // e a reimporta como se fosse nova, revivendo a página excluída.
@@ -394,7 +402,15 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     </div>
     {notice && <button className="knowledge-toast" onClick={() => setNotice("")}><Check size={15} /> {notice}<X size={14} /></button>}
     {editing && <KnowledgeEditor eras={eras} page={editing} pages={scopedPages} categories={scopedCategories} bestiary={bestiary} backlinks={scopedPages.filter((page) => effectivePageLinks(page, scopedPages).includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
-    {obsidianOpen && <ObsidianDialog state={state} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} onStateChange={(next) => { setState(next); void saveKnowledgeWorkspace(next) }} />}
+    {obsidianOpen && <ObsidianDialog state={state} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} onStateChange={(next) => {
+      // Mesmo problema do sincronismo automático: sem mesclar pelo estado
+      // mais recente, o botão "Importar e sincronizar" também sobrescrevia
+      // cegamente qualquer edição feita durante a leitura do vault.
+      const merged = mergeKnowledgeWorkspaces(stateRef.current, next)
+      stateRef.current = merged
+      setState(merged)
+      void saveKnowledgeWorkspace(merged)
+    }} />}
   </main>
 }
 

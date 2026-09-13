@@ -756,6 +756,28 @@ export async function deleteVaultNote(page: KnowledgePage, adapter: VaultAdapter
   await adapter.deleteFile(page.obsidianPath)
 }
 
+/**
+ * A nota-hub "<Nome> (Campanha)" pode nunca ter sido rastreada como uma
+ * página vinculada (ex.: se a campanha já estava excluída localmente na
+ * primeira vez que ela foi lida). Sem apagá-la também, seu título sozinho
+ * basta para `ensureCampaign` recriar a campanha na sincronização seguinte.
+ */
+export async function deleteCampaignHubNotes(campaignTitle: string, adapter: VaultAdapter, rootFolder: string): Promise<number> {
+  if (!adapter.deleteFile) return 0
+  const paths = await adapter.listMarkdownFiles(rootFolder)
+  let deleted = 0
+  for (const path of paths) {
+    const filename = path.split("/").pop()?.replace(/\.md$/i, "") ?? ""
+    const match = filename.match(/^(.+?)\s*\(Campanha\)$/i)
+    if (!match || !campaignTitleMatches(campaignTitle, match[1].trim())) continue
+    const note = await adapter.readNote(path).catch(() => null)
+    if (note) await adapter.writeText(backupPath(path, rootFolder), note.markdown).catch(() => undefined)
+    await adapter.deleteFile(path)
+    deleted += 1
+  }
+  return deleted
+}
+
 function collisionPath(path: string, page: KnowledgePage): string {
   return path.replace(/\.md$/i, ` (${page.id.slice(-8)}).md`)
 }

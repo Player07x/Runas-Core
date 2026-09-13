@@ -65,4 +65,29 @@ describe("knowledge model", () => {
     const merged = mergeKnowledgeWorkspaces(editedDuringSync, syncResult)
     expect(merged.campaigns.find((campaign) => campaign.id === "campaign-1")?.backgroundImageDataUrl).toBe("data:image/webp;base64,AAA")
   })
+
+  it("respeita a lápide de exclusão: um registro apagado localmente não volta por um snapshot remoto mais antigo", () => {
+    const local = normalizeKnowledgeWorkspace({
+      updatedAt: 20,
+      campaigns: [],
+      deletedIds: ["campaign-1"],
+    })
+    const remote = normalizeKnowledgeWorkspace({
+      updatedAt: 10,
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", createdAt: 1, updatedAt: 10 }],
+    })
+    const merged = mergeKnowledgeWorkspaces(local, remote)
+    expect(merged.campaigns).toHaveLength(0)
+    expect(merged.deletedIds).toContain("campaign-1")
+  })
+
+  it("descarta um registro já apagado ao normalizar, mesmo vindo de um estado bruto", () => {
+    const state = normalizeKnowledgeWorkspace({
+      deletedIds: ["campaign-1", "page-1"],
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", createdAt: 1, updatedAt: 1 }],
+      pages: [{ id: "page-1", kind: "mission" }, { id: "page-2", kind: "mission" }],
+    })
+    expect(state.campaigns).toHaveLength(0)
+    expect(state.pages.map((page) => page.id)).toEqual(["page-2"])
+  })
 })

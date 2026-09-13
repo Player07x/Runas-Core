@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeKnowledgeWorkspace, type KnowledgePage } from "./knowledge-model"
-import { dataUrlToBlob, deleteVaultNote, isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
+import { dataUrlToBlob, deleteCampaignHubNotes, deleteVaultNote, isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
 
 describe("Obsidian export", () => {
   const state = normalizeKnowledgeWorkspace({
@@ -199,6 +199,32 @@ describe("Obsidian export", () => {
     }
     await deleteVaultNote(state.pages[1], adapter, "")
     expect(deleteCalls).toBe(0)
+  })
+
+  it("apaga a nota-hub da campanha mesmo sem estar vinculada a nenhuma página rastreada", async () => {
+    // "Lion Heart (Campanha).md" nunca precisa ter virado uma KnowledgePage
+    // para, sozinha, fazer ensureCampaign recriar "Lion Heart: Guerra
+    // Sangrenta" na sincronização seguinte -- seu título já basta.
+    const hub = "---\ntags:\n  - campanha\n---\n![[Logo.png]]\nHub da campanha.\n"
+    const outraCampanha = "# [O&C] A Cidade Alta (Campanha)\n\nOutra campanha, não deve ser tocada.\n"
+    const files = new Map<string, string>([
+      ["Campanhas/Lion Heart (Campanha).md", hub],
+      ["Campanhas/[O&C] A Cidade Alta (Campanha).md", outraCampanha],
+    ])
+    const deleted: string[] = []
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+      deleteFile: async (path) => { deleted.push(path); files.delete(path) },
+    }
+    const removedCount = await deleteCampaignHubNotes("Lion Heart: Guerra Sangrenta", adapter, "")
+    expect(removedCount).toBe(1)
+    expect(deleted).toEqual(["Campanhas/Lion Heart (Campanha).md"])
+    expect(files.has("Campanhas/[O&C] A Cidade Alta (Campanha).md")).toBe(true)
+    const backupEntry = [...files.entries()].find(([path]) => path.startsWith("Assets/Runas DM Backups/"))
+    expect(backupEntry?.[1]).toBe(hub)
   })
 
   it("não reescreve propriedades desconhecidas de uma nota apenas importada", async () => {

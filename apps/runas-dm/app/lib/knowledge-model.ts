@@ -104,6 +104,14 @@ export interface KnowledgeWorkspaceState {
   campaigns: CampaignRecord[]
   categories: KnowledgeCategory[]
   pages: KnowledgePage[]
+  /**
+   * IDs de campanhas/páginas excluídas pelo site. Sem essa lápide, mesclar
+   * com o backup do D1 (ou reimportar uma nota do Obsidian que ainda carrega
+   * o `runas_id` antigo no frontmatter) simplesmente devolvia o registro
+   * excluído, já que uma ausência local não vence uma presença remota numa
+   * mesclagem por união.
+   */
+  deletedIds: string[]
   updatedAt: number
 }
 
@@ -112,7 +120,7 @@ export function createKnowledgeId(prefix: string): string {
 }
 
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
-  return { version: 2, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], pages: [], updatedAt: 0 }
+  return { version: 2, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], pages: [], deletedIds: [], updatedAt: 0 }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
@@ -138,10 +146,12 @@ function strings(value: unknown): string[] {
 export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceState {
   if (!value || typeof value !== "object") return createEmptyKnowledgeWorkspace()
   const candidate = value as Partial<KnowledgeWorkspaceState>
+  const deletedIds = [...new Set(Array.isArray(candidate.deletedIds) ? candidate.deletedIds.filter((id): id is string => typeof id === "string") : [])]
+  const deleted = new Set(deletedIds)
   const campaigns = Array.isArray(candidate.campaigns) ? candidate.campaigns.flatMap((item) => {
     if (!item || typeof item !== "object") return []
     const record = item as CampaignRecord
-    if (typeof record.id !== "string") return []
+    if (typeof record.id !== "string" || deleted.has(record.id)) return []
     const now = Date.now()
     return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
   }) : []
@@ -155,7 +165,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
   const pages = Array.isArray(candidate.pages) ? candidate.pages.flatMap((item) => {
     if (!item || typeof item !== "object") return []
     const page = item as KnowledgePage
-    if (typeof page.id !== "string" || typeof page.kind !== "string") return []
+    if (typeof page.id !== "string" || typeof page.kind !== "string" || deleted.has(page.id)) return []
     const now = Date.now()
     return [{
       id: page.id, scope: page.scope === "campaign" ? "campaign" as const : "wiki" as const,
@@ -173,7 +183,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       createdAt: Number.isFinite(page.createdAt) ? page.createdAt : now, updatedAt: Number.isFinite(page.updatedAt) ? page.updatedAt : now,
     }]
   }) : []
-  return { version: 2, eras: normalizeUniverseEras(candidate.eras), campaigns, categories, pages, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+  return { version: 2, eras: normalizeUniverseEras(candidate.eras), campaigns, categories, pages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
 }
 
 export function parseList(value: string): string[] {
@@ -190,9 +200,14 @@ export function wikiLinkTitles(value: string): string[] {
 }
 
 export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote: KnowledgeWorkspaceState): KnowledgeWorkspaceState {
+  // Uma exclusão só apaga localmente; sem essa lápide unida dos dois lados,
+  // um backup remoto mais antigo (ou um local que ainda não sincronizou a
+  // exclusão) simplesmente devolveria o registro numa mesclagem por união.
+  const deletedIds = new Set([...local.deletedIds, ...remote.deletedIds])
   const mergeById = <T extends { id: string; updatedAt?: number }>(localItems: T[], remoteItems: T[]): T[] => {
     const merged = new Map<string, T>()
     for (const item of [...localItems, ...remoteItems]) {
+      if (deletedIds.has(item.id)) continue
       const current = merged.get(item.id)
       if (!current || (item.updatedAt ?? remote.updatedAt) >= (current.updatedAt ?? local.updatedAt)) merged.set(item.id, item)
     }
@@ -204,6 +219,7 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
     campaigns: mergeById(local.campaigns, remote.campaigns),
     categories: mergeById(local.categories, remote.categories),
     pages: mergeById(local.pages, remote.pages),
+    deletedIds: [...deletedIds],
     updatedAt: Math.max(local.updatedAt, remote.updatedAt),
   }
 }
