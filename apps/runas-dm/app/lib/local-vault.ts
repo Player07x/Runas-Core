@@ -1,5 +1,5 @@
-import { IGNORED_VAULT_FOLDERS, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncPriority, type VaultSyncResult } from "./obsidian-sync"
-import type { KnowledgeWorkspaceState } from "./knowledge-model"
+import { deleteVaultNote, IGNORED_VAULT_FOLDERS, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncPriority, type VaultSyncResult } from "./obsidian-sync"
+import type { KnowledgePage, KnowledgeWorkspaceState } from "./knowledge-model"
 
 const DATABASE_NAME = "runas-dm-local-vault"
 const STORE_NAME = "handles"
@@ -173,4 +173,12 @@ export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, 
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   await prepareLocalVault(handle)
   return synchronizeWorkspaceWithVault(state, createLocalVaultAdapter(handle), "", onProgress, priority)
+}
+
+/** Sem isso, a nota apagada no site continua no vault e a próxima sincronização a traz de volta. */
+export async function deletePageFromLocalVault(page: KnowledgePage, requestPermission = false): Promise<void> {
+  const handle = await readLocalVaultHandle()
+  if (!handle) return
+  if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
+  await deleteVaultNote(page, createLocalVaultAdapter(handle), "")
 }

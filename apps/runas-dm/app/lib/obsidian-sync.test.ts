@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeKnowledgeWorkspace, type KnowledgePage } from "./knowledge-model"
-import { dataUrlToBlob, isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
+import { dataUrlToBlob, deleteVaultNote, isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, organizedObsidianPathForPage, pageObsidianFingerprint, pageToMarkdown, synchronizeWorkspaceWithVault, type VaultAdapter } from "./obsidian-sync"
 
 describe("Obsidian export", () => {
   const state = normalizeKnowledgeWorkspace({
@@ -167,6 +167,38 @@ describe("Obsidian export", () => {
     expect(files.get("Portoes do Norte.md")).toBe("# Documento pessoal\n\nNão substituir sem cópia.\n")
     expect([...files.keys()]).toContain("Portoes do Norte (page-1).md")
     expect(result.state.pages.some((page) => page.title === "Documento pessoal")).toBe(true)
+  })
+
+  it("apaga a nota do vault ao excluir a página, deixando uma cópia de segurança", async () => {
+    const markdown = "# Encontro na Ponte\n\nDetalhes do encontro.\n"
+    const files = new Map<string, string>([["Campanhas/Lion Heart/Encontros/Encontro na Ponte.md", markdown]])
+    const deleted: string[] = []
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+      deleteFile: async (path) => { deleted.push(path); files.delete(path) },
+    }
+    const page = { ...state.pages[0], obsidianPath: "Campanhas/Lion Heart/Encontros/Encontro na Ponte.md", obsidianSourceMarkdown: markdown }
+    await deleteVaultNote(page, adapter, "")
+    expect(deleted).toEqual(["Campanhas/Lion Heart/Encontros/Encontro na Ponte.md"])
+    expect(files.has("Campanhas/Lion Heart/Encontros/Encontro na Ponte.md")).toBe(false)
+    const backupEntry = [...files.entries()].find(([path]) => path.startsWith("Assets/Runas DM Backups/"))
+    expect(backupEntry?.[1]).toBe(markdown)
+  })
+
+  it("não faz nada ao excluir uma página que nunca existiu no vault", async () => {
+    let deleteCalls = 0
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [],
+      readNote: async (path) => ({ path, markdown: "", createdAt: 1, modifiedAt: 1 }),
+      writeText: async () => undefined,
+      writeBinary: async () => undefined,
+      deleteFile: async () => { deleteCalls += 1 },
+    }
+    await deleteVaultNote(state.pages[1], adapter, "")
+    expect(deleteCalls).toBe(0)
   })
 
   it("não reescreve propriedades desconhecidas de uma nota apenas importada", async () => {

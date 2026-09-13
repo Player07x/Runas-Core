@@ -9,7 +9,7 @@ import { loadLocalState, saveLocalState } from "../lib/storage"
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
-import { localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
+import { deletePageFromLocalVault, localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
@@ -264,8 +264,26 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   function removeCampaign() {
     if (!selectedCampaign || !window.confirm(`Excluir a campanha “${selectedCampaign.title}” e todas as páginas dela?`)) return
+    const removedPages = state.pages.filter((page) => page.campaignId === selectedCampaign.id)
     mutate((current) => ({ ...current, campaigns: current.campaigns.filter((campaign) => campaign.id !== selectedCampaign.id), categories: current.categories.filter((category) => category.campaignId !== selectedCampaign.id), pages: current.pages.filter((page) => page.campaignId !== selectedCampaign.id) }))
     setSelectedCampaignId(state.campaigns.find((campaign) => campaign.id !== selectedCampaign.id)?.id ?? null)
+    // Mesmo motivo do removePage: sem apagar as notas no vault, a próxima
+    // sincronização as encontra intactas e ressuscita a campanha inteira.
+    const syncedPages = removedPages.filter((page) => page.obsidianPath)
+    if (syncedPages.length && obsidianPreferences.enabled) {
+      // Sequencial de propósito: pedir permissão de escrita concorrentemente
+      // em várias chamadas arrisca disparar mais de um prompt do navegador
+      // ao mesmo tempo.
+      void (async () => {
+        let failed = 0
+        for (const page of syncedPages) {
+          try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
+        }
+        setNotice(failed
+          ? `Campanha excluída do site. ${syncedPages.length - failed} de ${syncedPages.length} notas excluídas do vault.`
+          : `Campanha e ${syncedPages.length} nota${syncedPages.length === 1 ? "" : "s"} excluídas também do vault.`)
+      })()
+    }
   }
 
   function addPage() {
@@ -300,8 +318,16 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }
 
   function removePage(id: string) {
+    const removed = state.pages.find((page) => page.id === id)
     mutate((current) => ({ ...current, pages: current.pages.filter((page) => page.id !== id).map((page) => ({ ...page, linkedPageIds: page.linkedPageIds.filter((linkedId) => linkedId !== id) })) }))
     setEditing(null)
+    // Sem apagar a nota no vault, a próxima sincronização a encontra intacta
+    // e a reimporta como se fosse nova, revivendo a página excluída.
+    if (removed?.obsidianPath && obsidianPreferences.enabled) {
+      void deletePageFromLocalVault(removed, true)
+        .then(() => setNotice(`“${removed.title}” excluída também do vault.`))
+        .catch((error: unknown) => setNotice(error instanceof Error ? `Página excluída do site. ${error.message}` : "Página excluída do site; o vault será atualizado quando estiver disponível."))
+    }
   }
 
   function addCategory() {

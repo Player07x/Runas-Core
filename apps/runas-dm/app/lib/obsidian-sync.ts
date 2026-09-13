@@ -740,6 +740,22 @@ function backupPath(path: string, rootFolder: string): string {
   return pathInsideRoot(`Assets/Runas DM Backups/${filename}-${pathHash.toString(36)}-${stamp}.md`, rootFolder)
 }
 
+/**
+ * Excluir uma página no site precisa excluir a nota correspondente no vault;
+ * senão, a próxima sincronização encontra o arquivo intacto e a reimporta
+ * como se fosse nova. Uma cópia vai antes para `Assets/Runas DM Backups`,
+ * como já acontece ao sobrescrever uma nota divergente.
+ */
+export async function deleteVaultNote(page: KnowledgePage, adapter: VaultAdapter, rootFolder: string): Promise<void> {
+  if (!page.obsidianPath || !adapter.deleteFile) return
+  let markdown = page.obsidianSourceMarkdown
+  try {
+    markdown = (await adapter.readNote(page.obsidianPath)).markdown
+  } catch { /* o arquivo já pode ter sido removido fora do site; usa a última cópia conhecida */ }
+  if (markdown) await adapter.writeText(backupPath(page.obsidianPath, rootFolder), markdown).catch(() => undefined)
+  await adapter.deleteFile(page.obsidianPath)
+}
+
 function collisionPath(path: string, page: KnowledgePage): string {
   return path.replace(/\.md$/i, ` (${page.id.slice(-8)}).md`)
 }
