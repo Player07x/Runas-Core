@@ -184,6 +184,21 @@ describe("Obsidian export", () => {
     expect(files.get("Personagens/Runilitas/Roberto.md")).toBe(markdown)
   })
 
+  it("usa o nome do arquivo como título quando a nota não começa com um cabeçalho, mesmo tendo seções internas", () => {
+    // Notas longas de personagem costumam começar com um retrato (![[...]])
+    // e só têm cabeçalhos `#` a partir das seções internas (Personalidade,
+    // História). Duas fichas assim, com a mesma primeira seção interna, não
+    // podem colidir num único título "Personalidade".
+    const martim = "---\n---\n![[Foto Martim.png]]\nTexto de abertura.\n\n# Personalidade\n\nMartim é gentil.\n"
+    const ferruccio = "---\n---\n![[Imagem Ferruccio.png]]\nOutro texto de abertura.\n\n# Personalidade\n\nFerruccio é frio.\n"
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Personagens/Runilitas/Martim.md", markdown: martim, createdAt: 1, modifiedAt: 1 },
+      { path: "Personagens/Runilitas/Ferruccio Terano Ford.md", markdown: ferruccio, createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.pages).toHaveLength(2)
+    expect(merged.state.pages.map((page) => page.title).sort()).toEqual(["Ferruccio Terano Ford", "Martim"])
+  })
+
   it("mantém um personagem da Wiki na Wiki mesmo referenciando a campanha de origem", () => {
     const markdown = '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Martim\n\nProtagonista da campanha.\n'
     const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Personagens/Runilitas/Martim.md", markdown, createdAt: 1, modifiedAt: 1 }])

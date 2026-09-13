@@ -391,7 +391,14 @@ export function parseMarkdownFrontmatter(markdown: string): { frontmatter: Recor
 }
 
 function titleFromMarkdown(body: string, path: string): string {
-  return body.match(/^#\s+(.+)$/m)?.[1].trim() ?? decodeURIComponent(path.split("/").pop()?.replace(/\.md$/i, "") ?? "Página sem nome")
+  // Só a primeira linha do corpo pode definir o título por cabeçalho: com a
+  // flag `m`, o regex antigo casava com QUALQUER `# Cabeçalho` do documento,
+  // então uma nota longa cuja primeira seção interna fosse `# Personalidade`
+  // ou `# História` (sem título próprio antes) tinha esse texto adotado como
+  // título da página — colidindo com toda outra nota na mesma situação.
+  const firstLine = body.trimStart().split("\n", 1)[0]
+  const heading = firstLine.match(/^#\s+(.+)$/)?.[1].trim()
+  return heading || decodeURIComponent(path.split("/").pop()?.replace(/\.md$/i, "") ?? "Página sem nome")
 }
 
 /**
