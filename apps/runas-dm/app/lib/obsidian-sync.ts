@@ -411,6 +411,21 @@ function isBaseEmbedOnlyNote(body: string): boolean {
   return /^!\[\[[^\]]+\.base\]\]$/i.test(withoutTitle)
 }
 
+/**
+ * A nota-hub "<Nome> (Campanha)" só identifica a campanha; nunca deve virar
+ * uma KnowledgePage rastreada. Do contrário, ela seria reexportada para
+ * sempre a partir do estado do site, mesmo depois de apagada diretamente
+ * pelo Obsidian -- o arquivo "voltava sozinho" mesmo sem a campanha ter sido
+ * excluída pelo site. A checagem usa só o caminho (pasta + nome do
+ * arquivo), nunca o conteúdo, para funcionar mesmo com o arquivo já apagado.
+ */
+function isCampaignHubNotePath(path: string, campaigns: CampaignRecord[]): boolean {
+  if (wikiLocation(path)) return false
+  if (!campaignLocation(path, campaigns)) return false
+  const filename = path.split("/").pop()?.replace(/\.md$/i, "") ?? ""
+  return /\(campanha\)$/i.test(filename)
+}
+
 function contentMarkdown(body: string, title: string, summary: string): string {
   let result = body.replace(new RegExp(`^#\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n+`, "i"), "")
   result = result.replace(/\n*##\s+Páginas relacionadas\s*\n[\s\S]*?(?=\n##\s+Fichas do encontro|$)/i, "")
@@ -531,12 +546,28 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
 export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: VaultNote[]): { state: KnowledgeWorkspaceState; imported: number } {
   const state = normalizeKnowledgeWorkspace(structuredClone(localState))
   state.pages = state.pages.filter((page) => !page.obsidianPath || isSynchronizableVaultPath(page.obsidianPath))
+  // Uma sincronização anterior a esta correção pode ter rastreado a nota-hub
+  // como página. Precisa ser removida aqui, e não só quando a nota é lida de
+  // novo, pois o arquivo já pode ter sido apagado direto pelo Obsidian --
+  // sem lápide, ela sobreviveria intacta e a exportação abaixo a recriaria.
+  const trackedHubIds = state.pages.filter((page) => page.obsidianPath && isCampaignHubNotePath(page.obsidianPath, state.campaigns)).map((page) => page.id)
+  if (trackedHubIds.length) {
+    const hubIdSet = new Set(trackedHubIds)
+    state.pages = state.pages.filter((page) => !hubIdSet.has(page.id))
+    state.deletedIds = [...new Set([...state.deletedIds, ...trackedHubIds])]
+  }
   const importedPages: { pageId: string; markdown: string }[] = []
   let imported = 0
   for (const note of notes) {
     const parsed = parseMarkdownFrontmatter(note.markdown)
     const noteFrontmatter = { ...parsed.frontmatter, ...(note.frontmatter ?? {}) }
     if (noteFrontmatter.runas_system === true) continue
+    // A nota-hub só estabelece a campanha; nunca vira página (ver acima).
+    if (isCampaignHubNotePath(note.path, state.campaigns)) {
+      const hubTitle = titleFromMarkdown(parsed.body, note.path).replace(/\s*\(campanha\)$/i, "").trim()
+      ensureCampaign(state.campaigns, text(noteFrontmatter.runas_campaign_id), hubTitle, note.createdAt, note.modifiedAt)
+      continue
+    }
     // Uma nota-vitrine de catálogo (Bases) não é conteúdo: remove qualquer
     // página que uma sincronização antiga tenha criado a partir dela e nunca
     // importa outra no lugar.

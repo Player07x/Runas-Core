@@ -9,12 +9,14 @@
   "scripts": {
     "dev:tools": "npm run dev -w @runas/tools",
     "dev:dm": "npm run dev -w @runas/dm",
+    "dev:book": "npm run dev -w @runas/book",
     "build": "npm run build:tools && npm run build:dm",
     "build:tools": "npm run build -w @runas/tools",
     "build:dm": "npm run build -w @runas/dm",
+    "build:book": "npm run build -w @runas/book",
     "build:dm:pages": "npm run build:pages -w @runas/dm",
     "lint": "npm run lint -w @runas/tools && npm run lint -w @runas/dm",
-    "typecheck": "npm run typecheck -w @runas/ruleset-contracts && npm run typecheck -w @runas/core && npm run typecheck -w @runas/cronos-core && npm run typecheck -w @runas/tools && npm run typecheck -w @runas/dm",
+    "typecheck": "npm run typecheck -w @runas/ruleset-contracts && npm run typecheck -w @runas/core && npm run typecheck -w @runas/cronos-core && npm run typecheck -w @runas/tools && npm run typecheck -w @runas/dm && npm run typecheck -w @runas/book",
     "test": "npm run test -w @runas/core && npm run test -w @runas/cronos-core && npm run test -w @runas/dm"
   },
   "devDependencies": {
