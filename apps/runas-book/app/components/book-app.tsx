@@ -1,13 +1,17 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { BookPlus, Check, ChevronRight, ExternalLink, FileText, KeyRound, Library, LockKeyhole, Menu, Plus, Search, ShieldCheck, Sparkles, Upload, WandSparkles, X } from "lucide-react"
+import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Upload, WandSparkles, X } from "lucide-react"
 import { RuneMark } from "./rune-mark"
-import { createSeedWorkspace, findEntry, normalizeWorkspace, slugify, type BookChapter, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
+import { allEntries, createSeedWorkspace, findEntry, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
 import { BookSidebar } from "./book-sidebar"
 import { PageView } from "./page-view"
 import { PageEditor } from "./page-editor"
 import { ResourceEditorDialog } from "./resource-panel"
+import { BookSettingsDialog } from "./book-settings-dialog"
+import { CustomPagesEditor } from "./custom-pages-editor"
+import { generateBookDocxBlob } from "../lib/book-export/toDocx"
+import { generateBookPdfBlob } from "../lib/book-export/toPdf"
 
 const STORAGE_KEY = "runas-book.workspace.v1"
 const AUTH_KEY = "runas-book.authenticated"
@@ -58,6 +62,10 @@ export function BookApp({ mode }: { mode: Mode }) {
   const [quickEditResource, setQuickEditResource] = useState<BookResource | null>(null)
   const [notice, setNotice] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showBookSettings, setShowBookSettings] = useState(false)
+  const [showCustomPages, setShowCustomPages] = useState(false)
+  const [showExportDialog, setShowExportDialog] = useState(false)
+  const [exporting, setExporting] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -119,8 +127,9 @@ export function BookApp({ mode }: { mode: Mode }) {
   const visibleEntries = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("pt-BR")
     if (!chapter) return []
-    return chapter.entries.filter((candidate) => !term || [candidate.title, candidate.summary, candidate.content].join(" ").toLocaleLowerCase("pt-BR").includes(term))
+    return chapter.entries.filter((candidate) => !term || [candidate.title, candidate.summary, plainTextFromHtml(candidate.content)].join(" ").toLocaleLowerCase("pt-BR").includes(term))
   }, [chapter, query])
+  const pageTitles = useMemo(() => book ? allEntries(book).filter((candidate) => candidate.id !== entry?.id).map((candidate) => candidate.title) : [], [book, entry])
 
   function goToBooks() { setShowBooks(true) }
   function selectBook(nextId: string) {
@@ -151,7 +160,7 @@ export function BookApp({ mode }: { mode: Mode }) {
     const title = newBookTitle.trim()
     if (!title) return
     const id = `book-${slugify(title)}-${Date.now().toString(36)}`
-    const next: BookRecord = { id, title, subtitle: "Livro personalizado", accent: "#cfd6d1", sourceFile: "", chapters: [] }
+    const next: BookRecord = { id, title, subtitle: "Livro personalizado", accent: "#cfd6d1", author: "", customPages: [], sourceFile: "", chapters: [] }
     setWorkspace((current) => ({ ...current, books: [...current.books, next], selectedBookId: id, updatedAt: Date.now() }))
     setNav({ bookId: id, chapterId: null, entryId: null, mode: "topic" })
     setNewBookTitle(""); setShowBooks(false); setNotice("Livro criado")
@@ -246,6 +255,53 @@ export function BookApp({ mode }: { mode: Mode }) {
     } catch (error) { setNotice(error instanceof Error ? `Obsidian: ${error.message}` : "Não foi possível sincronizar o vault.") }
   }
 
+  function downloadBlob(filename: string, blob: Blob) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url)
+  }
+
+  function saveBookSettings(patch: Pick<BookRecord, "title" | "subtitle" | "author" | "accent" | "coverImageDataUrl">) {
+    if (!book) return
+    setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, ...patch } : item), updatedAt: Date.now() }))
+    setShowBookSettings(false)
+    setNotice("Configurações do livro salvas")
+  }
+
+  function saveCustomPages(pages: BookCustomPage[]) {
+    if (!book) return
+    setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, customPages: pages } : item), updatedAt: Date.now() }))
+    setShowCustomPages(false)
+    setNotice("Páginas customizadas salvas")
+  }
+
+  async function runExport(format: "pdf" | "docx", destination: "download" | "vault") {
+    if (!book) return
+    setExporting(`${destination}-${format}`)
+    try {
+      const blob = format === "pdf" ? await generateBookPdfBlob(book) : await generateBookDocxBlob(book)
+      const filename = `${slugify(book.title)}.${format}`
+      if (destination === "vault") {
+        if (!window.showDirectoryPicker) { setNotice("Use Chrome ou Edge para salvar direto no vault do Obsidian."); return }
+        const root = await window.showDirectoryPicker({ id: "runas-book-vault", mode: "readwrite" })
+        const folder = await directoryAt(root, ["Livros"])
+        const file = await folder.getFileHandle(filename, { create: true })
+        const writable = await file.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        setNotice(`Livro salvo em Livros/${filename} no Obsidian`)
+      } else {
+        downloadBlob(filename, blob)
+        setNotice("Livro exportado")
+      }
+      setShowExportDialog(false)
+    } catch (error) {
+      setNotice(error instanceof Error ? `Exportação: ${error.message}` : "Não foi possível exportar o livro.")
+    } finally {
+      setExporting(null)
+    }
+  }
+
   if (mode === "dm" && (authChecking || !authenticated)) return <AuthScreen checking={authChecking} token={token} password={password} error={authError} onToken={setToken} onPassword={setPassword} onSubmit={async () => {
     setAuthError("")
     try {
@@ -265,13 +321,20 @@ export function BookApp({ mode }: { mode: Mode }) {
       <button className="icon-link sidebar-toggle" onClick={() => setSidebarOpen((current) => !current)} aria-label="Alternar índice"><Menu size={20} /></button>
       <a className="book-brand" href="/"><span className="brand-mark"><RuneMark size={16} /></span><span><strong>Runas Book</strong><small>Biblioteca de regras</small></span></a>
       <button className="book-switcher" onClick={goToBooks}><Library size={16} /> {book.title}<ChevronRight size={15} /></button>
-      <div className="top-actions"><a href={mode === "dm" ? "/" : "/dm"} className="ghost-link">{mode === "dm" ? "Abrir leitura" : "Área DM"}</a>{mode === "dm" && <button className="icon-link" onClick={syncToObsidian} title="Sincronizar com Obsidian"><Upload size={18} /></button>}<a className="icon-link" href="https://runas-tools.pages.dev" title="Runas Tools"><ExternalLink size={18} /></a></div>
+      <div className="top-actions">
+        <a href={mode === "dm" ? "/" : "/dm"} className="ghost-link">{mode === "dm" ? "Abrir leitura" : "Área DM"}</a>
+        <button className="icon-link" onClick={() => setShowExportDialog(true)} title="Exportar livro"><FileType2 size={18} /></button>
+        {mode === "dm" && <button className="icon-link" onClick={() => setShowCustomPages(true)} title="Páginas customizadas do livro"><FileStack size={18} /></button>}
+        {mode === "dm" && <button className="icon-link" onClick={() => setShowBookSettings(true)} title="Configurações do livro"><Settings size={18} /></button>}
+        {mode === "dm" && <button className="icon-link" onClick={syncToObsidian} title="Sincronizar com Obsidian"><Upload size={18} /></button>}
+        <a className="icon-link" href="https://runas-tools.pages.dev" title="Runas Tools"><ExternalLink size={18} /></a>
+      </div>
     </header>
     <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`}>
       <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={() => setShowChapterEditor(true)} onAddEntry={openNewPage} />
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Fechar índice" />}
       <section className="book-content">
-        {nav.mode === "edit" && entry && <PageEditor entry={entry} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
+        {nav.mode === "edit" && entry && <PageEditor entry={entry} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
 
         {nav.mode === "page" && entry && chapter && <PageView book={book} chapter={chapter} entry={entry} isDm={isDm} onOpenBooks={goToBooks} onOpenTopic={openTopic} onOpenEntry={openEntry} onEdit={openEdit} onEditResource={setQuickEditResource} />}
 
@@ -295,6 +358,31 @@ export function BookApp({ mode }: { mode: Mode }) {
     {showNewPage && <div className="modal-backdrop" onMouseDown={() => setShowNewPage(false)}><section className="modal-card" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">{chapter?.title}</p><h2>Nova página</h2></div><button className="icon-link" onClick={() => setShowNewPage(false)}><X size={18} /></button></header><label>Título<input className="form-input" value={newPageTitle} onChange={(event) => setNewPageTitle(event.target.value)} autoFocus /></label><label>Tipo<select className="form-input" value={newPageKind} onChange={(event) => setNewPageKind(event.target.value as BookEntryKind)}><option value="rule">Página de regra</option><option value="character">Ficha completa</option></select></label><button className="primary-action full" onClick={createPage} disabled={!newPageTitle.trim()}><Check size={16} /> Criar e editar</button></section></div>}
 
     {quickEditResource && <ResourceEditorDialog resource={quickEditResource} onSave={commitResource} onDelete={() => removeQuickResource(quickEditResource.id)} onClose={() => setQuickEditResource(null)} />}
+
+    {showBookSettings && <BookSettingsDialog book={book} onSave={saveBookSettings} onClose={() => setShowBookSettings(false)} />}
+
+    {showCustomPages && <CustomPagesEditor pages={book.customPages} onSave={saveCustomPages} onClose={() => setShowCustomPages(false)} />}
+
+    {showExportDialog && <div className="modal-backdrop" onMouseDown={() => setShowExportDialog(false)}>
+      <section className="modal-card export-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">Exportação</p><h2>Exportar “{book.title}”</h2><p>Capa, sumário{book.customPages.length > 0 ? ", páginas customizadas" : ""} e capítulos, com fichas, habilidades, magias e itens formatados.</p></div><button className="icon-link" onClick={() => setShowExportDialog(false)}><X size={18} /></button></header>
+        <div className="export-section">
+          <span className="export-section-label">Baixar</span>
+          <div className="export-actions-row">
+            <button className="outline-action" disabled={exporting !== null} onClick={() => void runExport("pdf", "download")}>{exporting === "download-pdf" ? <Loader2 size={15} className="spin" /> : <Download size={15} />} PDF</button>
+            {isDm && <button className="outline-action" disabled={exporting !== null} onClick={() => void runExport("docx", "download")}>{exporting === "download-docx" ? <Loader2 size={15} className="spin" /> : <Download size={15} />} DOCX</button>}
+          </div>
+        </div>
+        {isDm && <div className="export-section">
+          <span className="export-section-label">Salvar no Obsidian (pasta Livros/)</span>
+          <div className="export-actions-row">
+            <button className="outline-action" disabled={exporting !== null} onClick={() => void runExport("pdf", "vault")}>{exporting === "vault-pdf" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} PDF</button>
+            <button className="outline-action" disabled={exporting !== null} onClick={() => void runExport("docx", "vault")}>{exporting === "vault-docx" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} DOCX</button>
+          </div>
+        </div>}
+        <p className="export-hint">Versão beta: tabelas sem mesclagem de células, e o Word pode pedir para atualizar o sumário (F9) ao abrir o DOCX.</p>
+      </section>
+    </div>}
 
     {notice && <button className="toast" onClick={() => setNotice("")}><Check size={15} /> {notice}</button>}
   </main>

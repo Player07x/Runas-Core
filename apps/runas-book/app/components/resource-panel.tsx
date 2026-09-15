@@ -30,7 +30,15 @@ const rangeTypeOptions: { value: CharacterSpell["rangeType"]; label: string }[] 
   { value: "area", label: "Área" },
 ]
 
-function costSummary(source: Pick<CharacterAbility, "costType" | "costMode" | "costValue" | "costText">): string {
+export function magicTypeLabel(value: CharacterSpell["magicType"]): string {
+  return magicTypeOptions.find((option) => option.value === value)?.label ?? value
+}
+
+export function rangeTypeLabel(value: CharacterSpell["rangeType"]): string {
+  return rangeTypeOptions.find((option) => option.value === value)?.label ?? value
+}
+
+export function costSummary(source: Pick<CharacterAbility, "costType" | "costMode" | "costValue" | "costText">): string {
   if (source.costType === "none") return "Nenhum"
   if (source.costType === "other") return source.costText || "Outro"
   const label = costOptions.find((option) => option.value === source.costType)?.label ?? source.costType

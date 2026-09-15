@@ -4,15 +4,17 @@ import { useState } from "react"
 import { Check, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react"
 import { createResource, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
 import { ResourceEditorDialog } from "./resource-panel"
+import { RichTextEditor } from "./rich-text-editor"
 
 interface Props {
   entry: BookEntry
+  pageTitles: string[]
   onSave: (entry: BookEntry) => void
   onCancel: () => void
   onDelete: () => void
 }
 
-export function PageEditor({ entry, onSave, onCancel, onDelete }: Props) {
+export function PageEditor({ entry, pageTitles, onSave, onCancel, onDelete }: Props) {
   const [draft, setDraft] = useState<BookEntry>(() => ({ ...entry, resources: entry.resources.map((resource) => ({ ...resource })) }))
   const [editingResource, setEditingResource] = useState<BookResource | null>(null)
 
@@ -42,7 +44,7 @@ export function PageEditor({ entry, onSave, onCancel, onDelete }: Props) {
       <label>Resumo<input className="form-input" value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} placeholder="Uma linha para a grade e a busca" /></label>
     </header>
 
-    <label className="content-label">Conteúdo<textarea className="form-input content-textarea" rows={14} value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} placeholder="Escreva o texto completo da página… use [[Nome de outra página]] para linkar internamente, como no Obsidian." /></label>
+    <RichTextEditor label="Conteúdo" className="page-content-editor" value={draft.content} onChange={(content) => setDraft({ ...draft, content })} wikiPageTitles={pageTitles} />
 
     <section className="resource-section editor-resources">
       <h2>Recursos anexados</h2>

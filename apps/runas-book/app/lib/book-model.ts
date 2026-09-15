@@ -36,13 +36,27 @@ export interface BookChapter {
   entries: BookEntry[]
 }
 
+export interface BookCustomPage {
+  id: string
+  title: string
+  order: number
+  content: string
+  updatedAt: number
+}
+
 export interface BookRecord {
   id: string
   title: string
   subtitle: string
   accent: string
+  /** Nome exibido na capa gerada automaticamente e nos metadados da exportação. */
+  author: string
+  /** Imagem de capa enviada pelo DM; sem ela, a exportação gera uma capa a partir de `accent`. */
+  coverImageDataUrl?: string
   sourceFile: string
   chapters: BookChapter[]
+  /** Páginas livres do DM (texto, imagem, tabela) inseridas entre o sumário e os capítulos na exportação. */
+  customPages: BookCustomPage[]
 }
 
 export interface BookWorkspace {
@@ -99,6 +113,66 @@ function extractSourceSection(sourceFile: string, title: string): string {
   return section.join("\n").replace(/\n{3,}/g, "\n\n").trim()
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+const BULLET_LINE = /^[-•*]\s+(.*)$/
+const NUMBERED_LINE = /^\d+[.)]\s+(.*)$/
+const WIKILINK_SOURCE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
+
+/** Converte `[[Página]]`/`[[Página|Rótulo]]` já escapados em HTML em âncoras reais, no mesmo formato que o editor produz ao digitar. */
+function wikilinksToAnchors(escaped: string): string {
+  return escaped.replace(WIKILINK_SOURCE, (_match, target: string, label: string | undefined) => {
+    const cleanTarget = target.trim()
+    const cleanLabel = (label ?? target).trim()
+    return `<a data-wiki-title="${cleanTarget}">${cleanLabel}</a>`
+  })
+}
+
+/**
+ * Converte texto simples em HTML seguro (sem depender de `DOMParser`, para também funcionar durante o build
+ * estático): parágrafos separados por linha em branco viram `<p>`, blocos onde toda linha começa com marcador
+ * de lista viram `<ul>/<ol>`, e `[[wikilinks]]` no estilo antigo viram âncoras reais.
+ */
+export function plainBlockToHtml(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ""
+  const parts: string[] = []
+  for (const paragraph of trimmed.split(/\n{2,}/)) {
+    const lines = paragraph.split(/\n/).map((line) => line.trim()).filter(Boolean)
+    if (lines.length === 0) continue
+    const isBulletBlock = lines.every((line) => BULLET_LINE.test(line))
+    const isNumberedBlock = !isBulletBlock && lines.every((line) => NUMBERED_LINE.test(line))
+    if (isBulletBlock || isNumberedBlock) {
+      const marker = isBulletBlock ? BULLET_LINE : NUMBERED_LINE
+      const items = lines.map((line) => `<li>${wikilinksToAnchors(escapeHtml(line.replace(marker, "$1")))}</li>`).join("")
+      parts.push(isBulletBlock ? `<ul>${items}</ul>` : `<ol>${items}</ol>`)
+    } else {
+      parts.push(`<p>${lines.map((line) => wikilinksToAnchors(escapeHtml(line))).join("<br>")}</p>`)
+    }
+  }
+  return parts.join("")
+}
+
+const HTML_BLOCK_TAG = /<(p|div|h1|h2|h3|ul|ol|blockquote|table|img)[\s>]/i
+
+/** Detecta se o conteúdo salvo já é o HTML produzido pelo editor de texto rico, em vez de texto legado. */
+function looksLikeHtml(value: string): boolean {
+  return HTML_BLOCK_TAG.test(value)
+}
+
+/** Migra um `content` salvo (HTML novo ou texto legado) para o formato HTML esperado pelo editor/leitura. */
+function migrateContentHtml(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return ""
+  return looksLikeHtml(value) ? value : plainBlockToHtml(value)
+}
+
+/** Extrai texto simples de um HTML já sanitizado, só para indexação de busca (sem depender de `DOMParser`). */
+export function plainTextFromHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim()
+}
+
 const CORE_RULE_NOTES: Record<string, string> = {
   "Atributos": "Precedência do @runas/core: os nove atributos são organizados nos grupos Físico (Físico, Força, Destreza, Vitalidade), Mental (Mental, Inteligência, Conhecimento, Social) e Místico (Místico, Fé, Poder, Sorte). Testes secundários somam o atributo primário do grupo ao secundário.",
   "Status": "Precedência do @runas/core: PV, PA, PE, PA Extra, Determinação, Casualidade, carga e deslocamento são valores derivados por calculateCharacterStatSnapshot; alterações de ficha devem sincronizar os atuais com os limites calculados.",
@@ -145,20 +219,27 @@ function entry(id: string, chapterId: string, title: string, kind: BookEntryKind
   const extracted = extractSourceSection(sourceFile, title)
   const coreNote = CORE_RULE_NOTES[title]
   const sourceLabel = `Fonte: ${sourceFile}${sourcePage ? `, p. ${sourcePage}` : ""}.`
-  const resolvedContent = content || [
+  // `resource.entity.description` é um campo compartilhado com @runas/core (Runas Tools/DM) e continua texto
+  // simples de propósito; só `BookEntry.content` (exclusivo do Runas Book) vira HTML formatado.
+  const resolvedPlainContent = content || [
     sourceLabel,
     extracted,
     coreNote,
     !extracted && !coreNote ? summary : "",
   ].filter(Boolean).join("\n\n")
-  if (resource) resource.entity.description = resolvedContent
+  if (resource) resource.entity.description = resolvedPlainContent
+  const resolvedContentHtml = content ? migrateContentHtml(content) : [
+    sourceFile ? `<p class="content-source"><em>${escapeHtml(sourceLabel)}</em></p>` : "",
+    coreNote ? `<blockquote class="content-core-note">${plainBlockToHtml(coreNote)}</blockquote>` : "",
+    extracted ? plainBlockToHtml(extracted) : (!extracted && !coreNote ? plainBlockToHtml(summary) : ""),
+  ].filter(Boolean).join("")
   return {
     id,
     chapterId,
     title,
     kind: isCharacterKind ? "character" : "rule",
     summary,
-    content: resolvedContent,
+    content: resolvedContentHtml,
     tags: [],
     sourceFile,
     sourcePage,
@@ -169,7 +250,7 @@ function entry(id: string, chapterId: string, title: string, kind: BookEntryKind
 }
 
 function book(id: string, title: string, subtitle: string, accent: string, sourceFile: string, chapterSpecs: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]>): BookRecord {
-  return { id, title, subtitle, accent, sourceFile, chapters: chapterSpecs.map(([chapterTitle, summary, entries], index) => {
+  return { id, title, subtitle, accent, author: "", customPages: [], sourceFile, chapters: chapterSpecs.map(([chapterTitle, summary, entries], index) => {
     const chapterId = `${id}-chapter-${index + 1}`
     return { id: chapterId, title: chapterTitle, summary, bookId: id, order: index + 1, entries: entries.map(([title, kind, itemSummary, page], itemIndex) => entry(`${chapterId}-entry-${itemIndex + 1}`, chapterId, title, kind, itemSummary, sourceFile, page)) }
   }) }
@@ -258,12 +339,11 @@ function migrateEntry(raw: unknown): BookEntry | null {
   const title = candidate.title
   const summary = typeof candidate.summary === "string" ? candidate.summary : ""
   const existingContent = typeof candidate.content === "string" ? candidate.content.trim() : ""
-  const hydratedContent = existingContent || [
-    sourceFile ? `Fonte: ${sourceFile}.` : "",
-    extractSourceSection(sourceFile, title),
-    CORE_RULE_NOTES[title],
-    summary,
-  ].filter(Boolean).join("\n\n")
+  const hydratedContent = existingContent ? migrateContentHtml(existingContent) : [
+    sourceFile ? `<p class="content-source"><em>${escapeHtml(`Fonte: ${sourceFile}.`)}</em></p>` : "",
+    CORE_RULE_NOTES[title] ? `<blockquote class="content-core-note">${plainBlockToHtml(CORE_RULE_NOTES[title])}</blockquote>` : "",
+    plainBlockToHtml(extractSourceSection(sourceFile, title) || summary),
+  ].filter(Boolean).join("")
   return {
     id: candidate.id,
     chapterId: candidate.chapterId,
@@ -280,6 +360,19 @@ function migrateEntry(raw: unknown): BookEntry | null {
   }
 }
 
+function migrateCustomPage(raw: unknown, index: number): BookCustomPage | null {
+  if (!raw || typeof raw !== "object") return null
+  const candidate = raw as Record<string, unknown>
+  if (typeof candidate.id !== "string" || typeof candidate.title !== "string") return null
+  return {
+    id: candidate.id,
+    title: candidate.title,
+    order: typeof candidate.order === "number" ? candidate.order : index,
+    content: migrateContentHtml(candidate.content),
+    updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
+  }
+}
+
 export function normalizeWorkspace(value: unknown): BookWorkspace {
   if (!value || typeof value !== "object") return createSeedWorkspace()
   const candidate = value as Partial<BookWorkspace>
@@ -288,6 +381,11 @@ export function normalizeWorkspace(value: unknown): BookWorkspace {
     const book = rawBook as BookRecord
     return {
       ...book,
+      author: typeof book.author === "string" ? book.author : "",
+      coverImageDataUrl: typeof book.coverImageDataUrl === "string" ? book.coverImageDataUrl : undefined,
+      customPages: Array.isArray(book.customPages)
+        ? book.customPages.map(migrateCustomPage).filter((value): value is BookCustomPage => value !== null)
+        : [],
       chapters: (book.chapters ?? []).map((chapter) => ({
         ...chapter,
         entries: (chapter.entries ?? []).map(migrateEntry).filter((value): value is BookEntry => value !== null),
@@ -295,6 +393,10 @@ export function normalizeWorkspace(value: unknown): BookWorkspace {
     }
   })
   return { version: 1, selectedBookId: typeof candidate.selectedBookId === "string" ? candidate.selectedBookId : null, updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(), books }
+}
+
+export function createCustomPage(order: number): BookCustomPage {
+  return { id: makeId("custom"), title: "Nova página", order, content: "", updatedAt: Date.now() }
 }
 
 export function slugify(value: string): string {
@@ -330,34 +432,4 @@ export function buildPageIndex(book: BookRecord): Map<string, BookEntry> {
 
 export function normalizeLinkTarget(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
-}
-
-export type WikilinkToken =
-  | { type: "text"; value: string }
-  | { type: "link"; target: string; label: string; entry: BookEntry | null }
-
-const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
-
-/** Divide o conteúdo em texto simples e alvos de [[Página]] ou [[Página|Rótulo]], ao estilo Obsidian. */
-export function parseWikilinks(content: string, index: Map<string, BookEntry>): WikilinkToken[] {
-  const tokens: WikilinkToken[] = []
-  let lastIndex = 0
-  for (const match of content.matchAll(WIKILINK_PATTERN)) {
-    const start = match.index ?? 0
-    if (start > lastIndex) tokens.push({ type: "text", value: content.slice(lastIndex, start) })
-    const target = match[1].trim()
-    tokens.push({ type: "link", target, label: (match[2] ?? target).trim(), entry: index.get(normalizeLinkTarget(target)) ?? null })
-    lastIndex = start + match[0].length
-  }
-  if (lastIndex < content.length) tokens.push({ type: "text", value: content.slice(lastIndex) })
-  return tokens
-}
-
-/** Páginas do livro cujo conteúdo referencia a página informada via [[wikilink]], ao estilo "vínculos" do Obsidian. */
-export function findBacklinks(book: BookRecord, target: BookEntry): BookEntry[] {
-  const targetKey = normalizeLinkTarget(target.title)
-  return allEntries(book).filter((candidate) => {
-    if (candidate.id === target.id) return false
-    return [...candidate.content.matchAll(WIKILINK_PATTERN)].some((match) => normalizeLinkTarget(match[1].trim()) === targetKey)
-  })
 }

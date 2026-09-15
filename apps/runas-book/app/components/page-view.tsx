@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { ChevronRight, Download, FileText, Pencil, Sparkles } from "lucide-react"
 import { CHARACTER_VERSION } from "@runas/core/types/character"
-import { buildPageIndex, findBacklinks, kindLabel, parseWikilinks, slugify, type BookChapter, type BookEntry, type BookRecord, type BookResource } from "../lib/book-model"
+import { allEntries, buildPageIndex, kindLabel, normalizeLinkTarget, slugify, type BookChapter, type BookEntry, type BookRecord, type BookResource } from "../lib/book-model"
+import { sanitizeRichText, wikiTitlesFromRichText } from "./rich-text-editor"
 import { exportPageResources, exportResource, ResourceCard } from "./resource-panel"
 
 function downloadJson(filename: string, value: unknown) {
@@ -27,8 +28,33 @@ interface Props {
 
 export function PageView({ book, chapter, entry, isDm, onOpenBooks, onOpenTopic, onOpenEntry, onEdit, onEditResource }: Props) {
   const pageIndex = useMemo(() => buildPageIndex(book), [book])
-  const backlinks = useMemo(() => findBacklinks(book, entry), [book, entry])
-  const paragraphs = entry.content.split(/\n{2,}/).filter((paragraph) => paragraph.trim().length > 0)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const safeContent = useMemo(() => sanitizeRichText(entry.content), [entry.content])
+  const backlinks = useMemo(() => {
+    const targetKey = normalizeLinkTarget(entry.title)
+    return allEntries(book).filter((candidate) => candidate.id !== entry.id && wikiTitlesFromRichText(candidate.content).some((title) => normalizeLinkTarget(title) === targetKey))
+  }, [book, entry])
+
+  useEffect(() => {
+    const container = contentRef.current
+    if (!container) return
+    container.querySelectorAll<HTMLAnchorElement>("a[data-wiki-title]").forEach((anchor) => {
+      const title = anchor.dataset.wikiTitle?.trim() ?? ""
+      const exists = pageIndex.has(normalizeLinkTarget(title))
+      anchor.classList.toggle("wikilink-broken", !exists)
+      anchor.title = exists ? "" : "Página não encontrada nesta wiki"
+    })
+  }, [safeContent, pageIndex])
+
+  function handleContentClick(event: React.MouseEvent<HTMLDivElement>) {
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title]")
+    if (!anchor || !contentRef.current?.contains(anchor)) return
+    const title = anchor.dataset.wikiTitle?.trim()
+    const target = title ? pageIndex.get(normalizeLinkTarget(title)) : null
+    if (!target) return
+    event.preventDefault()
+    onOpenEntry(target.chapterId, target.id)
+  }
 
   return <article className="page-article">
     <nav className="breadcrumb">
@@ -56,12 +82,8 @@ export function PageView({ book, chapter, entry, isDm, onOpenBooks, onOpenTopic,
       <button className="outline-action" onClick={() => downloadJson(`${slugify(entry.entity!.name || entry.title)}.json`, { version: CHARACTER_VERSION, character: entry.entity })}><Download size={15} /> Exportar ficha</button>
     </div>}
 
-    {paragraphs.length > 0
-      ? <div className="page-copy">{paragraphs.map((paragraph, index) => <p key={index}>{parseWikilinks(paragraph, pageIndex).map((token, tokenIndex) => token.type === "text"
-          ? <span key={tokenIndex}>{token.value}</span>
-          : token.entry
-            ? <button key={tokenIndex} className="wikilink" onClick={() => onOpenEntry(token.entry!.chapterId, token.entry!.id)}>{token.label}</button>
-            : <span key={tokenIndex} className="wikilink broken" title="Página não encontrada nesta wiki">{token.label}</span>)}</p>)}</div>
+    {safeContent
+      ? <div ref={contentRef} className="page-copy rich-text-content" onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: safeContent }} />
       : <p className="page-copy-empty">Esta página ainda não tem conteúdo. {isDm ? "Use “Editar página” para escrever o texto completo." : "Volte em breve para o conteúdo completo."}</p>}
 
     {entry.resources.length > 0 && <section className="resource-section">
