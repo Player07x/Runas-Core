@@ -83,6 +83,16 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [notice, setNotice] = useState("")
   const hydratedOnce = useRef(false)
   const stateRef = useRef(state)
+  // Serializa qualquer operação que leia ou grave o vault: sem isso, apagar
+  // uma campanha/página corre com a sincronização automática (a cada 30s ou
+  // ao focar a aba), que pode ler o arquivo ainda não apagado no meio da
+  // exclusão e reimportá-lo com um id novo, ressuscitando o registro.
+  const vaultLockRef = useRef<Promise<unknown>>(Promise.resolve())
+  const withVaultLock = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const run = vaultLockRef.current.catch(() => undefined).then(task)
+    vaultLockRef.current = run.catch(() => undefined)
+    return run
+  }, [])
 
   const selectedCampaign = state.campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null
 
@@ -169,12 +179,27 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (auth !== "ready" || !hydrated) return
     const timeout = window.setTimeout(() => {
       setSyncState((current) => current === "local" ? "local" : "syncing")
-      void saveKnowledgeWorkspace(state).then(async () => {
+      void (async () => {
         try {
-          const response = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) })
-          setSyncState(response.ok ? "synced" : "local")
+          // Sem mesclar com o D1 antes de gravar, esta aba sobrescreveria uma
+          // exclusão feita em outra aba/dispositivo que ela nunca chegou a ver
+          // localmente -- bastava algo mudar aqui (até a sincronização
+          // automática do Obsidian) para a campanha excluída voltar no backup.
+          let outgoing = stateRef.current
+          const response = await fetch("/api/campaign-data", { cache: "no-store" })
+          if (response.ok) {
+            const payload = await response.json() as { state: unknown; updatedAt: number | null }
+            if (payload.state) outgoing = mergeKnowledgeWorkspaces(stateRef.current, normalizeKnowledgeWorkspace(payload.state))
+          }
+          await saveKnowledgeWorkspace(outgoing)
+          const putResponse = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(outgoing) })
+          if (JSON.stringify(outgoing) !== JSON.stringify(stateRef.current)) {
+            stateRef.current = outgoing
+            setState(outgoing)
+          }
+          setSyncState(putResponse.ok ? "synced" : "local")
         } catch { setSyncState("local") }
-      }).catch(() => setSyncState("error"))
+      })()
     }, 850)
     return () => window.clearTimeout(timeout)
   }, [auth, hydrated, state])
@@ -189,7 +214,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       running = true
       setSyncState("syncing")
       try {
-        const result = await syncWorkspaceToLocalVault(stateRef.current, false)
+        const result = await withVaultLock(() => syncWorkspaceToLocalVault(stateRef.current, false))
         if (stopped) return
         // A sincronização lê o vault em segundos; edições feitas nesse meio
         // tempo (como trocar a imagem da campanha em Estilo) já avançaram
@@ -221,7 +246,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       window.removeEventListener("focus", refreshOnFocus)
       document.removeEventListener("visibilitychange", refreshOnFocus)
     }
-  }, [hydrated, obsidianPreferences.automatic, obsidianPreferences.enabled])
+  }, [hydrated, obsidianPreferences.automatic, obsidianPreferences.enabled, withVaultLock])
 
   async function authenticate(localPreview = false) {
     setAuthError("")
@@ -278,7 +303,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       // Sequencial de propósito: pedir permissão de escrita concorrentemente
       // em várias chamadas arrisca disparar mais de um prompt do navegador
       // ao mesmo tempo.
-      void (async () => {
+      void withVaultLock(async () => {
         let failed = 0
         for (const page of syncedPages) {
           try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
@@ -290,7 +315,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
           ? `Campanha excluída do site. ${Math.max(0, totalNotes - failed)} de ${totalNotes} notas excluídas do vault.`
           : `Campanha e ${totalNotes} nota${totalNotes === 1 ? "" : "s"} excluídas também do vault.`
         if (totalNotes || failed) setNotice(message)
-      })()
+      })
     }
   }
 
@@ -313,7 +338,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       // partir do clique em "Salvar", então ainda está dentro da janela de
       // ativação do usuário que a File System Access API exige para pedir
       // permissão sem interação explícita adicional.
-      void syncWorkspaceToLocalVault(next, true, undefined, "site")
+      void withVaultLock(() => syncWorkspaceToLocalVault(next, true, undefined, "site"))
         .then(async (result) => {
           const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
           stateRef.current = merged
@@ -332,7 +357,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     // Sem apagar a nota no vault, a próxima sincronização a encontra intacta
     // e a reimporta como se fosse nova, revivendo a página excluída.
     if (removed?.obsidianPath && obsidianPreferences.enabled) {
-      void deletePageFromLocalVault(removed, true)
+      void withVaultLock(() => deletePageFromLocalVault(removed, true))
         .then(() => setNotice(`“${removed.title}” excluída também do vault.`))
         .catch((error: unknown) => setNotice(error instanceof Error ? `Página excluída do site. ${error.message}` : "Página excluída do site; o vault será atualizado quando estiver disponível."))
     }

@@ -290,9 +290,57 @@ describe("Obsidian export", () => {
     ])
     expect(merged.state.campaigns).toHaveLength(1)
     expect(merged.state.campaigns[0].title).toBe("Lion Heart")
+    // A nota-hub em si nunca vira página: só "Novo Capitão" e "Pacto de
+    // Ferruccio" devem estar rastreados.
+    expect(merged.state.pages).toHaveLength(2)
     expect(merged.state.pages.every((page) => page.scope === "campaign" && page.campaignId === merged.state.campaigns[0].id)).toBe(true)
     const session_ = merged.state.pages.find((page) => page.title === "Pacto de Ferruccio")
     expect(session_?.date).toBe("2026-07-19")
+  })
+
+  it("nunca rastreia a nota-hub como página e limpa quem já foi rastreado assim antes desta correção", () => {
+    // Cenário real relatado: "Lion Heart (Campanha).md" tinha virado uma
+    // KnowledgePage (de uma sincronização anterior). Mesmo com o arquivo já
+    // apagado direto pelo Obsidian, sem lápide a página sobreviveria intacta
+    // no estado e a exportação a recriaria no disco para sempre.
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      pages: [{
+        id: "hub-page", scope: "campaign", campaignId: "campaign-1", kind: "gm-note",
+        title: "Lion Heart (Campanha)", contentHtml: "", obsidianPath: "Campanhas/Lion Heart (Campanha).md",
+        obsidianSourceMarkdown: "# Lion Heart (Campanha)\n\nHub da campanha.\n",
+        createdAt: 1, updatedAt: 1,
+      }],
+      updatedAt: 1,
+    })
+    // O arquivo já não existe mais no vault (apagado direto pelo Obsidian).
+    const merged = mergeObsidianNotes(local, [])
+    expect(merged.state.pages.find((page) => page.id === "hub-page")).toBeUndefined()
+    expect(merged.state.deletedIds).toContain("hub-page")
+    expect(merged.state.campaigns).toHaveLength(1)
+  })
+
+  it("não reexporta a nota-hub depois de apagada direto pelo Obsidian", async () => {
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      pages: [{
+        id: "hub-page", scope: "campaign", campaignId: "campaign-1", kind: "gm-note",
+        title: "Lion Heart (Campanha)", contentHtml: "", obsidianPath: "Campanhas/Lion Heart (Campanha).md",
+        obsidianSourceMarkdown: "# Lion Heart (Campanha)\n\nHub da campanha.\n",
+        createdAt: 1, updatedAt: 1,
+      }],
+      updatedAt: 1,
+    })
+    const files = new Map<string, string>()
+    const adapter: VaultAdapter = {
+      listMarkdownFiles: async () => [...files.keys()],
+      readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 2 }),
+      writeText: async (path, content) => { files.set(path, content) },
+      writeBinary: async () => undefined,
+    }
+    const result = await synchronizeWorkspaceWithVault(local, adapter)
+    expect(files.has("Campanhas/Lion Heart (Campanha).md")).toBe(false)
+    expect(result.state.pages.find((page) => page.id === "hub-page")).toBeUndefined()
   })
 
   it("não transforma a subpasta com o nome da campanha em categoria da página", () => {
