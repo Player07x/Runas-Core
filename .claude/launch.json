@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "-w", "@runas/dm"],
       "port": 3000
+    },
+    {
+      "name": "runas-book",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@runas/book", "--", "-p", "3100"],
+      "port": 3100
     }
   ]
 }
