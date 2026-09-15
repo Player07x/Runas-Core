@@ -5,8 +5,10 @@ import { CheckSquare, Download, Filter, Search, Square, X } from "lucide-react"
 import { getCharacterElement } from "@runas/core/data/elements"
 import type { BestiaryEntry } from "../lib/model"
 import { exportCharactersZip } from "../lib/export"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 
 export function BatchExportDialog({ entries, onClose }: { entries: BestiaryEntry[]; onClose: () => void }) {
+  useEscapeToClose(onClose)
   const [search, setSearch] = useState("")
   const [race, setRace] = useState("all")
   const [element, setElement] = useState("all")
@@ -43,7 +45,7 @@ export function BatchExportDialog({ entries, onClose }: { entries: BestiaryEntry
         <label className="gallery-select"><Filter size={15} /><span>Elemento</span><select value={element} onChange={(event) => setElement(event.target.value)}><option value="all">Todos</option>{elements.map((value) => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
         <label className="gallery-select"><Filter size={15} /><span>Afinidade</span><select value={affinity} onChange={(event) => setAffinity(event.target.value)}><option value="all">Todas</option>{affinities.map((value) => <option key={value}>{value}</option>)}</select></label>
       </div>
-      <div className="batch-selection-toolbar"><span><strong>{selected.size}</strong> selecionadas · {visible.length} nos filtros</span><div><button onClick={() => setSelected(new Set(entries.map((entry) => entry.id)))}><CheckSquare size={15} /> Todas</button><button onClick={() => setSelected((current) => new Set([...current, ...visible.map((entry) => entry.id)]))}><CheckSquare size={15} /> Exibidas</button><button onClick={() => setSelected(new Set())}><Square size={15} /> Limpar</button></div></div>
+      <div className="batch-selection-toolbar"><span><strong>{selected.size}</strong> {selected.size === 1 ? "selecionada" : "selecionadas"} · {visible.length} nos filtros</span><div><button onClick={() => setSelected(new Set(entries.map((entry) => entry.id)))}><CheckSquare size={15} /> Todas</button><button onClick={() => setSelected((current) => new Set([...current, ...visible.map((entry) => entry.id)]))}><CheckSquare size={15} /> Exibidas</button><button onClick={() => setSelected(new Set())}><Square size={15} /> Limpar</button></div></div>
       <div className="batch-export-list">{visible.length === 0 ? <p className="batch-empty">Nenhuma ficha corresponde aos filtros.</p> : visible.map((entry) => {
         const checked = selected.has(entry.id)
         const character = entry.character

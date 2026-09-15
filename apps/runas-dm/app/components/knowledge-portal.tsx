@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Archive, BookMarked, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
+import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
@@ -18,6 +18,7 @@ import { normalizeUniverseEras } from "../lib/chronology"
 import { KnowledgeCardImage } from "./knowledge-card-image"
 import { KnowledgeGraph } from "./knowledge-graph"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
+import { ThemeToggle } from "./theme-toggle"
 
 type PortalArea = "campaigns" | "wiki"
 type AuthState = "checking" | "locked" | "ready"
@@ -486,7 +487,7 @@ function KnowledgeHeader({ area, syncState, onObsidian }: { area: PortalArea; sy
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
     <KnowledgeNavigation area={area} />
-    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
+    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><ThemeToggle /><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
   </header>
 }
 
@@ -499,6 +500,7 @@ function KnowledgeNavigation({ area }: { area: PortalArea }) {
     <a href="/?view=encounter"><Swords size={17} /> Mesa</a>
     <a className={area === "campaigns" ? "active" : ""} href="/campaigns"><BookMarked size={17} /> Campanhas</a>
     <a className={area === "wiki" ? "active" : ""} href="/wiki"><LibraryBig size={17} /> Wiki</a>
+    <a href="https://runas-book.pages.dev/dm"><BookOpen size={17} /> Runas Book DM</a>
   </nav>
 }
 

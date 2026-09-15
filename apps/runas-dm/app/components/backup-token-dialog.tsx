@@ -2,9 +2,11 @@
 
 import { useRef } from "react"
 import { KeyRound, X } from "lucide-react"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 
 export function BackupTokenDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (token: string) => void }) {
   const passwordRef = useRef<HTMLInputElement>(null)
+  useEscapeToClose(onClose)
 
   return (
     <div className="modal-backdrop backup-token-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>

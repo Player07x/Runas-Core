@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { BookOpen, Dices, FlaskConical, Images, Layers3, ListChecks, Swords } from "lucide-react"
+import { BookOpen, Dices, FlaskConical, Images, Layers3, ListChecks, Swords, LibraryBig } from "lucide-react"
 import { PageContainer } from "@/components/layout/page-container"
 import { ToolCard } from "@/components/home/tool-card"
 import { FichaToolCard } from "@/components/home/ficha-tool-card"
@@ -72,6 +72,14 @@ export default function HomePage() {
             accent="yellow"
             href="/cartas-runicas"
             actionLabel="Criar uma carta"
+          />
+          <ToolCard
+            title="Runas Book"
+            description="Consulte os livros de regras, navegue por capítulos e baixe registros prontos para sua ficha."
+            icon={LibraryBig}
+            accent="purple"
+            href="https://runas-book.pages.dev"
+            actionLabel="Abrir a wiki"
           />
         </div>
       </section>

@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Crop, X } from "lucide-react"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 
 interface ImageSize { width: number; height: number }
 
 export function PortraitCropDialog({ file, onCancel, onConfirm }: { file: File; onCancel: () => void; onConfirm: (dataUrl: string) => void }) {
+  useEscapeToClose(onCancel)
   const [source] = useState(() => URL.createObjectURL(file))
   const [imageSize, setImageSize] = useState<ImageSize>({ width: 1, height: 1 })
   const [zoom, setZoom] = useState(1)
