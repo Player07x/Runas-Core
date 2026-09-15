@@ -1,8 +1,15 @@
 import { createEmptyCharacter } from "@runas/core/lib/characterStorage"
 import type { Character, CharacterAbility, CharacterInventoryItem, CharacterSpell } from "@runas/core/types/character"
 
-export type BookEntryKind = "rule" | "item" | "ability" | "spell" | "character"
-export type BookEntity = Character | CharacterInventoryItem | CharacterAbility | CharacterSpell | null
+export type BookEntryKind = "rule" | "character"
+export type BookResourceKind = "item" | "ability" | "spell"
+export type BookResourceEntity = CharacterInventoryItem | CharacterAbility | CharacterSpell
+
+export interface BookResource {
+  id: string
+  kind: BookResourceKind
+  entity: BookResourceEntity
+}
 
 export interface BookEntry {
   id: string
@@ -14,7 +21,8 @@ export interface BookEntry {
   tags: string[]
   sourcePage?: number
   sourceFile?: string
-  entity: BookEntity
+  entity: Character | null
+  resources: BookResource[]
   updatedAt: number
 }
 
@@ -45,36 +53,53 @@ export interface BookWorkspace {
 
 const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 
-export function createEntity(kind: BookEntryKind, title: string): BookEntity {
-  if (kind === "character") {
-    const character = createEmptyCharacter()
-    character.name = title || "Nova ficha"
-    return character
-  }
+export function createResourceEntity(kind: BookResourceKind, title: string): BookResourceEntity {
   if (kind === "item") {
     return { id: makeId("item"), usage: "stored", name: title, type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
   }
   if (kind === "spell") {
     return { id: makeId("spell"), category: "Arcana", name: title, description: "", costType: "pe", costMode: "fixed", costValue: 1, costText: "1 PE", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }
   }
-  if (kind === "ability") {
-    return { id: makeId("ability"), category: "Geral", name: title, description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" }
+  return { id: makeId("ability"), category: "Geral", name: title, description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" }
+}
+
+export function createResource(kind: BookResourceKind, title: string): BookResource {
+  return { id: makeId("resource"), kind, entity: createResourceEntity(kind, title) }
+}
+
+function createCharacterEntity(title: string): Character {
+  const character = createEmptyCharacter()
+  character.name = title || "Nova ficha"
+  return character
+}
+
+function entry(id: string, chapterId: string, title: string, kind: BookEntryKind | BookResourceKind, summary: string, sourceFile: string, sourcePage?: number, content = ""): BookEntry {
+  const isCharacterKind = kind === "character"
+  const resource = kind === "item" || kind === "ability" || kind === "spell" ? { id: `${id}-resource`, kind, entity: createResourceEntity(kind, title) } : null
+  return {
+    id,
+    chapterId,
+    title,
+    kind: isCharacterKind ? "character" : "rule",
+    summary,
+    content,
+    tags: [],
+    sourceFile,
+    sourcePage,
+    entity: isCharacterKind ? createCharacterEntity(title) : null,
+    resources: resource ? [resource] : [],
+    updatedAt: Date.now(),
   }
-  return null
 }
 
-function entry(id: string, chapterId: string, title: string, kind: BookEntryKind, summary: string, sourceFile: string, sourcePage?: number, content = "") {
-  return { id, chapterId, title, kind, summary, content, tags: [], sourceFile, sourcePage, entity: createEntity(kind, title), updatedAt: Date.now() } satisfies BookEntry
-}
-
-function book(id: string, title: string, subtitle: string, accent: string, sourceFile: string, chapterSpecs: Array<[string, string, Array<[string, BookEntryKind, string, number?]>]>): BookRecord {
+function book(id: string, title: string, subtitle: string, accent: string, sourceFile: string, chapterSpecs: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]>): BookRecord {
   return { id, title, subtitle, accent, sourceFile, chapters: chapterSpecs.map(([chapterTitle, summary, entries], index) => {
     const chapterId = `${id}-chapter-${index + 1}`
     return { id: chapterId, title: chapterTitle, summary, bookId: id, order: index + 1, entries: entries.map(([title, kind, itemSummary, page], itemIndex) => entry(`${chapterId}-entry-${itemIndex + 1}`, chapterId, title, kind, itemSummary, sourceFile, page)) }
   }) }
 }
 
-const blueChapters: Array<[string, string, Array<[string, BookEntryKind, string, number?]>]> = [
+const blueChapters: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]> = [
   ["Introdução", "Visão geral do sistema, dados e primeiros passos.", [["Estatísticas", "rule", "Atributos, recursos e valores derivados.", 5], ["Combate Lite", "rule", "Ações, defesas e danos em uma leitura rápida.", 5], ["Tamanho", "rule", "Modificador de tamanho e escalas.", 7], ["Capacidade de Carga", "rule", "Limites de carga e capacidade mágica.", 7]]],
   ["Personagem", "Construção de personagens, raças, ofícios e classes.", [["Raças", "rule", "Opções de espécie para personagens.", 9], ["Ofício", "rule", "Vagabundo, andarilho e estudioso.", 10], ["Classe", "rule", "Reforço, ampliação e invocação.", 10], ["Habilidades de Classe", "ability", "Caminhos, táticas, conjurações e especializações.", 11]]],
   ["Elementos", "Afinidades, efeitos, fusões e anulações elementais.", [["Fusões Elementais", "rule", "Combinações e propriedades de elementos.", 13], ["Efeitos Elementais", "rule", "Efeitos básicos e de fusão.", 13], ["Elementos Iniciais", "rule", "Escolha e aplicação do elemento inicial.", 15]]],
@@ -90,7 +115,7 @@ const blueChapters: Array<[string, string, Array<[string, BookEntryKind, string,
   ["Runos", "Criaturas elementais do cenário.", [["Runos", "character", "Fichas e conceitos de runos.", 42]]],
 ]
 
-const redChapters: Array<[string, string, Array<[string, BookEntryKind, string, number?]>]> = [
+const redChapters: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]> = [
   ["Começando Rápido", "Resumo para começar uma aventura.", [["Passo a Passo", "rule", "Dados, criação de ficha e primeiros testes.", 4], ["Dados", "rule", "Uso de d6 e 2d10.", 4], ["Criando uma Ficha", "character", "Estrutura básica de uma ficha.", 4]]],
   ["Início", "Atributos, status e testes de habilidade.", [["Atributos", "rule", "Primários e secundários.", 6], ["Status", "rule", "PV, PA, PE, fadiga e defesas.", 6], ["Testes de Habilidade", "rule", "Regra geral para testes.", 7]]],
   ["Avançado", "Inventário, condições, doenças e recuperação.", [["Modificador de Tamanho", "rule", "MT e impacto nas fichas.", 10], ["Inventário", "rule", "Estado e carga de itens.", 10], ["Condições", "rule", "Condições e efeitos.", 11]]],
@@ -107,7 +132,7 @@ const redChapters: Array<[string, string, Array<[string, BookEntryKind, string, 
   ["Recompensas", "Dificuldades, sorte e tesouros.", [["Baú Aleatório", "item", "Recompensas de exploração.", 104], ["Moedas Lunares", "item", "Economia e recompensas.", 104]]],
 ]
 
-const whiteChapters: Array<[string, string, Array<[string, BookEntryKind, string, number?]>]> = [
+const whiteChapters: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]> = [
   ["Sobre o Mundo", "Runilis, seus continentes e os runos.", [["Como Jogar", "rule", "Introdução ao RPG e ao cenário.", 7], ["Criação Rápida de Ficha", "character", "Entrada rápida para novos jogadores.", 8]]],
   ["Personagens", "Atributos, espécies, ofícios e classes.", [["Atributos", "rule", "Fundamentos da ficha.", 10], ["Humano", "rule", "Características de humanos.", 22], ["Fauno", "rule", "Características de faunos.", 24], ["Elemental", "rule", "Características de elementais.", 25], ["Elfo", "rule", "Características de elfos.", 26], ["Fada", "rule", "Características de fadas.", 27], ["Autômato", "rule", "Características de autômatos.", 29], ["Fractus", "rule", "Características de fractus.", 30], ["Goblinóide", "rule", "Características de goblinóides.", 32], ["Gigante", "rule", "Características de gigantes.", 33], ["Anjo", "rule", "Características de anjos.", 35], ["Corrompido", "rule", "Características de corrompidos.", 36]]],
   ["Elementos", "Elementos, efeitos e domínios.", [["Os Elementos", "rule", "Afinidades e efeitos elementais.", 44], ["Ambientes Elementais", "rule", "Ambientes e domínio.", 46], ["Fusão Elemental", "rule", "Combinação de elementos.", 48]]],
@@ -120,7 +145,7 @@ const whiteChapters: Array<[string, string, Array<[string, BookEntryKind, string
   ["Runos e Mundo", "Criaturas, história e divindades.", [["Criação de Runos", "character", "Criação e balanceamento de runos.", 160], ["Mundo de Runilis", "rule", "História e regiões.", 168], ["Divindades", "rule", "Divindades e cultos.", 169]]],
 ]
 
-const cronosChapters: Array<[string, string, Array<[string, BookEntryKind, string, number?]>]> = [
+const cronosChapters: Array<[string, string, Array<[string, BookEntryKind | BookResourceKind, string, number?]>]> = [
   ["Início", "Introdução ao ciclo de vida, sincronia, memória e fama.", [["Bem-vindo a Cronos", "rule", "Apresentação do mundo e do Esquecimento."], ["Regras Gerais", "rule", "Atributos, status, testes, morte e renascimento."], ["Regras de Combate", "rule", "Ações, defesa, dano e condições."], ["Regras de Magias", "spell", "Magia, mana, elementos e conjuração."], ["Regras de Sincronia", "rule", "Evolução do vínculo com o novo corpo."], ["Tipos de Dano", "rule", "Categorias e aplicação de dano."], ["Regras de Fama", "rule", "Fama, títulos e consequências narrativas."], ["Esquecidos", "rule", "Almas apagadas pelo Esquecimento."]]],
   ["Personagens", "Fichas, memórias, títulos e arquétipos.", [["Ficha de teste", "character", "Modelo de ficha da primeira edição."], ["Memória", "ability", "Poderes trazidos da vida anterior."], ["Títulos", "ability", "Recompensas por feitos e reputação."], ["Arsenal de Ciel", "item", "Armas e equipamentos de referência."]]],
   ["Raças", "Povos e corpos disponíveis para reencarnação.", [["Humano", "rule", "Raça base de Cronos."], ["Anão", "rule", "Povo subterrâneo e artesanal."], ["Elfo Lunar", "rule", "Povo ligado à noite e à magia."], ["Elfo Solar", "rule", "Povo ligado à luz."], ["Bestial", "rule", "Híbridos de fauna e runilitas."], ["Colosso", "rule", "Corpos de escala excepcional."], ["Dopple", "rule", "Metamorfos e identidades mutáveis."], ["Serafins", "rule", "Povo de herança celestial."], ["Slime", "rule", "Corpos amorfos e adaptáveis."]]],
@@ -134,25 +159,119 @@ const cronosChapters: Array<[string, string, Array<[string, BookEntryKind, strin
 
 export function createSeedWorkspace(): BookWorkspace {
   const books = [
-    book("livro-branco", "Runas · Livro Branco", "Coleção Cromática · 1ª edição", "#d8b45a", "Runas - Livro Branco.pdf", whiteChapters),
-    book("livro-vermelho", "Runas · Livro Vermelho", "Livro de regras e expansão", "#db6f65", "Runas - Livro Vermelho.pdf", redChapters),
-    book("livro-azul", "Livro Azul", "Livro de referência", "#78a9d7", "[O&C] Livro Azul (v.2.0.).docx", blueChapters),
-    book("sagas-de-cronos", "Sagas de Cronos", "1ª Edição · sistema em adaptação", "#b39cf2", "Compilação de RPG/Cronos", cronosChapters),
+    book("livro-branco", "Runas · Livro Branco", "Coleção Cromática · 1ª edição", "#cfd6d1", "Runas - Livro Branco.pdf", whiteChapters),
+    book("livro-vermelho", "Runas · Livro Vermelho", "Livro de regras e expansão", "#a35b52", "Runas - Livro Vermelho.pdf", redChapters),
+    book("livro-azul", "Livro Azul", "Livro de referência", "#7d97a6", "[O&C] Livro Azul (v.2.0.).docx", blueChapters),
+    book("sagas-de-cronos", "Sagas de Cronos", "1ª Edição · sistema em adaptação", "#8f7fa8", "Compilação de RPG/Cronos", cronosChapters),
   ]
   return { version: 1, books, selectedBookId: null, updatedAt: Date.now() }
+}
+
+function migrateEntry(raw: unknown): BookEntry | null {
+  if (!raw || typeof raw !== "object") return null
+  const candidate = raw as Record<string, unknown>
+  if (typeof candidate.id !== "string" || typeof candidate.title !== "string" || typeof candidate.chapterId !== "string") return null
+  const legacyKind = candidate.kind as string | undefined
+  const isLegacyResourceKind = legacyKind === "item" || legacyKind === "ability" || legacyKind === "spell"
+  const resources: BookResource[] = Array.isArray(candidate.resources)
+    ? candidate.resources as BookResource[]
+    : isLegacyResourceKind && candidate.entity
+      ? [{ id: `${candidate.id}-resource`, kind: legacyKind, entity: candidate.entity as BookResourceEntity }]
+      : []
+  return {
+    id: candidate.id,
+    chapterId: candidate.chapterId,
+    title: candidate.title,
+    kind: legacyKind === "character" ? "character" : "rule",
+    summary: typeof candidate.summary === "string" ? candidate.summary : "",
+    content: typeof candidate.content === "string" ? candidate.content : "",
+    tags: Array.isArray(candidate.tags) ? candidate.tags as string[] : [],
+    sourceFile: candidate.sourceFile as string | undefined,
+    sourcePage: candidate.sourcePage as number | undefined,
+    entity: legacyKind === "character" ? (candidate.entity as Character ?? null) : null,
+    resources,
+    updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
+  }
 }
 
 export function normalizeWorkspace(value: unknown): BookWorkspace {
   if (!value || typeof value !== "object") return createSeedWorkspace()
   const candidate = value as Partial<BookWorkspace>
   if (!Array.isArray(candidate.books) || candidate.books.length === 0) return createSeedWorkspace()
-  return { version: 1, selectedBookId: typeof candidate.selectedBookId === "string" ? candidate.selectedBookId : null, updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(), books: candidate.books as BookRecord[] }
+  const books = candidate.books.map((rawBook) => {
+    const book = rawBook as BookRecord
+    return {
+      ...book,
+      chapters: (book.chapters ?? []).map((chapter) => ({
+        ...chapter,
+        entries: (chapter.entries ?? []).map(migrateEntry).filter((value): value is BookEntry => value !== null),
+      })),
+    }
+  })
+  return { version: 1, selectedBookId: typeof candidate.selectedBookId === "string" ? candidate.selectedBookId : null, updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(), books }
 }
 
 export function slugify(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "pagina"
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "pagina"
 }
 
 export function kindLabel(kind: BookEntryKind): string {
-  return { rule: "Regra", item: "Item", ability: "Habilidade", spell: "Magia", character: "Ficha" }[kind]
+  return kind === "character" ? "Ficha" : "Regra"
+}
+
+export function resourceKindLabel(kind: BookResourceKind): string {
+  return { item: "Item", ability: "Habilidade", spell: "Magia" }[kind]
+}
+
+export function findEntry(book: BookRecord, entryId: string): { chapter: BookChapter; entry: BookEntry } | null {
+  for (const chapter of book.chapters) {
+    const entry = chapter.entries.find((item) => item.id === entryId)
+    if (entry) return { chapter, entry }
+  }
+  return null
+}
+
+export function allEntries(book: BookRecord): BookEntry[] {
+  return book.chapters.flatMap((chapter) => chapter.entries)
+}
+
+/** Índice normalizado título → página, para resolver [[wikilinks]] dentro do mesmo livro. */
+export function buildPageIndex(book: BookRecord): Map<string, BookEntry> {
+  const index = new Map<string, BookEntry>()
+  for (const entry of allEntries(book)) index.set(normalizeLinkTarget(entry.title), entry)
+  return index
+}
+
+export function normalizeLinkTarget(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
+}
+
+export type WikilinkToken =
+  | { type: "text"; value: string }
+  | { type: "link"; target: string; label: string; entry: BookEntry | null }
+
+const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
+
+/** Divide o conteúdo em texto simples e alvos de [[Página]] ou [[Página|Rótulo]], ao estilo Obsidian. */
+export function parseWikilinks(content: string, index: Map<string, BookEntry>): WikilinkToken[] {
+  const tokens: WikilinkToken[] = []
+  let lastIndex = 0
+  for (const match of content.matchAll(WIKILINK_PATTERN)) {
+    const start = match.index ?? 0
+    if (start > lastIndex) tokens.push({ type: "text", value: content.slice(lastIndex, start) })
+    const target = match[1].trim()
+    tokens.push({ type: "link", target, label: (match[2] ?? target).trim(), entry: index.get(normalizeLinkTarget(target)) ?? null })
+    lastIndex = start + match[0].length
+  }
+  if (lastIndex < content.length) tokens.push({ type: "text", value: content.slice(lastIndex) })
+  return tokens
+}
+
+/** Páginas do livro cujo conteúdo referencia a página informada via [[wikilink]], ao estilo "vínculos" do Obsidian. */
+export function findBacklinks(book: BookRecord, target: BookEntry): BookEntry[] {
+  const targetKey = normalizeLinkTarget(target.title)
+  return allEntries(book).filter((candidate) => {
+    if (candidate.id === target.id) return false
+    return [...candidate.content.matchAll(WIKILINK_PATTERN)].some((match) => normalizeLinkTarget(match[1].trim()) === targetKey)
+  })
 }
