@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 
-:root { color-scheme: dark; --ink: #eef1ee; --muted: #9a9d9c; --bg: #0a0e12; --panel: #12161b; --panel-2: #171c22; --line: #2b3035; --gold: #cfd6d1; --cyan: #7d97a6; --red: #a35b52; --purple: #8f7fa8; --danger: #c06b5f; --font-display: "Metal Mania", "Cinzel", Georgia, serif; }
+:root { color-scheme: dark; --ink: #eef1ee; --muted: #9a9d9c; --bg: #0a0e12; --panel: #12161b; --panel-2: #171c22; --line: #2b3035; --gold: #cfd6d1; --cyan: #7d97a6; --red: #a35b52; --purple: #8f7fa8; --danger: #c06b5f; --font-display: "Metal Mania", "Cinzel", Georgia, serif; --book-accent: var(--gold); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 body { background-image: radial-gradient(circle at 12% -8%, rgb(255 255 255 / .05), transparent 30rem), radial-gradient(circle at 90% 6%, rgb(255 255 255 / .03), transparent 26rem), linear-gradient(180deg, #0d1115, #0a0e12 32rem); }
