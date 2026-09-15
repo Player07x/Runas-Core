@@ -18,6 +18,7 @@ import { normalizeUniverseEras } from "../lib/chronology"
 import { KnowledgeCardImage } from "./knowledge-card-image"
 import { KnowledgeGraph } from "./knowledge-graph"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
+import { ThemeToggle } from "./theme-toggle"
 
 type PortalArea = "campaigns" | "wiki"
 type AuthState = "checking" | "locked" | "ready"
@@ -461,7 +462,7 @@ function KnowledgeHeader({ area, syncState, onObsidian }: { area: PortalArea; sy
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
     <KnowledgeNavigation area={area} />
-    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
+    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><ThemeToggle /><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
   </header>
 }
 

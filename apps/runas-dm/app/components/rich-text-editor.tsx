@@ -313,7 +313,12 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
         }}
         onInput={handleEditorInput}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setWikiQuery(null)
+          // Esc aqui só deve fechar a sugestão de link; sem isso, o mesmo
+          // Esc também fecharia o modal que contém o editor.
+          if (event.key === "Escape") {
+            if (wikiQuery !== null) { event.stopPropagation(); setWikiQuery(null) }
+            return
+          }
           if (event.key === "Enter" && wikiQuery !== null && suggestedWikiTitles[0]) {
             event.preventDefault()
             insertWikiLink(suggestedWikiTitles[0])

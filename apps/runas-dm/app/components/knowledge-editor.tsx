@@ -17,6 +17,7 @@ import { ExpandableTextarea } from "./expandable-textarea"
 import { RichTextEditor } from "./rich-text-editor"
 import { fictionalYear, type UniverseEra } from "../lib/chronology"
 import { KnowledgeImagePicker } from "./knowledge-image-picker"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 
 function kindLabel(kind: string): string {
   return WIKI_SECTIONS.find((item) => item.id === kind)?.label
@@ -47,6 +48,7 @@ export function KnowledgeEditor({
   onClose: () => void
   onLaunchEncounter: (page: KnowledgePage) => void
 }) {
+  useEscapeToClose(onClose)
   const [draft, setDraft] = useState<KnowledgePage>(() => structuredClone(page))
   const [yearText, setYearText] = useState(String(page.eventYear ?? ""))
   const [tagText, setTagText] = useState(() => page.tags.join(", "))
