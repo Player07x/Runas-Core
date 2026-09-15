@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Moon, Plus, RefreshCw,
-  Search, Shield, Sparkles, Sun, Swords, Trash2, Upload, X,
+  Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Plus, RefreshCw,
+  Search, Shield, Sparkles, Swords, Trash2, Upload, X,
 } from "lucide-react"
 import { attributeGroups } from "@runas/core/data/attributes"
 import { systemSkills } from "@runas/core/data/skills"
@@ -29,11 +29,13 @@ import { loadLocalState, saveLocalState } from "../lib/storage"
 import { AdvancedSheetEditor } from "./advanced-sheet-editor"
 import { AttributeBands } from "./attribute-bands"
 import { PwaInstallCard } from "./pwa-install-card"
+import { ThemeToggle } from "./theme-toggle"
 import { clampSimpleSheetWidth, plainTextSummary } from "../lib/simple-sheet"
 import { BatchExportDialog } from "./batch-export-dialog"
 import { PortraitCropDialog } from "./portrait-crop-dialog"
 import { exportCharacterJson } from "../lib/export"
 import { createRunasDmBackup, synchronizeRunasDmState } from "../lib/backup-sync"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { BackupTokenDialog } from "./backup-token-dialog"
 import { RichTextEditor } from "./rich-text-editor"
 import { exportEncounterMarkdown, importEncounterMarkdown } from "../lib/encounter-notes"
@@ -72,7 +74,6 @@ export function DmDashboard() {
   const [editing, setEditing] = useState<BestiaryEntry | null>(null)
   const [editingActor, setEditingActor] = useState<EncounterActor | null>(null)
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null)
-  const [theme, setTheme] = useState<"light" | "dark">("dark")
   const [syncMessage, setSyncMessage] = useState("")
   const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
@@ -97,14 +98,6 @@ export function DmDashboard() {
       setSaveStatus("error")
     })
     return () => { active = false }
-  }, [])
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("runas-dm.theme")
-    const initial = savedTheme === "light" ? "light" : "dark"
-    document.documentElement.dataset.theme = initial
-    const timeout = setTimeout(() => setTheme(initial), 0)
-    return () => clearTimeout(timeout)
   }, [])
 
   useEffect(() => {
@@ -205,13 +198,6 @@ export function DmDashboard() {
   function removeActor(actorId: string) {
     updateState((current) => ({ ...current, encounter: current.encounter.filter((actor) => actor.id !== actorId) }))
     if (selectedActorId === actorId) setSelectedActorId(null)
-  }
-
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark"
-    setTheme(next)
-    document.documentElement.dataset.theme = next
-    localStorage.setItem("runas-dm.theme", next)
   }
 
   function exportWorkspace() {
@@ -346,7 +332,7 @@ export function DmDashboard() {
         </nav>
         <div className="top-actions">
           <span className={`save-state ${saveStatus}`}><i />{saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : "Salvo localmente"}</span>
-          <button className="icon-button" onClick={toggleTheme} title="Alternar tema">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+          <ThemeToggle />
           <button className="icon-button" onClick={exportWorkspace} title="Exportar backup"><Download size={18} /></button>
           <button className="icon-button" onClick={() => importRef.current?.click()} title="Importar fichas JSON ou ZIP"><Upload size={18} /></button>
           <input ref={importRef} hidden multiple type="file" accept="application/json,.json,application/zip,.zip" onChange={(event) => { void importWorkspace(Array.from(event.target.files ?? [])); event.currentTarget.value = "" }} />
@@ -357,7 +343,7 @@ export function DmDashboard() {
         <section className="workspace gallery-workspace">
           <PwaInstallCard />
           <div className="workspace-heading">
-            <div><p className="eyebrow">Galeria de fichas</p><h1>Seu bestiário, pronto para agir.</h1><p>{state.entries.length} fichas salvas sem limite artificial.</p></div>
+            <div><p className="eyebrow">Galeria de fichas</p><h1>Seu bestiário, pronto para agir.</h1><p>{state.entries.length} {state.entries.length === 1 ? "ficha salva" : "fichas salvas"}.</p></div>
             <div className="heading-actions"><button className="secondary-button" disabled={state.entries.length === 0} onClick={() => setBatchExportOpen(true)}><FileArchive size={16} /> Exportar fichas</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload size={16} /> Importar fichas</button><button className="secondary-button" onClick={() => requestCloudAction("synchronize")}><RefreshCw size={16} /> Sincronizar</button><button className="secondary-button" onClick={() => requestCloudAction("backup")}><Database size={17} /> Backup</button><button className="primary-button" onClick={createSheet}><Plus size={18} /> Nova ficha</button></div>
           </div>
           {syncMessage && <div className="inline-notice">{syncMessage}</div>}
@@ -368,7 +354,7 @@ export function DmDashboard() {
               <label className="gallery-select"><Filter size={15} /><span>Elemento</span><select value={elementFilter} onChange={(event) => setElementFilter(event.target.value)}><option value="all">Todos</option>{galleryElementOptions.map((element) => <option key={element.id} value={element.id}>{element.name}</option>)}</select></label>
               <label className="gallery-select"><ArrowUpDown size={15} /><span>Organizar</span><select value={gallerySort} onChange={(event) => setGallerySort(event.target.value as typeof gallerySort)}><option value="name">Nome (A–Z)</option><option value="affinity">Afinidade (maior)</option><option value="essences">Essências (maior)</option></select></label>
             </div>
-            <span>{filteredEntries.length} exibidas</span>
+            <span>{filteredEntries.length} {filteredEntries.length === 1 ? "exibida" : "exibidas"}</span>
           </div>
           <div className="sheet-grid">
             {filteredEntries.map((entry) => <SheetCard key={entry.id} entry={entry} onOpen={() => setEditing({ ...entry, character: cloneCharacter(entry.character) })} onAdd={() => addToEncounter(entry)} onDuplicate={() => duplicateSheet(entry)} onDelete={() => deleteSheet(entry.id)} />)}
@@ -510,6 +496,7 @@ function MassiveDamagePanel({ attacker, targets, onUpdateTarget }: { attacker: E
   const [previews, setPreviews] = useState<MassiveDamagePreview[]>([])
   const [error, setError] = useState("")
   const [choosing, setChoosing] = useState(false)
+  useEscapeToClose(() => setChoosing(false))
 
   function toggle(next: boolean) {
     setEnabled(next)
@@ -565,7 +552,7 @@ function MassiveDamagePanel({ attacker, targets, onUpdateTarget }: { attacker: E
     setChoosing(false)
   }
 
-  return <section className={`massive-damage ${enabled ? "enabled" : ""}`}><label className="massive-toggle"><input type="checkbox" checked={enabled} onChange={(event) => toggle(event.target.checked)} /><span>Massivo?</span></label>{!enabled ? <div className="massive-defaults"><p>Marque para simular o mesmo ataque em todas as fichas da mesa.</p><ModifierInput value={defaultModifier} onChange={setDefaultModifier} /><button className="secondary-button" onClick={() => setDefaultAdvancedOpen((value) => !value)}>Avançado <ChevronDown size={14} /></button>{defaultAdvancedOpen && <div className="massive-advanced-default"><NumberField label="RDF padrão" value={defaultRdf} min={0} onChange={setDefaultRdf} /><NumberField label="RDM padrão" value={defaultRdm} min={0} onChange={setDefaultRdm} /><label className="check-row"><input type="checkbox" checked={defaultMtEnabled} onChange={(event) => setDefaultMtEnabled(event.target.checked)} /> Aplicar MT do alvo</label><NumberField label="MT padrão" value={defaultMtValue} onChange={setDefaultMtValue} /></div>}</div> : <><label className="massive-expression"><span>Dano massivo</span><input value={expression} onChange={(event) => { setExpression(event.target.value); setPreviews([]) }} /></label><div className="massive-targets">{targets.map((target) => { const config = settings[target.id]; if (!config) return null; return <article key={target.id}><label className="massive-target-name"><input type="checkbox" checked={config.selected} onChange={(event) => updateSetting(target.id, { selected: event.target.checked })} /><span>{target.character.name} #{target.copyNumber}</span></label><ConfigurationButtons modifierOpen={config.modifierOpen} advancedOpen={config.advancedOpen} onModifier={() => updateSetting(target.id, { modifierOpen: !config.modifierOpen })} onAdvanced={() => updateSetting(target.id, { advancedOpen: !config.advancedOpen })} />{config.modifierOpen && <ModifierInput value={config.modifier} onChange={(modifier) => updateSetting(target.id, { modifier })} />}{config.advancedOpen && <div className="massive-target-advanced"><NumberField label="RDF" value={config.rdf} min={0} onChange={(rdf) => updateSetting(target.id, { rdf })} /><NumberField label="RDM" value={config.rdm} min={0} onChange={(rdm) => updateSetting(target.id, { rdm })} /><label className="check-row"><input type="checkbox" checked={config.mtEnabled} onChange={(event) => updateSetting(target.id, { mtEnabled: event.target.checked })} /> Aplicar MT</label><NumberField label="MT" value={config.mtValue} onChange={(mtValue) => updateSetting(target.id, { mtValue })} /></div>}</article> })}</div><button className="execute-button damage" onClick={simulate}>Simular dano em todas</button>{error && <p className="massive-error">{error}</p>}{previews.length > 0 && <div className="massive-results">{previews.map((preview) => <article key={preview.actor.id}><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><span>{preview.detail}</span></article>)}<div><button className="execute-button confirm" onClick={() => applySelected(previews.map((preview) => ({ ...preview, apply: true })))}>Aplicar em Todas</button><button className="secondary-button" onClick={() => setChoosing(true)}>Escolher Aplicação</button></div></div>}</>}{choosing && <div className="massive-popup-backdrop"><div className="massive-popup" role="dialog" aria-modal="true" aria-labelledby="massive-popup-title"><header><div><p className="eyebrow">Aplicação seletiva</p><h3 id="massive-popup-title">Escolher fichas</h3></div><button className="icon-button" onClick={() => setChoosing(false)}><X size={17} /></button></header><div>{previews.map((preview) => { const snapshot = calculateCharacterStatSnapshot(preview.actor.character.attributes, preview.actor.character.info, preview.actor.character.stats, preview.actor.character.skills, preview.actor.character.abilities); return <label key={preview.actor.id}><input type="checkbox" checked={preview.apply} onChange={(event) => setPreviews((current) => current.map((item) => item.actor.id === preview.actor.id ? { ...item, apply: event.target.checked } : item))} /><span><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><small>PV {preview.actor.character.stats.pv}/{snapshot.pvMax} · PA {preview.actor.character.stats.pa}/{snapshot.paMax} +{preview.actor.character.stats.paExtra} extra · PE {preview.actor.character.stats.pe}/{snapshot.peMax} +{preview.actor.character.stats.peTemporary} temporário</small></span></label> })}</div><footer><button className="secondary-button" onClick={() => setChoosing(false)}>Cancelar</button><button className="primary-button" onClick={() => applySelected(previews)}>Aplicar selecionadas</button></footer></div></div>}</section>
+  return <section className={`massive-damage ${enabled ? "enabled" : ""}`}><label className="massive-toggle"><input type="checkbox" checked={enabled} onChange={(event) => toggle(event.target.checked)} /><span>Massivo?</span></label>{!enabled ? <div className="massive-defaults"><p>Marque para simular o mesmo ataque em todas as fichas da mesa.</p><ModifierInput value={defaultModifier} onChange={setDefaultModifier} /><button className="secondary-button" onClick={() => setDefaultAdvancedOpen((value) => !value)}>Avançado <ChevronDown size={14} /></button>{defaultAdvancedOpen && <div className="massive-advanced-default"><NumberField label="RDF padrão" value={defaultRdf} min={0} onChange={setDefaultRdf} /><NumberField label="RDM padrão" value={defaultRdm} min={0} onChange={setDefaultRdm} /><label className="check-row"><input type="checkbox" checked={defaultMtEnabled} onChange={(event) => setDefaultMtEnabled(event.target.checked)} /> Aplicar MT do alvo</label><NumberField label="MT padrão" value={defaultMtValue} onChange={setDefaultMtValue} /></div>}</div> : <><label className="massive-expression"><span>Dano massivo</span><input value={expression} onChange={(event) => { setExpression(event.target.value); setPreviews([]) }} /></label><div className="massive-targets">{targets.map((target) => { const config = settings[target.id]; if (!config) return null; return <article key={target.id}><label className="massive-target-name"><input type="checkbox" checked={config.selected} onChange={(event) => updateSetting(target.id, { selected: event.target.checked })} /><span>{target.character.name} #{target.copyNumber}</span></label><ConfigurationButtons modifierOpen={config.modifierOpen} advancedOpen={config.advancedOpen} onModifier={() => updateSetting(target.id, { modifierOpen: !config.modifierOpen })} onAdvanced={() => updateSetting(target.id, { advancedOpen: !config.advancedOpen })} />{config.modifierOpen && <ModifierInput value={config.modifier} onChange={(modifier) => updateSetting(target.id, { modifier })} />}{config.advancedOpen && <div className="massive-target-advanced"><NumberField label="RDF" value={config.rdf} min={0} onChange={(rdf) => updateSetting(target.id, { rdf })} /><NumberField label="RDM" value={config.rdm} min={0} onChange={(rdm) => updateSetting(target.id, { rdm })} /><label className="check-row"><input type="checkbox" checked={config.mtEnabled} onChange={(event) => updateSetting(target.id, { mtEnabled: event.target.checked })} /> Aplicar MT</label><NumberField label="MT" value={config.mtValue} onChange={(mtValue) => updateSetting(target.id, { mtValue })} /></div>}</article> })}</div><button className="execute-button damage" onClick={simulate}>Simular dano em todas</button>{error && <p className="massive-error">{error}</p>}{previews.length > 0 && <div className="massive-results">{previews.map((preview) => <article key={preview.actor.id}><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><span>{preview.detail}</span></article>)}<div><button className="execute-button confirm" onClick={() => applySelected(previews.map((preview) => ({ ...preview, apply: true })))}>Aplicar em Todas</button><button className="secondary-button" onClick={() => setChoosing(true)}>Escolher Aplicação</button></div></div>}</>}{choosing && <div className="massive-popup-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setChoosing(false) }}><div className="massive-popup" role="dialog" aria-modal="true" aria-labelledby="massive-popup-title"><header><div><p className="eyebrow">Aplicação seletiva</p><h3 id="massive-popup-title">Escolher fichas</h3></div><button className="icon-button" onClick={() => setChoosing(false)}><X size={17} /></button></header><div>{previews.map((preview) => { const snapshot = calculateCharacterStatSnapshot(preview.actor.character.attributes, preview.actor.character.info, preview.actor.character.stats, preview.actor.character.skills, preview.actor.character.abilities); return <label key={preview.actor.id}><input type="checkbox" checked={preview.apply} onChange={(event) => setPreviews((current) => current.map((item) => item.actor.id === preview.actor.id ? { ...item, apply: event.target.checked } : item))} /><span><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><small>PV {preview.actor.character.stats.pv}/{snapshot.pvMax} · PA {preview.actor.character.stats.pa}/{snapshot.paMax} +{preview.actor.character.stats.paExtra} extra · PE {preview.actor.character.stats.pe}/{snapshot.peMax} +{preview.actor.character.stats.peTemporary} temporário</small></span></label> })}</div><footer><button className="secondary-button" onClick={() => setChoosing(false)}>Cancelar</button><button className="primary-button" onClick={() => applySelected(previews)}>Aplicar selecionadas</button></footer></div></div>}</section>
 }
 
 function QuickActions({ actor, targets, onUpdate, onUpdateTarget }: { actor: EncounterActor; targets: EncounterActor[]; onUpdate: (character: Character) => void; onUpdateTarget: (id: string, character: Character) => void }) {
@@ -776,6 +763,7 @@ function ModifierInput({ value, onChange }: { value: string; onChange: (value: s
 }
 
 function SheetEditor({ entry, tables, onClose, onSave, onTablesChange }: { entry: BestiaryEntry; tables: MasteryTable[]; onClose: () => void; onSave: (entry: BestiaryEntry) => void; onTablesChange: (tables: MasteryTable[]) => void }) {
+  useEscapeToClose(onClose)
   const [character, setCharacter] = useState(() => cloneCharacter(entry.character))
   const [tab, setTab] = useState<"simple" | "advanced">("simple")
   const [tableId, setTableId] = useState(() => tables.some((table) => table.id === entry.masteryTableId) ? entry.masteryTableId : "default")
@@ -990,7 +978,7 @@ function SimpleItemDetails({ item, character, mutate }: { item: Character["inven
 }
 
 function LinkedPanel({ title, count, actions, children, className = "", listClassName = "linked-list" }: { title: string; count: number; actions: React.ReactNode; children: React.ReactNode; className?: string; listClassName?: string }) {
-  return <div className={`linked-panel ${className}`}><header><div><strong>{title}</strong><span>{count} vinculados</span></div>{actions}</header><div className={listClassName}>{children}</div></div>
+  return <div className={`linked-panel ${className}`}><header><div><strong>{title}</strong><span>{count} {count === 1 ? "vinculado" : "vinculados"}</span></div>{actions}</header><div className={listClassName}>{children}</div></div>
 }
 
 function assignById<T extends { id: string }>(items: T[], itemId: string, updates: Partial<T>) { const item = items.find((candidate) => candidate.id === itemId); if (item) Object.assign(item, updates) }

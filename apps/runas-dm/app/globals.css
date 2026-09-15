@@ -1,21 +1,19 @@
 @import "tailwindcss";
 
+/* Só `--shadow` mora aqui: as demais variáveis eram sempre sobrescritas pela
+   paleta "Livro Vermelho" definida mais abaixo e ficavam mortas no arquivo. */
 :root {
-  --bg: #081012; --bg-deep: #05090a; --panel: #0e191b; --panel-2: #142326; --panel-hover: #192b2e;
-  --text: #ecf7f6; --muted: #92a9a8; --line: #263b3d; --line-strong: #385a5d;
-  --cyan: #78e7e9; --cyan-dim: #2d969a; --green: #8ae78a; --red: #ff786f; --gold: #e4c760; --violet: #b69af1;
   --shadow: 0 24px 70px rgb(0 0 0 / 35%);
 }
 :root[data-theme="light"] {
-  --bg: #f1eee6; --bg-deep: #e6e0d4; --panel: #fbfaf6; --panel-2: #f1eee7; --panel-hover: #e9f1ef;
-  --text: #172527; --muted: #647777; --line: #d3d1c8; --line-strong: #a8bbb8;
-  --cyan: #087d83; --cyan-dim: #2d969a; --green: #367f43; --red: #bb413b; --gold: #9d7c16; --violet: #7054a8;
   --shadow: 0 24px 70px rgb(56 50 38 / 15%);
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); color-scheme: dark; }
 html[data-theme="light"] { color-scheme: light; }
 body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: var(--font-sans), system-ui, sans-serif; }
+/* Trava a rolagem do conteúdo por trás enquanto qualquer diálogo está aberto. */
+body:has(.modal-backdrop, .knowledge-modal-backdrop, .record-modal-backdrop, .massive-popup-backdrop) { overflow: hidden; }
 button, input, select, textarea { font: inherit; }
 input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; -webkit-appearance: none; }

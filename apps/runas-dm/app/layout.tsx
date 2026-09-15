@@ -15,6 +15,12 @@ export const metadata: Metadata = {
   },
 }
 
+// Aplica o tema salvo antes da primeira pintura, para qualquer rota (Bestiário,
+// Mesa, Campanhas ou Wiki) — sem isso, cada página precisaria repetir a leitura
+// do localStorage em seu próprio efeito e ainda assim piscaria o tema escuro
+// padrão por um instante.
+const themeInitScript = `try{document.documentElement.dataset.theme=localStorage.getItem("runas-dm.theme")==="light"?"light":"dark"}catch(e){}`
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR" data-theme="dark" suppressHydrationWarning><body className={`${geist.variable} ${geistMono.variable}`}>{children}<ServiceWorkerRegistration /></body></html>
+  return <html lang="pt-BR" data-theme="dark" suppressHydrationWarning><body className={`${geist.variable} ${geistMono.variable}`}><script dangerouslySetInnerHTML={{ __html: themeInitScript }} />{children}<ServiceWorkerRegistration /></body></html>
 }

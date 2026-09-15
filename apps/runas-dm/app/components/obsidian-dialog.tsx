@@ -5,6 +5,7 @@ import { Check, Download, FolderOpen, FolderPlus, Power, RefreshCw, Settings2, X
 import type { KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { exportKnowledgeZip, type VaultSyncResult } from "../lib/obsidian-sync"
 import { localVaultName, selectLocalVault, supportsLocalVault, syncWorkspaceToLocalVault } from "../lib/local-vault"
+import { useEscapeToClose } from "../lib/use-escape-to-close"
 
 export interface ObsidianPreferences {
   enabled: boolean
@@ -33,6 +34,7 @@ function resultMessage(result: VaultSyncResult): string {
 }
 
 export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateChange }: { state: KnowledgeWorkspaceState; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void }) {
+  useEscapeToClose(onClose)
   const [preferences, setPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
   const [message, setMessage] = useState("")
   const [working, setWorking] = useState(false)
