@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Upload, WandSparkles, X } from "lucide-react"
+import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Trash2, Upload, WandSparkles, X } from "lucide-react"
 import { RuneMark } from "./rune-mark"
 import { allEntries, createSeedWorkspace, findEntry, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
 import { BookSidebar } from "./book-sidebar"
@@ -164,6 +164,30 @@ export function BookApp({ mode }: { mode: Mode }) {
     setWorkspace((current) => ({ ...current, books: [...current.books, next], selectedBookId: id, updatedAt: Date.now() }))
     setNav({ bookId: id, chapterId: null, entryId: null, mode: "topic" })
     setNewBookTitle(""); setShowBooks(false); setNotice("Livro criado")
+  }
+
+  function removeBook(bookId: string) {
+    const target = workspace.books.find((item) => item.id === bookId)
+    if (!target) return
+    if (workspace.books.length <= 1) { setNotice("Não é possível excluir o único livro."); return }
+    const pageCount = target.chapters.reduce((count, item) => count + item.entries.length, 0)
+    const confirmMessage = pageCount > 0
+      ? `Excluir o livro "${target.title}" e ${target.chapters.length === 1 ? "seu tópico" : `seus ${target.chapters.length} tópicos`} (${pageCount} ${pageCount === 1 ? "página" : "páginas"})? Essa ação não pode ser desfeita.`
+      : `Excluir o livro "${target.title}"? Essa ação não pode ser desfeita.`
+    if (!window.confirm(confirmMessage)) return
+    const remaining = workspace.books.filter((item) => item.id !== bookId)
+    const fallbackId = remaining[0]?.id ?? null
+    setWorkspace((current) => ({
+      ...current,
+      books: current.books.filter((item) => item.id !== bookId),
+      selectedBookId: current.selectedBookId === bookId ? fallbackId : current.selectedBookId,
+      updatedAt: Date.now(),
+    }))
+    if (nav.bookId === bookId) {
+      const fallbackBook = remaining[0]
+      setNav({ bookId: fallbackId, chapterId: fallbackBook?.chapters[0]?.id ?? null, entryId: null, mode: "topic" })
+    }
+    setNotice("Livro excluído")
   }
 
   function addChapter() {
@@ -339,7 +363,7 @@ export function BookApp({ mode }: { mode: Mode }) {
     <header className="book-topbar">
       <button className="icon-link sidebar-toggle" onClick={() => setSidebarOpen((current) => !current)} aria-label="Alternar índice"><Menu size={20} /></button>
       <a className="book-brand" href="/"><span className="brand-mark"><RuneMark size={16} /></span><span><strong>Runas Book</strong><small>Biblioteca de regras</small></span></a>
-      <button className="book-switcher" onClick={goToBooks}><Library size={16} /> {book.title}<ChevronRight size={15} /></button>
+      <button className="book-switcher" onClick={goToBooks}><Library size={16} /><span className="book-switcher-title">{book.title}</span><ChevronRight size={15} /></button>
       <div className="top-actions">
         <a href={mode === "dm" ? "/" : "/dm"} className="ghost-link">{mode === "dm" ? "Abrir leitura" : "Área DM"}</a>
         <button className="icon-link" onClick={() => setShowExportDialog(true)} title="Exportar livro"><FileType2 size={18} /></button>
@@ -370,7 +394,10 @@ export function BookApp({ mode }: { mode: Mode }) {
     </div>
     <footer className="book-footer"><span>Runas Book · conteúdo estruturado e exportável</span><span>{book.chapters.length} tópicos · {book.chapters.reduce((count, item) => count + item.entries.length, 0)} páginas</span></footer>
 
-    {showBooks && <div className="modal-backdrop" onMouseDown={() => setShowBooks(false)}><section className="modal-card book-picker" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">Biblioteca</p><h2>Escolha um livro</h2></div><button className="icon-link" onClick={() => setShowBooks(false)}><X size={18} /></button></header><div className="book-list">{workspace.books.map((item) => <button key={item.id} onClick={() => selectBook(item.id)}><span className="book-dot" style={{ background: item.accent }} /><span><strong>{item.title}</strong><small>{item.subtitle} · {item.chapters.length} tópicos</small></span><ChevronRight size={17} /></button>)}</div>{mode === "dm" && <div className="new-book-row"><input value={newBookTitle} onChange={(event) => setNewBookTitle(event.target.value)} placeholder="Nome de um novo livro" /><button className="primary-action" onClick={addBook}><Plus size={16} /> Cadastrar</button></div>}</section></div>}
+    {showBooks && <div className="modal-backdrop" onMouseDown={() => setShowBooks(false)}><section className="modal-card book-picker" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">Biblioteca</p><h2>Escolha um livro</h2></div><button className="icon-link" onClick={() => setShowBooks(false)}><X size={18} /></button></header><div className="book-list">{workspace.books.map((item) => <div key={item.id} className="book-list-row">
+      <button className="book-list-select" onClick={() => selectBook(item.id)}><span className="book-dot" style={{ background: item.accent }} /><span><strong>{item.title}</strong><small>{item.subtitle} · {item.chapters.length} tópicos</small></span><ChevronRight size={17} /></button>
+      {mode === "dm" && <button className="book-delete" onClick={() => removeBook(item.id)} title="Excluir livro" aria-label="Excluir livro"><Trash2 size={15} /></button>}
+    </div>)}</div>{mode === "dm" && <div className="new-book-row"><input value={newBookTitle} onChange={(event) => setNewBookTitle(event.target.value)} placeholder="Nome de um novo livro" /><button className="primary-action" onClick={addBook}><Plus size={16} /> Cadastrar</button></div>}</section></div>}
 
     {showChapterEditor && <div className="modal-backdrop" onMouseDown={() => setShowChapterEditor(false)}><section className="modal-card" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">Estrutura</p><h2>Novo tópico</h2></div><button className="icon-link" onClick={() => setShowChapterEditor(false)}><X size={18} /></button></header><input className="form-input" value={newChapterTitle} onChange={(event) => setNewChapterTitle(event.target.value)} placeholder="Ex.: Regras de combate" autoFocus /><button className="primary-action full" onClick={addChapter}><Plus size={16} /> Criar tópico</button></section></div>}
 

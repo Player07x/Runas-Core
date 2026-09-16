@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
-import { Check, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react"
-import { createResource, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
+import { useRef, useState } from "react"
+import { Check, Plus, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react"
+import { parseCharacterFile } from "@runas/core/lib/characterStorage"
+import { createResource, parseResourceImport, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
 import { ResourceEditorDialog } from "./resource-panel"
 import { RichTextEditor } from "./rich-text-editor"
 
@@ -14,14 +15,55 @@ interface Props {
   onDelete: () => void
 }
 
+function tryParse<T>(read: () => T): T | null {
+  try {
+    return read()
+  } catch {
+    return null
+  }
+}
+
 export function PageEditor({ entry, pageTitles, onSave, onCancel, onDelete }: Props) {
   const [draft, setDraft] = useState<BookEntry>(() => ({ ...entry, resources: entry.resources.map((resource) => ({ ...resource })) }))
   const [editingResource, setEditingResource] = useState<BookResource | null>(null)
+  const [importMessage, setImportMessage] = useState("")
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   function addResource(kind: BookResourceKind) {
     const resource = createResource(kind, "Novo registro")
     setDraft((current) => ({ ...current, resources: [...current.resources, resource] }))
     setEditingResource(resource)
+  }
+
+  async function importFiles(fileList: FileList | null) {
+    const files = Array.from(fileList ?? [])
+    if (files.length === 0) return
+    let resourceCount = 0
+    let characterName = ""
+    let ignored = 0
+
+    for (const file of files) {
+      const text = await file.text()
+      const resources = tryParse(() => parseResourceImport(text))
+      if (resources) {
+        setDraft((current) => ({ ...current, resources: [...current.resources, ...resources] }))
+        resourceCount += resources.length
+        continue
+      }
+      const character = tryParse(() => parseCharacterFile(text))
+      if (character) {
+        setDraft((current) => ({ ...current, kind: "character", entity: character }))
+        characterName = character.name || "Ficha sem nome"
+        continue
+      }
+      ignored += 1
+    }
+
+    const parts: string[] = []
+    if (characterName) parts.push(`ficha "${characterName}" importada`)
+    if (resourceCount > 0) parts.push(`${resourceCount} ${resourceCount === 1 ? "recurso importado" : "recursos importados"}`)
+    if (ignored > 0) parts.push(`${ignored} ${ignored === 1 ? "arquivo ignorado" : "arquivos ignorados"} (formato não reconhecido)`)
+    setImportMessage(parts.length > 0 ? parts.join(" · ") : "Nenhuma ficha ou recurso do Runas foi encontrado nos arquivos selecionados.")
   }
 
   function saveResource(next: BookResource) {
@@ -54,7 +96,11 @@ export function PageEditor({ entry, pageTitles, onSave, onCancel, onDelete }: Pr
         <button className="outline-action" onClick={() => addResource("item")}><Plus size={15} /> Item</button>
         <button className="outline-action" onClick={() => addResource("ability")}><Sparkles size={15} /> Habilidade</button>
         <button className="outline-action" onClick={() => addResource("spell")}><Wand2 size={15} /> Magia</button>
+        <button className="outline-action" onClick={() => importInputRef.current?.click()}><Upload size={15} /> Importar arquivo</button>
       </div>
+      <input ref={importInputRef} type="file" accept="application/json,.json" multiple hidden onChange={(event) => { void importFiles(event.target.files); event.currentTarget.value = "" }} />
+      {importMessage && <p className="content-source import-message">{importMessage}</p>}
+      <p className="content-source">Aceita uma ficha .json completa (Runas Tools/DM) ou um recurso exportado pelo Runas Book (item, habilidade ou magia).</p>
     </section>
 
     <div className="editor-actions page-editor-actions">

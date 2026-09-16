@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { CHARACTER_VERSION } from "../src/types/character"
-import { createEmptyCharacter, normalizeCharacter, parseCharacterFile } from "../src/lib/characterStorage"
+import { createEmptyCharacter, normalizeAbilities, normalizeCharacter, normalizeInventory, normalizeSpells, parseCharacterFile } from "../src/lib/characterStorage"
 
 describe("characterStorage compartilhado", () => {
   it("preserva ids e vínculos ao normalizar uma exportação do Runas Tools", () => {
@@ -29,5 +29,15 @@ describe("characterStorage compartilhado", () => {
     character.inventory.push({ id: "innate", usage: "stored", name: "Garras", type: "innate", affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" })
     const normalized = normalizeCharacter(character)
     expect(normalized.inventory[0]).toMatchObject({ type: "innate", usage: "equipped", baseWeight: 0 })
+  })
+
+  it("normaliza item, habilidade e magia soltos, fora de uma ficha (importação de um único recurso)", () => {
+    const [item] = normalizeInventory([{ name: "Adaga" } as never], CHARACTER_VERSION)
+    const [ability] = normalizeAbilities([{ name: "Golpe Rápido", costType: "pa", costValue: 2 } as never])
+    const [spell] = normalizeSpells([{ name: "Bola de Fogo", magicType: "spell", rangeType: "area" } as never])
+
+    expect(item).toMatchObject({ name: "Adaga", type: "other", usage: "stored", quantity: 1 })
+    expect(ability).toMatchObject({ name: "Golpe Rápido", costType: "pa", costValue: 2 })
+    expect(spell).toMatchObject({ name: "Bola de Fogo", magicType: "spell", rangeType: "area" })
   })
 })

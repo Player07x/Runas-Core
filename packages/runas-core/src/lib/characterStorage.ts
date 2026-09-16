@@ -198,7 +198,7 @@ function normalizeBonds(partialBonds: CharacterBond[] | undefined): CharacterBon
 
 const abilityCostTypes = new Set<AbilityCostType>(["none", "other", "pv", "pa", "pe", "paExtra", "peTemporary"])
 
-function normalizeAbilities(partialAbilities: CharacterAbility[] | undefined): CharacterAbility[] {
+export function normalizeAbilities(partialAbilities: CharacterAbility[] | undefined): CharacterAbility[] {
   const source = Array.isArray(partialAbilities) ? partialAbilities : []
   const usedIds = new Set<string>()
 
@@ -230,7 +230,7 @@ function normalizeAbilities(partialAbilities: CharacterAbility[] | undefined): C
 const spellMagicTypes = new Set<SpellMagicType>(["aura", "quick", "spell", "ritual", "enchantment"])
 const spellRangeTypes = new Set<SpellRangeType>(["touch", "personal", "projectile", "targets", "area"])
 
-function normalizeSpells(partialSpells: CharacterSpell[] | undefined): CharacterSpell[] {
+export function normalizeSpells(partialSpells: CharacterSpell[] | undefined): CharacterSpell[] {
   const source = Array.isArray(partialSpells) ? partialSpells : []
   const usedIds = new Set<string>()
 
@@ -293,7 +293,7 @@ const inventoryItemTypes = new Set<InventoryItemType>([
   "innate", "weapon", "armor", "shield", "artifact", "material", "consumable", "tool", "utility", "accessory", "currency", "other",
 ])
 
-function normalizeInventory(partialItems: CharacterInventoryItem[] | undefined, sourceVersion: number): CharacterInventoryItem[] {
+export function normalizeInventory(partialItems: CharacterInventoryItem[] | undefined, sourceVersion: number): CharacterInventoryItem[] {
   const source = Array.isArray(partialItems) ? partialItems : []
   const usedIds = new Set<string>()
   let equippedArmorFound = false
