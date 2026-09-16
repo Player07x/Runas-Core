@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, FileText, Plus } from "lucide-react"
+import { ChevronRight, FileText, Plus, Trash2 } from "lucide-react"
 import type { BookChapter, BookRecord } from "../lib/book-model"
 
 interface Props {
@@ -14,9 +14,10 @@ interface Props {
   onSelectEntry: (chapterId: string, entryId: string) => void
   onAddChapter: () => void
   onAddEntry: (chapterId: string) => void
+  onDeleteChapter: (chapterId: string) => void
 }
 
-export function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntryId, onToggleChapter, onSelectChapter, onSelectEntry, onAddChapter, onAddEntry }: Props) {
+export function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntryId, onToggleChapter, onSelectChapter, onSelectEntry, onAddChapter, onAddEntry, onDeleteChapter }: Props) {
   const chapters = [...book.chapters].sort((left: BookChapter, right: BookChapter) => left.order - right.order)
   return <aside className="book-sidebar">
     <div className="sidebar-heading"><span>Tópicos</span>{isDm && <button className="mini-action" onClick={onAddChapter} title="Novo tópico"><Plus size={15} /></button>}</div>
@@ -29,6 +30,7 @@ export function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntry
             <button className="topic-toggle" onClick={() => onToggleChapter(chapter.id)} aria-label={isOpen ? "Recolher tópico" : "Expandir tópico"}><ChevronRight size={15} className={isOpen ? "chevron open" : "chevron"} /></button>
             <button className="topic-label" onClick={() => onSelectChapter(chapter.id)}>{chapter.title}</button>
             {isDm && <button className="topic-add" onClick={() => onAddEntry(chapter.id)} title="Nova página neste tópico"><Plus size={13} /></button>}
+            {isDm && <button className="topic-delete" onClick={() => onDeleteChapter(chapter.id)} title="Excluir tópico"><Trash2 size={13} /></button>}
           </div>
           {isOpen && <div className="page-list">
             {chapter.entries.length === 0 && <p className="page-list-empty">Sem páginas ainda.</p>}

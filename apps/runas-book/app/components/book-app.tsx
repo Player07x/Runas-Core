@@ -177,6 +177,25 @@ export function BookApp({ mode }: { mode: Mode }) {
     openTopic(id)
   }
 
+  function removeChapter(chapterId: string) {
+    if (!book) return
+    const target = book.chapters.find((item) => item.id === chapterId)
+    if (!target) return
+    const pageCount = target.entries.length
+    const confirmMessage = pageCount > 0
+      ? `Excluir o tópico "${target.title}" e ${pageCount === 1 ? "a página dele" : `as ${pageCount} páginas dele`}? Essa ação não pode ser desfeita.`
+      : `Excluir o tópico "${target.title}"? Essa ação não pode ser desfeita.`
+    if (!window.confirm(confirmMessage)) return
+    const remainingChapters = book.chapters.filter((item) => item.id !== chapterId)
+    setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, chapters: item.chapters.filter((chapterItem) => chapterItem.id !== chapterId) } : item), updatedAt: Date.now() }))
+    setExpanded((current) => { const next = new Set(current); next.delete(chapterId); return next })
+    if (nav.chapterId === chapterId) {
+      const fallback = remainingChapters[0]
+      setNav({ bookId: book.id, chapterId: fallback?.id ?? null, entryId: null, mode: "topic" })
+    }
+    setNotice("Tópico excluído")
+  }
+
   function openNewPage(chapterId: string) {
     setNav((current) => ({ ...current, chapterId }))
     setNewPageTitle(""); setNewPageKind("rule"); setShowNewPage(true)
@@ -331,7 +350,7 @@ export function BookApp({ mode }: { mode: Mode }) {
       </div>
     </header>
     <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={() => setShowChapterEditor(true)} onAddEntry={openNewPage} />
+      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={() => setShowChapterEditor(true)} onAddEntry={openNewPage} onDeleteChapter={removeChapter} />
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Fechar índice" />}
       <section className="book-content">
         {nav.mode === "edit" && entry && <PageEditor entry={entry} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
