@@ -149,6 +149,15 @@ describe("Obsidian export", () => {
     expect(isIgnoredVaultPath("Geografia/Campanhas/Cidade.md")).toBe(false)
   })
 
+  it("só reconhece uma pasta de seção quando ela está na raiz do vault", () => {
+    // Runas-Book é outro app que pode compartilhar o mesmo vault; uma pasta
+    // "Personagens" dentro dele não é a pasta raiz "Personagens" da Wiki.
+    expect(isIgnoredVaultPath("Runas-Book/Personagens/Martim.md")).toBe(true)
+    const markdown = "# Martim\n\nPersonagem de outro app, fora da raiz do vault.\n"
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Outra Pasta/Personagens/Martim.md", markdown, createdAt: 1, modifiedAt: 1 }])
+    expect(merged.state.pages.find((page) => page.title === "Martim")?.kind).not.toBe("characters")
+  })
+
   it("decodifica uma data URL em vez de depender de fetch, que o CSP bloqueia para o esquema data:", () => {
     const blob = dataUrlToBlob("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
     expect(blob.type).toBe("image/png")

@@ -224,6 +224,36 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
   }
 }
 
+export type CloudImportMode = "merge" | "replace"
+
+/**
+ * Importação manual de um backup da nuvem (nunca automática). "replace"
+ * descarta o estado local por inteiro e adota o backup. "merge" reescreve
+ * pelo `id` os registros que também existem no backup, cria os que só
+ * existem no backup e preserva os que só existem localmente — exceto um
+ * registro já apagado localmente (`local.deletedIds`), que um backup antigo
+ * não deve ressuscitar.
+ */
+export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unknown, mode: CloudImportMode): KnowledgeWorkspaceState {
+  const backup = normalizeKnowledgeWorkspace(rawBackup)
+  if (mode === "replace") return backup
+  const deleted = new Set(local.deletedIds)
+  const mergeById = <T extends { id: string }>(localItems: T[], backupItems: T[]): T[] => {
+    const kept = backupItems.filter((item) => !deleted.has(item.id))
+    const backupIds = new Set(kept.map((item) => item.id))
+    return [...kept, ...localItems.filter((item) => !backupIds.has(item.id))]
+  }
+  return {
+    version: 2,
+    eras: normalizeUniverseEras(backup.eras ?? local.eras),
+    campaigns: mergeById(local.campaigns, backup.campaigns),
+    categories: mergeById(local.categories, backup.categories),
+    pages: mergeById(local.pages, backup.pages),
+    deletedIds: local.deletedIds,
+    updatedAt: Date.now(),
+  }
+}
+
 export function normalizeMissionOrder(value: unknown): string {
   const order = String(value ?? "").trim().replace(",", ".")
   return /^\d+(?:\.\d+)?$/.test(order) ? order : ""

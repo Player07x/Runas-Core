@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CAMPAIGN_STATUSES, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -89,5 +89,49 @@ describe("knowledge model", () => {
     })
     expect(state.campaigns).toHaveLength(0)
     expect(state.pages.map((page) => page.id)).toEqual(["page-2"])
+  })
+
+  it("importação manual 'Sincronizar' reescreve com o backup, cria o que só existe nele e preserva o que só existe local", () => {
+    const local = normalizeKnowledgeWorkspace({
+      updatedAt: 10,
+      campaigns: [
+        { id: "shared", title: "Versão local", createdAt: 1, updatedAt: 10 },
+        { id: "local-only", title: "Só local", createdAt: 1, updatedAt: 10 },
+      ],
+    })
+    const backup = normalizeKnowledgeWorkspace({
+      updatedAt: 5,
+      campaigns: [
+        { id: "shared", title: "Versão do backup", createdAt: 1, updatedAt: 5 },
+        { id: "backup-only", title: "Só no backup", createdAt: 1, updatedAt: 5 },
+      ],
+    })
+    const merged = applyCloudBackup(local, backup, "merge")
+    expect(merged.campaigns.find((campaign) => campaign.id === "shared")?.title).toBe("Versão do backup")
+    expect(merged.campaigns.map((campaign) => campaign.id).sort()).toEqual(["backup-only", "local-only", "shared"])
+  })
+
+  it("importação manual 'Sincronizar' não ressuscita um registro já apagado localmente", () => {
+    const local = normalizeKnowledgeWorkspace({ updatedAt: 10, campaigns: [], deletedIds: ["campaign-1"] })
+    const backup = normalizeKnowledgeWorkspace({
+      updatedAt: 5,
+      campaigns: [{ id: "campaign-1", title: "Lion Heart", createdAt: 1, updatedAt: 5 }],
+    })
+    const merged = applyCloudBackup(local, backup, "merge")
+    expect(merged.campaigns).toHaveLength(0)
+    expect(merged.deletedIds).toContain("campaign-1")
+  })
+
+  it("importação manual 'Substituir tudo' descarta o que só existe localmente", () => {
+    const local = normalizeKnowledgeWorkspace({
+      updatedAt: 10,
+      campaigns: [{ id: "local-only", title: "Só local", createdAt: 1, updatedAt: 10 }],
+    })
+    const backup = normalizeKnowledgeWorkspace({
+      updatedAt: 5,
+      campaigns: [{ id: "backup-only", title: "Só no backup", createdAt: 1, updatedAt: 5 }],
+    })
+    const replaced = applyCloudBackup(local, backup, "replace")
+    expect(replaced.campaigns.map((campaign) => campaign.id)).toEqual(["backup-only"])
   })
 })

@@ -7,8 +7,10 @@ import { normalizeMissionOrder } from "./knowledge-model"
 export const WIKI_VAULT_FOLDERS = WIKI_SECTIONS.map((section) => section.label)
 // Campanhas faz parte do arquivo sincronizado. Bases continua fora da
 // interface, mas seus arquivos `.base` são lidos pelo adaptador para ativar a
-// organização física das novas notas.
-export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Campanhas"]
+// organização física das novas notas. Runas-Book é a pasta raiz de outro app
+// (@runas/book) que pode compartilhar o mesmo vault; seu conteúdo nunca
+// pertence à Wiki/Campanhas do Runas DM.
+export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Campanhas", "Runas-Book"]
 export const CAMPAIGN_VAULT_FOLDER = "Campanhas"
 
 export interface VaultNote {
@@ -102,17 +104,24 @@ function vaultPathIdentity(path: string): string {
   return normalizePath(path).split("/").map((part) => normalizedLabel(part) === "cronologia geral" ? "cronologia" : normalizedLabel(part)).join("/")
 }
 
+/**
+ * Uma pasta só conta como a seção da Wiki (ou "Campanhas") quando está na
+ * raiz do vault. Sem essa checagem, uma pasta de mesmo nome dentro de outro
+ * app que compartilhe o vault (ex.: `Runas-Book/Personagens`) seria lida como
+ * se fosse a pasta raiz `Personagens` da Wiki do Runas DM.
+ */
 export function isIgnoredVaultPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
-  const sectionIndex = parts.findIndex((part) => normalizedLabel(part) === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === normalizedLabel(part)))
+  const rootLabel = normalizedLabel(parts[0] ?? "")
+  const sectionIndex = rootLabel === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === rootLabel) ? 0 : -1
   const ignoredIndex = parts.findIndex((part) => IGNORED_VAULT_FOLDERS.some((folder) => normalizedLabel(folder) === normalizedLabel(part)))
   return ignoredIndex >= 0 && (sectionIndex < 0 || ignoredIndex < sectionIndex)
 }
 
 function isSynchronizableVaultPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
-  const campaignIndex = parts.findIndex((part) => normalizedLabel(part) === normalizedLabel(CAMPAIGN_VAULT_FOLDER))
-  return campaignIndex >= 0 || !isIgnoredVaultPath(path)
+  const isCampaignRoot = normalizedLabel(parts[0] ?? "") === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
+  return isCampaignRoot || !isIgnoredVaultPath(path)
 }
 
 function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: KnowledgePageKind): KnowledgePageKind {
@@ -125,14 +134,12 @@ function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: Kn
 
 function wikiLocation(path: string): { kind: KnowledgePageKind; category: string } | null {
   const parts = normalizePath(path).split("/")
-  const index = parts.findIndex((part) => {
-    const label = normalizedLabel(part)
-    return label === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === label)
-  })
-  if (index < 0) return null
-  const folder = normalizedLabel(parts[index]) === "cronologia geral" ? "Cronologia" : parts[index]
+  const rootLabel = normalizedLabel(parts[0] ?? "")
+  const matchesSection = rootLabel === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === rootLabel)
+  if (!matchesSection) return null
+  const folder = rootLabel === "cronologia geral" ? "Cronologia" : parts[0]
   const section = WIKI_SECTIONS.find((candidate) => normalizedLabel(candidate.label) === normalizedLabel(folder))
-  return section ? { kind: section.id, category: parts.length > index + 2 ? parts[index + 1] : "" } : null
+  return section ? { kind: section.id, category: parts.length > 2 ? parts[1] : "" } : null
 }
 
 /**
@@ -143,11 +150,10 @@ function wikiLocation(path: string): { kind: KnowledgePageKind; category: string
  */
 function campaignLocation(path: string, campaigns: CampaignRecord[] = []): { category: string } | null {
   const parts = normalizePath(path).split("/")
-  const index = parts.findIndex((part) => normalizedLabel(part) === normalizedLabel(CAMPAIGN_VAULT_FOLDER))
-  if (index < 0) return null
-  const campaignSegment = parts[index + 1] ?? ""
+  if (normalizedLabel(parts[0] ?? "") !== normalizedLabel(CAMPAIGN_VAULT_FOLDER)) return null
+  const campaignSegment = parts[1] ?? ""
   const isCampaignFolder = campaigns.some((campaign) => normalizedLabel(folderPart(campaign.title, "")) === normalizedLabel(campaignSegment))
-  const category = parts[index + (isCampaignFolder ? 2 : 1)] ?? ""
+  const category = parts[isCampaignFolder ? 2 : 1] ?? ""
   return { category: category && !category.toLocaleLowerCase("pt-BR").endsWith(".md") ? category : "" }
 }
 

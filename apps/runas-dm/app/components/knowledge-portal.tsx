@@ -3,12 +3,13 @@
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
+import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, CloudDownload, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
-import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, sortKnowledgePages, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
+import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, sortKnowledgePages, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
+import { CloudImportDialog } from "./cloud-import-dialog"
 import { deleteCampaignHubNotesFromLocalVault, deletePageFromLocalVault, localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
@@ -81,6 +82,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [categoryName, setCategoryName] = useState("")
   const [obsidianOpen, setObsidianOpen] = useState(false)
   const [obsidianPreferences, setObsidianPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
+  const [cloudImportOpen, setCloudImportOpen] = useState(false)
   const [notice, setNotice] = useState("")
   const hydratedOnce = useRef(false)
   const stateRef = useRef(state)
@@ -117,18 +119,12 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setSyncState("loading")
     const [local, dmState] = await Promise.all([loadKnowledgeWorkspace(), loadLocalState().catch(() => null)])
     if (dmState) setBestiary(dmState.entries)
-    let next = local
-    try {
-      const response = await fetch("/api/campaign-data", { cache: "no-store" })
-      if (response.ok) {
-        const payload = await response.json() as { state: unknown; updatedAt: number | null }
-        if (payload.state) next = mergeKnowledgeWorkspaces(local, normalizeKnowledgeWorkspace(payload.state))
-        setSyncState("synced")
-      } else setSyncState("local")
-    } catch { setSyncState("local") }
-    setState(next)
-    setSelectedCampaignId((current) => current ?? next.campaigns[0]?.id ?? null)
-    await saveKnowledgeWorkspace(next)
+    // A nuvem nunca é consultada sozinha: o estado local é sempre a fonte de
+    // verdade ao abrir. O backup remoto só entra quando o usuário pede pela
+    // ação "Importar da nuvem".
+    setState(local)
+    setSelectedCampaignId((current) => current ?? local.campaigns[0]?.id ?? null)
+    setSyncState("local")
     setHydrated(true)
   }, [])
 
@@ -179,25 +175,14 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   useEffect(() => {
     if (auth !== "ready" || !hydrated) return
     const timeout = window.setTimeout(() => {
-      setSyncState((current) => current === "local" ? "local" : "syncing")
+      setSyncState("syncing")
       void (async () => {
         try {
-          // Sem mesclar com o D1 antes de gravar, esta aba sobrescreveria uma
-          // exclusão feita em outra aba/dispositivo que ela nunca chegou a ver
-          // localmente -- bastava algo mudar aqui (até a sincronização
-          // automática do Obsidian) para a campanha excluída voltar no backup.
-          let outgoing = stateRef.current
-          const response = await fetch("/api/campaign-data", { cache: "no-store" })
-          if (response.ok) {
-            const payload = await response.json() as { state: unknown; updatedAt: number | null }
-            if (payload.state) outgoing = mergeKnowledgeWorkspaces(stateRef.current, normalizeKnowledgeWorkspace(payload.state))
-          }
-          await saveKnowledgeWorkspace(outgoing)
-          const putResponse = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(outgoing) })
-          if (JSON.stringify(outgoing) !== JSON.stringify(stateRef.current)) {
-            stateRef.current = outgoing
-            setState(outgoing)
-          }
+          // A nuvem é só backup: manda o estado local exatamente como está,
+          // sem buscar nem mesclar o remoto antes. Isso também elimina o
+          // custo de um GET a cada edição.
+          await saveKnowledgeWorkspace(stateRef.current)
+          const putResponse = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stateRef.current) })
           setSyncState(putResponse.ok ? "synced" : "local")
         } catch { setSyncState("local") }
       })()
@@ -269,6 +254,21 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       if (!response.ok) { setAuthError("Token ou senha incorretos."); return }
       setToken(""); setPassword(""); rememberAuthenticatedActivity(); setAuth("ready"); await hydrate()
     } catch { setAuthError("Não foi possível acessar o servidor.") }
+  }
+
+  async function importFromCloud(mode: CloudImportMode) {
+    setCloudImportOpen(false)
+    try {
+      const response = await fetch("/api/campaign-data", { cache: "no-store" })
+      if (!response.ok) throw new Error()
+      const payload = await response.json() as { state: unknown; updatedAt: number | null }
+      if (!payload.state) { setNotice("Ainda não existe backup na nuvem."); return }
+      const imported = applyCloudBackup(stateRef.current, payload.state, mode)
+      stateRef.current = imported
+      setState(imported)
+      await saveKnowledgeWorkspace(imported)
+      setNotice(mode === "replace" ? "Dados substituídos pelo backup da nuvem." : "Dados sincronizados com o backup da nuvem.")
+    } catch { setNotice("Não foi possível ler o backup da nuvem.") }
   }
 
   function mutate(updater: (current: KnowledgeWorkspaceState) => KnowledgeWorkspaceState): KnowledgeWorkspaceState {
@@ -414,7 +414,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS, { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
   return <main className={`knowledge-shell knowledge-app ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
-    <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} />
+    <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} onCloudImport={() => setCloudImportOpen(true)} />
     <div className={`knowledge-layout ${area === "wiki" ? "wiki-layout" : ""}`}>
       {area === "campaigns" && <aside className="campaign-sidebar"><header><span><BookMarked size={18} /> Campanhas</span><button onClick={addCampaign} aria-label="Criar campanha"><Plus size={17} /></button></header><div>{state.campaigns.map((campaign) => { const pageCount = state.pages.filter((page) => page.campaignId === campaign.id).length; return <button key={campaign.id} className={campaign.id === selectedCampaignId ? "active" : ""} onClick={() => setSelectedCampaignId(campaign.id)}><span>{campaign.title || "Campanha sem nome"}</span><small>{countLabel(pageCount, "registro", "registros")}</small><ChevronRight size={15} /></button> })}</div>{state.campaigns.length === 0 && <p>Crie sua primeira campanha para organizar missões e sessões.</p>}</aside>}
       <section className="knowledge-workspace">
@@ -437,6 +437,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       setState(merged)
       void saveKnowledgeWorkspace(merged)
     }} />}
+    {cloudImportOpen && <CloudImportDialog onClose={() => setCloudImportOpen(false)} onSelect={(mode) => void importFromCloud(mode)} />}
   </main>
 }
 
@@ -481,13 +482,13 @@ function AccessScreen({ token, password, error, isLocal, onToken, onPassword, on
   </main>
 }
 
-function KnowledgeHeader({ area, syncState, onObsidian }: { area: PortalArea; syncState: SyncState; onObsidian: () => void }) {
+function KnowledgeHeader({ area, syncState, onObsidian, onCloudImport }: { area: PortalArea; syncState: SyncState; onObsidian: () => void; onCloudImport: () => void }) {
   const sync = syncState === "synced" ? { icon: Cloud, label: "Sincronizado" } : syncState === "syncing" || syncState === "loading" ? { icon: RefreshCw, label: "Sincronizando" } : syncState === "error" ? { icon: CircleAlert, label: "Falha ao salvar" } : { icon: WifiOff, label: "Salvo localmente" }
   const Icon = sync.icon
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
     <KnowledgeNavigation area={area} />
-    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><ThemeToggle /><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
+    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><ThemeToggle /><button className="secondary-button" onClick={onCloudImport}><CloudDownload size={16} /> Importar da nuvem</button><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
   </header>
 }
 
