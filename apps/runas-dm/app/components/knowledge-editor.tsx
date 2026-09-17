@@ -16,7 +16,7 @@ import {
 } from "../lib/knowledge-model"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { RichTextEditor } from "./rich-text-editor"
-import { formatCalendarYears, LOGI_EPOCH_IN_CE, parseCalendarYear, readCalendarYear, type UniverseEra } from "../lib/chronology"
+import { eraForYear, formatCalendarYears, LOGI_EPOCH_IN_CE, parseCalendarYear, readCalendarYear, resolveEra, type UniverseEra } from "../lib/chronology"
 import { KnowledgeImagePicker } from "./knowledge-image-picker"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 
@@ -67,11 +67,13 @@ export function KnowledgeEditor({
   // faz sentido para missões e eventos de campanha.
   const hasStatus = draft.scope === "campaign" && ["mission", "event"].includes(draft.kind)
   const creatureTotal = draft.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0)
-  // O mestre digita no calendário que quiser; a conversão aparece antes de salvar.
+  // O mestre digita no calendário que quiser; a conversão e a era saem daí.
   const readYear = readCalendarYear(yearText)
+  const typedYear = readYear ? (readYear.calendar === "logi" ? readYear.year + LOGI_EPOCH_IN_CE : readYear.year) : null
+  const detectedEra = resolveEra(typedYear, eras, draft.eraId)
   const yearHint = !yearText.trim()
     ? "Aceita C.E. ou Logi. Sem sufixo, o ano é lido como C.E."
-    : readYear ? formatCalendarYears(readYear.calendar === "logi" ? readYear.year + LOGI_EPOCH_IN_CE : readYear.year, eras.find((era) => era.id === draft.eraId)?.calendar)
+    : readYear ? formatCalendarYears(typedYear, detectedEra?.calendar)
       : "Ano inválido. Use -4725, 4027 C.E. ou 0 Logi."
 
   function patch(values: Partial<KnowledgePage>) {
@@ -112,7 +114,11 @@ export function KnowledgeEditor({
   function save() {
     if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && parseCalendarYear(yearText) == null) { setError("Informe um ano inteiro, com ou sem calendário: -4725, 4027 C.E. ou 0 Logi."); return }
     if (draft.order && !normalizeMissionOrder(draft.order)) { setError("Use uma ordem como 1, 2, 3.1 ou 3.2."); return }
-    onSave({ ...draft, eventYear: parseCalendarYear(yearText), tags: parseList(tagText), updatedAt: Date.now() })
+    // A era acompanha o ano: informar um ano reclassifica o registro, e um
+    // ano fora de todos os intervalos o deixa honestamente sem era.
+    const eventYear = parseCalendarYear(yearText)
+    const eraId = eventYear == null ? draft.eraId : eraForYear(eventYear, eras)?.id ?? ""
+    onSave({ ...draft, eventYear, eraId, tags: parseList(tagText), updatedAt: Date.now() })
   }
 
   function saveAndLaunchEncounter() {
@@ -149,7 +155,7 @@ export function KnowledgeEditor({
               : <label><span>Tipo</span><select value={draft.kind} onChange={(event) => patch({ kind: event.target.value as KnowledgePage["kind"] })}>{draft.scope === "wiki" ? WIKI_SECTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>) : CAMPAIGN_PAGE_KINDS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
             {draft.kind === "chronology" || isStoryEvent ? <>
               {draft.kind === "chronology" && <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>}
-              <label><span>Era</span><select value={draft.eraId || ""} onChange={(event) => patch({ eraId: event.target.value })}><option value="">Sem era definida</option>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}</select></label>
+              <label><span>Era (pelo ano)</span><input readOnly value={detectedEra?.name ?? "Sem era definida"} /></label>
               <label><span>Ano do acontecimento</span><input value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725, 4027 C.E. ou 0 Logi" /><small className="field-hint">{yearHint}</small></label>
             </> : <label><span>Data</span><input type="date" value={draft.date} onChange={(event) => patch({ date: event.target.value })} /></label>}
             {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <label><span>Ordem</span><input value={draft.order || ""} onChange={(event) => patch({ order: event.target.value })} placeholder="3.1" /></label>}

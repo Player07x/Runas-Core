@@ -81,6 +81,37 @@ export function formatFictionalYear(year: number | null | undefined, calendar = 
   return year == null ? "Não definido" : `${year.toLocaleString("pt-BR")} ${calendar}`
 }
 
+/**
+ * A era não é escolhida à mão: ela sai do ano. Quando dois intervalos se
+ * sobrepõem (a Era das Estrelas cobre parte da Era das Máquinas), vence o mais
+ * específico — o de menor duração — e, em empate, a ordem do documento. Um ano
+ * em `0` cai na Era dos Monges, que começa nele, e não na Era das Estrelas,
+ * que termina nele.
+ */
+export function eraForYear(year: number | null | undefined, eras: UniverseEra[]): UniverseEra | undefined {
+  if (year == null) return undefined
+  let best: { era: UniverseEra; span: number } | undefined
+  for (const era of eras) {
+    // Sem nenhum limite não há como deduzir nada; com um só, a era é aberta
+    // para aquele lado (a Era dos Caçadores é a atual e não tem fim).
+    if (era.startYear == null && era.endYear == null) continue
+    if (era.startYear != null && year < era.startYear) continue
+    if (era.endYear != null && year > era.endYear) continue
+    const span = era.startYear != null && era.endYear != null ? era.endYear - era.startYear : Number.POSITIVE_INFINITY
+    if (!best || span < best.span) best = { era, span }
+  }
+  return best?.era
+}
+
+/**
+ * A era exibida de um registro: a detectada pelo ano quando existe, senão a que
+ * já estava gravada — eras sem limites definidos no documento (Magos,
+ * Migrações) só podem vir daí até que o mestre preencha seus anos.
+ */
+export function resolveEra(year: number | null | undefined, eras: UniverseEra[], storedEraId?: string): UniverseEra | undefined {
+  return eraForYear(year, eras) ?? eras.find((era) => era.id === storedEraId)
+}
+
 export function normalizeUniverseEras(value: unknown): UniverseEra[] {
   const records = Array.isArray(value) ? value.filter((item): item is UniverseEra => Boolean(item && typeof item === "object" && typeof item.id === "string")) : []
   return UNIVERSE_ERAS.map((era) => {

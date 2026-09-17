@@ -15,7 +15,7 @@ import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
 import { ChronologyTimeline, EraHeading } from "./chronology-timeline"
-import { formatFictionalYear, normalizeUniverseEras, type UniverseEra } from "../lib/chronology"
+import { formatFictionalYear, normalizeUniverseEras, resolveEra, type UniverseEra } from "../lib/chronology"
 import { KnowledgeCardImage } from "./knowledge-card-image"
 import { KnowledgeGraph } from "./knowledge-graph"
 import { StoryDocument } from "./story-document"
@@ -58,7 +58,7 @@ function storyYearRange(story: KnowledgePage, pages: KnowledgePage[], eras: Univ
     return event && event.eventYear != null ? [event] : []
   })
   if (dated.length === 0) return ""
-  const calendar = eras.find((era) => era.id === dated[0].eraId)?.calendar
+  const calendar = resolveEra(dated[0].eventYear, eras, dated[0].eraId)?.calendar
   const years = dated.map((event) => event.eventYear as number)
   const first = Math.min(...years)
   const last = Math.max(...years)
@@ -531,7 +531,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       .filter((page) => tagFilter === "all" || page.tags.includes(tagFilter))
       .filter((page) => categoryFilter === "all" || page.categoryIds.includes(categoryFilter))
       .filter((page) => statusFilter === "all" || page.status === statusFilter)
-      .filter((page) => selectedKind !== "chronology" || (eraFilter === "unassigned" ? !page.eraId || !eras.some((era) => era.id === page.eraId) : page.eraId === eraFilter)), dateSort)
+      // A era de uma página é derivada do ano a cada leitura: corrigir os
+      // limites de uma era reclassifica o acervo sem reeditar registro algum.
+      .filter((page) => selectedKind !== "chronology" || (eraFilter === "unassigned" ? !resolveEra(page.eventYear, eras, page.eraId) : resolveEra(page.eventYear, eras, page.eraId)?.id === eraFilter)), dateSort)
   }, [categoryFilter, scopedPages, search, selectedKind, statusFilter, tagFilter, dateSort, eraFilter, eras])
 
   if (auth === "checking") return <SessionCheckingScreen />

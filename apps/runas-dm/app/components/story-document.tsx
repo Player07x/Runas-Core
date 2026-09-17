@@ -4,14 +4,14 @@ import { useState } from "react"
 import { ArrowLeft, ChevronDown, ChevronUp, Edit3, Plus, Trash2 } from "lucide-react"
 import type { BestiaryEntry } from "../lib/model"
 import { createKnowledgePage, storyEventsOf, type KnowledgeCategory, type KnowledgePage } from "../lib/knowledge-model"
-import { formatCalendarYears, type UniverseEra } from "../lib/chronology"
+import { formatCalendarYears, resolveEra, type UniverseEra } from "../lib/chronology"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { RichTextView } from "./rich-text-editor"
 
 /** O acontecimento é datado pelo calendário fictício, nunca pela data real de criação do arquivo. */
 function fictionalDate(event: KnowledgePage, eras: UniverseEra[]): string {
-  const era = eras.find((candidate) => candidate.id === event.eraId)
+  const era = resolveEra(event.eventYear, eras, event.eraId)
   if (event.eventYear == null) return era ? era.name : ""
   const year = formatCalendarYears(event.eventYear, era?.calendar)
   return era ? `${year} · ${era.name}` : year
@@ -54,9 +54,7 @@ export function StoryDocument({
   const isNewEvent = editing != null && !story.storyEventIds.includes(editing.id)
 
   function createEvent() {
-    // O acontecimento novo continua na era do anterior: uma história raramente
-    // salta de era a cada passo.
-    setEditing({ ...createKnowledgePage("wiki", "event", null), title: "", eraId: events[events.length - 1]?.eraId ?? "" })
+    setEditing({ ...createKnowledgePage("wiki", "event", null), title: "" })
   }
 
   function saveEvent(event: KnowledgePage) {

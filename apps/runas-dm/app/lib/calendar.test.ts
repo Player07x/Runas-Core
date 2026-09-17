@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatCalendarYears, LOGI_EPOCH_IN_CE, parseCalendarYear, readCalendarYear, toLogiYear } from "./chronology"
+import { eraForYear, formatCalendarYears, LOGI_EPOCH_IN_CE, normalizeUniverseEras, parseCalendarYear, readCalendarYear, resolveEra, toLogiYear } from "./chronology"
 
 describe("calendário fictício", () => {
   it("lê o ano com ou sem calendário e guarda sempre em C.E.", () => {
@@ -28,6 +28,28 @@ describe("calendário fictício", () => {
     expect(parseCalendarYear("2026-09-07")).toBeNull()
     expect(parseCalendarYear("mil e duzentos")).toBeNull()
     expect(parseCalendarYear(1.5)).toBeNull()
+  })
+
+  it("deduz a era pelo ano, preferindo o intervalo mais específico", () => {
+    const eras = normalizeUniverseEras(undefined)
+    expect(eraForYear(1200, eras)?.id).toBe("monges")
+    expect(eraForYear(4500, eras)?.id).toBe("cacadores")
+    expect(eraForYear(-6000, eras)?.id).toBe("estrelas")
+    expect(eraForYear(-20000, eras)?.id).toBe("titas")
+    // O ano 0 encerra a Era das Estrelas e abre a dos Monges: vence quem começa nele.
+    expect(eraForYear(0, eras)?.id).toBe("monges")
+    // Entre 1.489 e 4.027 o documento não define limites; nada é deduzido.
+    expect(eraForYear(2000, eras)).toBeUndefined()
+    expect(eraForYear(null, eras)).toBeUndefined()
+  })
+
+  it("mantém a era gravada quando o ano não classifica sozinho", () => {
+    const eras = normalizeUniverseEras(undefined)
+    expect(resolveEra(2000, eras, "magos")?.id).toBe("magos")
+    expect(resolveEra(null, eras, "magos")?.id).toBe("magos")
+    // Um ano que classifica vence a era antiga gravada no registro.
+    expect(resolveEra(1200, eras, "magos")?.id).toBe("monges")
+    expect(resolveEra(null, eras, "")).toBeUndefined()
   })
 
   it("exibe os dois calendários, mas só quando a era usa C.E.", () => {
