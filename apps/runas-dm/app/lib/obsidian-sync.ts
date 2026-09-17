@@ -198,6 +198,7 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
     ...(page.eraId ? { eraId: page.eraId } : {}),
     ...(page.eventYear != null ? { eventYear: page.eventYear } : {}),
     ...(page.storyEventIds.length ? { storyEventIds: page.storyEventIds } : {}),
+    ...(page.kind === "story" ? { storyViewMode: page.storyViewMode ?? "tale" } : {}),
   })
 }
 
@@ -325,6 +326,7 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     page.eventYear != null ? `ano_evento: ${page.eventYear}` : "",
     page.bestiaryEntryId ? `ficha_bestiario: ${yaml(page.bestiaryEntryId)}` : "",
     page.kind === "story" ? `runas_story_events: [${page.storyEventIds.map(yaml).join(", ")}]` : "",
+    page.kind === "story" ? `runas_story_view: ${yaml(page.storyViewMode ?? "tale")}` : "",
     ...extraFrontmatterLines(page.obsidianExtraFrontmatter), "---",
   ].filter(Boolean).join("\n")
   // A História já é a lista de tópicos dos seus eventos; repeti-la como
@@ -561,6 +563,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     linkedPageIds: stringArray(frontmatter.runas_linked_ids),
     bestiaryEntryId: text(frontmatter.ficha_bestiario) || null,
     storyEventIds: kind === "story" ? stringArray(frontmatter.runas_story_events) : [],
+    storyViewMode: text(frontmatter.runas_story_view) === "chronology" ? "chronology" : "tale",
     encounterCreatures: fallback?.encounterCreatures ?? [],
     obsidianPath: normalizePath(note.path),
     obsidianExtraFrontmatter: extraFrontmatter(frontmatter),

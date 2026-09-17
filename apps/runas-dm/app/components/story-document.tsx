@@ -4,17 +4,21 @@ import { useState } from "react"
 import { ArrowLeft, ChevronDown, ChevronUp, Edit3, Plus, Trash2 } from "lucide-react"
 import type { BestiaryEntry } from "../lib/model"
 import { createKnowledgePage, storyEventsOf, type KnowledgeCategory, type KnowledgePage } from "../lib/knowledge-model"
-import { formatCalendarYears, resolveEra, type UniverseEra } from "../lib/chronology"
+import { formatFictionalYear, resolveEra, toLogiYear, type UniverseEra } from "../lib/chronology"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { RichTextView } from "./rich-text-editor"
+import { ChronologyTimeline } from "./chronology-timeline"
 
 /** O acontecimento é datado pelo calendário fictício, nunca pela data real de criação do arquivo. */
-function fictionalDate(event: KnowledgePage, eras: UniverseEra[]): string {
+function fictionalDate(event: KnowledgePage, eras: UniverseEra[]): { ce: string; logi: string; era: string } {
   const era = resolveEra(event.eventYear, eras, event.eraId)
-  if (event.eventYear == null) return era ? era.name : ""
-  const year = formatCalendarYears(event.eventYear, era?.calendar)
-  return era ? `${year} · ${era.name}` : year
+  if (event.eventYear == null) return { ce: "", logi: "", era: era?.name ?? "" }
+  const calendar = era?.calendar ?? "C.E."
+  const isLogi = calendar.trim().toLocaleLowerCase("pt-BR") === "logi"
+  return isLogi
+    ? { ce: "", logi: formatFictionalYear(event.eventYear, calendar), era: era?.name ?? "" }
+    : { ce: formatFictionalYear(event.eventYear, calendar), logi: `${toLogiYear(event.eventYear).toLocaleString("pt-BR")} Logi`, era: era?.name ?? "" }
 }
 
 /**
@@ -36,6 +40,7 @@ export function StoryDocument({
   onDeleteEvent,
   onMoveEvent,
   onBack,
+  onOpenPage,
 }: {
   story: KnowledgePage
   pages: KnowledgePage[]
@@ -48,9 +53,12 @@ export function StoryDocument({
   onDeleteEvent: (id: string) => void
   onMoveEvent: (id: string, offset: -1 | 1) => void
   onBack: () => void
+  onOpenPage?: (page: KnowledgePage) => void
 }) {
   const [editing, setEditing] = useState<KnowledgePage | null>(null)
+  const [viewMode, setViewMode] = useState<"chronology" | "tale">(story.storyViewMode ?? "tale")
   const events = storyEventsOf(story, pages)
+  const chronologicalEvents = [...events].sort((left, right) => (left.eventYear == null ? Number.POSITIVE_INFINITY : left.eventYear) - (right.eventYear == null ? Number.POSITIVE_INFINITY : right.eventYear))
   const isNewEvent = editing != null && !story.storyEventIds.includes(editing.id)
 
   function createEvent() {
@@ -86,11 +94,16 @@ export function StoryDocument({
         <p className="eyebrow">História · {events.length === 1 ? "1 acontecimento" : `${events.length} acontecimentos`}</p>
         <input className="story-title-input" value={story.title} onChange={(event) => onChangeStory({ title: event.target.value })} aria-label="Título da história" placeholder="Nome da história" />
         <ExpandableTextarea resizeKey={story.id} value={story.summary} onChange={(event) => onChangeStory({ summary: event.target.value })} placeholder="Do que esta história trata? Este resumo aparece no cartão e no arquivo do vault." />
+        <div className="story-view-switch" role="group" aria-label="Exibição da história"><button className={viewMode === "chronology" ? "active" : ""} onClick={() => { setViewMode("chronology"); onChangeStory({ storyViewMode: "chronology" }) }}>Cronologia</button><button className={viewMode === "tale" ? "active" : ""} onClick={() => { setViewMode("tale"); onChangeStory({ storyViewMode: "tale" }) }}>Conto</button></div>
       </div>
+      {story.backgroundImageDataUrl && <img className="story-heading-image" src={story.backgroundImageDataUrl} alt="" />}
       <button className="icon-button danger-icon" title="Excluir história" aria-label="Excluir história" onClick={onDeleteStory}><Trash2 size={17} /></button>
     </header>
 
     <div className="story-events">
+      {viewMode === "chronology" && <ChronologyTimeline pages={chronologicalEvents} era={undefined} stories={[story]} onOpen={onOpenPage ?? (() => undefined)} />}
+      {viewMode === "chronology" && chronologicalEvents.length === 0 && !editing && <div className="knowledge-empty story-empty"><strong>Esta história ainda não tem acontecimentos.</strong><button className="primary-button" onClick={createEvent}><Plus size={16} /> Criar acontecimento</button></div>}
+      {viewMode === "chronology" ? null : <>
       {events.length === 0 && !editing && <div className="knowledge-empty story-empty">
         <strong>Esta história ainda não tem acontecimentos.</strong>
         <p>Uma história é escrita criando acontecimentos: cada um vira seu próprio registro, e a página guarda apenas a ordem deles.</p>
@@ -103,7 +116,7 @@ export function StoryDocument({
         return <section className="story-event" key={event.id}>
           <header>
             <div>
-              <p className="eyebrow">Acontecimento {index + 1}{dateLabel ? ` · ${dateLabel}` : ""}</p>
+              {(dateLabel.ce || dateLabel.logi || dateLabel.era) && <p className="eyebrow story-event-date">{dateLabel.ce && <span className="calendar-ce">{dateLabel.ce}</span>}{dateLabel.ce && dateLabel.logi && " · "}{dateLabel.logi && <span className="calendar-logi">{dateLabel.logi}</span>}{(dateLabel.ce || dateLabel.logi) && dateLabel.era && " · "}{dateLabel.era && <span>{dateLabel.era}</span>}</p>}
               <h2>{event.title || "Acontecimento sem nome"}</h2>
               {event.summary && <p className="story-event-summary">{event.summary}</p>}
             </div>
@@ -116,7 +129,7 @@ export function StoryDocument({
           </header>
           {event.backgroundImageDataUrl && <img className="story-event-image" src={event.backgroundImageDataUrl} alt="" />}
           {event.contentHtml
-            ? <RichTextView html={event.contentHtml} className="story-event-content" />
+            ? <RichTextView html={event.contentHtml} className="story-event-content" pages={pages} onOpenPage={onOpenPage} />
             : <p className="mini-empty">Acontecimento sem texto. Use “Editar acontecimento” para escrevê-lo.</p>}
           {event.tags.length > 0 && <footer className="story-event-tags">{event.tags.map((tag) => <i key={tag}>#{tag}</i>)}</footer>}
         </section>
@@ -125,6 +138,7 @@ export function StoryDocument({
       {isNewEvent && editing && inlineEditor(editing)}
 
       {!editing && events.length > 0 && <button className="primary-button story-add-event" onClick={createEvent}><Plus size={16} /> Criar acontecimento</button>}
+      </>}
     </div>
   </article>
 }

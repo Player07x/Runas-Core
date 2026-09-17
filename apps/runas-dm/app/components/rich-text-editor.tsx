@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from "react"
 import { AlignCenter, AlignLeft, AlignRight, Bold, Eraser, Heading2, ImagePlus, Italic, Link2, List, ListOrdered, Quote, Underline, Unlink } from "lucide-react"
 import { readCachedVaultAsset } from "../lib/vault-assets"
+import type { KnowledgePage } from "../lib/knowledge-model"
 
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "H1", "H2", "H3", "BLOCKQUOTE", "A", "IMG", "HR", "CODE", "PRE"])
 
@@ -54,8 +55,9 @@ export function wikiTitlesFromRichText(value: string): string[] {
  * resolução de anexos do vault para que uma página exibida fora do editor
  * (como um evento dentro de uma História) apareça exatamente igual.
  */
-export function RichTextView({ html, className = "" }: { html: string; className?: string }) {
+export function RichTextView({ html, className = "", pages = [], onOpenPage }: { html: string; className?: string; pages?: KnowledgePage[]; onOpenPage?: (page: KnowledgePage) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [hoveredPage, setHoveredPage] = useState<KnowledgePage | null>(null)
   const safe = useMemo(() => sanitizeRichText(html), [html])
 
   useEffect(() => {
@@ -78,7 +80,22 @@ export function RichTextView({ html, className = "" }: { html: string; className
     }
   }, [safe])
 
-  return <div ref={containerRef} className={`rich-text-content rich-text-view ${className}`} dangerouslySetInnerHTML={{ __html: safe }} />
+  function resolve(anchor: HTMLAnchorElement): KnowledgePage | undefined {
+    const title = anchor.dataset.wikiTitle?.trim().toLocaleLowerCase("pt-BR")
+    return title ? pages.find((page) => page.title.trim().toLocaleLowerCase("pt-BR") === title) : undefined
+  }
+  return <div ref={containerRef} className={`rich-text-content rich-text-view ${className}`} onClick={(event) => {
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title]")
+    const page = anchor && resolve(anchor)
+    if (page && onOpenPage) { event.preventDefault(); onOpenPage(page) }
+  }} onMouseOver={(event) => {
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title]")
+    if (anchor && event.altKey) setHoveredPage(resolve(anchor) ?? null)
+  }} onMouseMove={(event) => {
+    if (!event.altKey) { setHoveredPage(null); return }
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title]")
+    if (anchor) setHoveredPage(resolve(anchor) ?? null)
+  }} onMouseLeave={() => setHoveredPage(null)}><div dangerouslySetInnerHTML={{ __html: safe }} />{hoveredPage && <aside className="wiki-link-preview"><strong>{hoveredPage.title}</strong><div dangerouslySetInnerHTML={{ __html: sanitizeRichText(hoveredPage.contentHtml) }} /></aside>}</div>
 }
 
 type RichTextEditorProps = {
@@ -136,6 +153,16 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
   function emitCurrentValue(normalizeDom = false) {
     const editor = editorRef.current
     if (!editor) return
+    // Navegadores deixam o texto inicial como nó direto e usam DIV ao pressionar
+    // Enter; isso cria um espaçamento diferente na primeira linha. Normalizamos
+    // os blocos antes de salvar para que cada linha use o mesmo elemento.
+    for (const node of [...editor.childNodes]) {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
+        const paragraph = document.createElement("p")
+        paragraph.textContent = node.textContent
+        node.replaceWith(paragraph)
+      }
+    }
     const serializable = editor.cloneNode(true) as HTMLDivElement
     serializable.querySelectorAll<HTMLImageElement>("img[data-obsidian-path]").forEach((image) => image.removeAttribute("src"))
     const safe = sanitizeRichText(serializable.innerHTML)

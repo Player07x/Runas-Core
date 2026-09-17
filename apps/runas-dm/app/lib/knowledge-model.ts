@@ -66,6 +66,8 @@ export interface CampaignRecord {
   buttonColor?: string
   boxColor?: string
   imageBlur?: number
+  /** Histórias da Wiki vinculadas à campanha, na ordem escolhida pelo mestre. */
+  storyIds?: string[]
 }
 
 export interface KnowledgeCategory {
@@ -102,6 +104,7 @@ export interface KnowledgePage {
    * derivado dela e nunca digitado à mão.
    */
   storyEventIds: string[]
+  storyViewMode?: "chronology" | "tale"
   accentColor?: string
   backgroundColor?: string
   textColor?: string
@@ -151,7 +154,7 @@ export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
   const now = Date.now()
-  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], createdAt: now, updatedAt: now, accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "" }
+  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], storyIds: [], createdAt: now, updatedAt: now, accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "" }
 }
 
 export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgePageKind, campaignId: string | null): KnowledgePage {
@@ -159,7 +162,7 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
   return {
     id: createKnowledgeId("page"), scope, campaignId, kind,
     title: kind === "encounter" ? "Novo encontro" : kind === "story" ? "Nova história" : kind === "event" && scope === "wiki" ? "Novo acontecimento" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
-    tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [], storyEventIds: [],
+    tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [], storyEventIds: [], storyViewMode: "tale",
     obsidianPath: "", obsidianExtraFrontmatter: {}, obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
     createdAt: now, updatedAt: now,
   }
@@ -179,7 +182,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     const record = item as CampaignRecord
     if (typeof record.id !== "string" || deleted.has(record.id)) return []
     const now = Date.now()
-    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
+    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), storyIds: strings(record.storyIds), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
   }) : []
   const categories = Array.isArray(candidate.categories) ? candidate.categories.flatMap((item) => {
     if (!item || typeof item !== "object") return []
@@ -200,7 +203,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
       date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
-      storyEventIds: [...new Set(strings(page.storyEventIds))],
+      storyEventIds: [...new Set(strings(page.storyEventIds))], storyViewMode: page.storyViewMode === "chronology" ? "chronology" as const : "tale" as const,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
       obsidianPath: typeof page.obsidianPath === "string" ? page.obsidianPath : "",
       obsidianExtraFrontmatter: page.obsidianExtraFrontmatter && typeof page.obsidianExtraFrontmatter === "object" ? page.obsidianExtraFrontmatter as Record<string, unknown> : {},
