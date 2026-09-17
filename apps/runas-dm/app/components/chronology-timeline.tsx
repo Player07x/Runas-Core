@@ -23,6 +23,6 @@ export function EraHeading({ era, onChange }: { era: UniverseEra; onChange: (era
 }
 
 export function ChronologyTimeline({ pages, era, onOpen }: { pages: KnowledgePage[]; era?: UniverseEra; onOpen: (page: KnowledgePage) => void }) {
-  if (!pages.length) return <div className="knowledge-empty"><strong>Nenhum evento nesta seleção.</strong><p>Crie um evento ou ajuste a era e os filtros.</p></div>
+  if (!pages.length) return <div className="knowledge-empty"><strong>Nenhum acontecimento nesta seleção.</strong><p>Crie um acontecimento ou ajuste a era e os filtros.</p></div>
   return <div className="chronology-timeline">{pages.map((page) => <button className="chronology-event" key={page.id} onClick={() => onOpen(page)}><span className="chronology-year">{formatFictionalYear(page.eventYear, era?.calendar)}</span><span className="chronology-dot" /><div><small>{page.tags.slice(0, 2).map((tag) => `#${tag}`).join(" ")}</small><h2>{page.title}</h2><p>{page.summary || plainTextFromHtml(page.contentHtml).slice(0, 220) || "Sem descrição."}</p><small className="chronology-created">Criado em {new Date(page.createdAt).toLocaleDateString("pt-BR")}</small></div></button>)}</div>
 }

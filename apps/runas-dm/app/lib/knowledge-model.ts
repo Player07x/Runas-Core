@@ -12,6 +12,7 @@ export const CAMPAIGN_STATUSES = [
 
 export const WIKI_SECTIONS = [
   { id: "chronology", label: "Cronologia" },
+  { id: "story", label: "História" },
   { id: "geography", label: "Geografia" },
   { id: "characters", label: "Personagens" },
   { id: "fauna", label: "Fauna" },
@@ -26,6 +27,25 @@ export const CAMPAIGN_PAGE_KINDS = [
   { id: "gm-note", label: "Nota de mestre" },
   { id: "encounter", label: "Encontro" },
 ] as const
+
+/**
+ * `event` também existe dentro da Wiki, mas nunca como aba: um acontecimento
+ * de História só é alcançado pela própria página de História que o lista. Na
+ * Wiki ele se chama **Acontecimento**, para não se confundir com os Eventos
+ * de campanha, que têm status e ordem de missão.
+ */
+export const WIKI_NESTED_KINDS = [
+  { id: "event", label: "Acontecimento" },
+] as const
+
+/** O mesmo `kind` muda de nome conforme o escopo: `event` é Evento na campanha e Acontecimento na Wiki. */
+export function pageKindLabel(kind: string, scope: "wiki" | "campaign"): string {
+  const options: readonly { id: string; label: string }[] = scope === "wiki" ? [...WIKI_SECTIONS, ...WIKI_NESTED_KINDS] : CAMPAIGN_PAGE_KINDS
+  return options.find((item) => item.id === kind)?.label
+    ?? WIKI_SECTIONS.find((item) => item.id === kind)?.label
+    ?? CAMPAIGN_PAGE_KINDS.find((item) => item.id === kind)?.label
+    ?? kind
+}
 
 export type CampaignStatus = typeof CAMPAIGN_STATUSES[number]
 export type WikiSection = typeof WIKI_SECTIONS[number]["id"]
@@ -76,6 +96,12 @@ export interface KnowledgePage {
   eventYear?: number | null
   /** Ordem narrativa para missões e eventos da campanha. */
   order?: string
+  /**
+   * Somente para `kind: "story"`: os eventos da história, na ordem em que o
+   * mestre os organizou. É a fonte de verdade da sequência; `contentHtml` é
+   * derivado dela e nunca digitado à mão.
+   */
+  storyEventIds: string[]
   accentColor?: string
   backgroundColor?: string
   textColor?: string
@@ -132,8 +158,8 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
   const now = Date.now()
   return {
     id: createKnowledgeId("page"), scope, campaignId, kind,
-    title: kind === "encounter" ? "Novo encontro" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
-    tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [],
+    title: kind === "encounter" ? "Novo encontro" : kind === "story" ? "Nova história" : kind === "event" && scope === "wiki" ? "Novo acontecimento" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
+    tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [], storyEventIds: [],
     obsidianPath: "", obsidianExtraFrontmatter: {}, obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
     createdAt: now, updatedAt: now,
   }
@@ -174,6 +200,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
       date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
+      storyEventIds: [...new Set(strings(page.storyEventIds))],
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
       obsidianPath: typeof page.obsidianPath === "string" ? page.obsidianPath : "",
       obsidianExtraFrontmatter: page.obsidianExtraFrontmatter && typeof page.obsidianExtraFrontmatter === "object" ? page.obsidianExtraFrontmatter as Record<string, unknown> : {},
@@ -272,6 +299,46 @@ export function missionOrderLinks(page: KnowledgePage, pages: KnowledgePage[]): 
 
 export function effectivePageLinks(page: KnowledgePage, pages: KnowledgePage[]): string[] {
   return [...new Set([...page.linkedPageIds, ...missionOrderLinks(page, pages)])]
+}
+
+/** Os eventos de uma história, na ordem registrada, ignorando ids já excluídos. */
+export function storyEventsOf(story: KnowledgePage, pages: KnowledgePage[]): KnowledgePage[] {
+  return story.storyEventIds.flatMap((id) => {
+    const event = pages.find((candidate) => candidate.id === id)
+    return event ? [event] : []
+  })
+}
+
+/**
+ * O corpo de uma história é sempre gerado: no `.md` ele aparece como a lista
+ * de tópicos `- [[Evento]]`, enquanto o site exibe o conteúdo completo de
+ * cada evento no lugar do link.
+ */
+export function storyEventsHtml(events: KnowledgePage[]): string {
+  if (events.length === 0) return ""
+  // A marcação precisa ser idêntica à que `markdownToHtml` produz ao reler
+  // `- [[Evento]]` do vault; qualquer diferença faria a nota ser reescrita a
+  // cada sincronização, sem nada ter mudado.
+  const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+  const items = events.map((event) => {
+    const title = event.title || "Evento sem nome"
+    return `<li><a href="#wiki:${encodeURIComponent(title)}" data-wiki-title="${escape(title)}">${escape(title)}</a></li>`
+  }).join("")
+  return `<ul>${items}</ul>`
+}
+
+/** Grava a nova sequência de eventos e mantém corpo e vínculos coerentes com ela. */
+export function withStoryEvents(story: KnowledgePage, eventIds: string[], pages: KnowledgePage[]): KnowledgePage {
+  const storyEventIds = [...new Set(eventIds)].filter((id) => pages.some((candidate) => candidate.id === id))
+  const events = storyEventIds.flatMap((id) => pages.filter((candidate) => candidate.id === id))
+  const removed = new Set(story.storyEventIds.filter((id) => !storyEventIds.includes(id)))
+  return {
+    ...story,
+    storyEventIds,
+    contentHtml: storyEventsHtml(events),
+    linkedPageIds: [...new Set([...story.linkedPageIds.filter((id) => !removed.has(id)), ...storyEventIds])],
+    updatedAt: Date.now(),
+  }
 }
 
 export type PageSort = "recent" | "oldest" | "order"

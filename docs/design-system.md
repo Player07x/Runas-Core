@@ -24,12 +24,14 @@ Painel operacional moderno inspirado no Livro Vermelho: árvore, pedra rúnica e
 - Na simplificada, listas densas mostram resumo e edição progressiva. Na avançada, a organização acompanha o Runas Tools: perícias e vínculos são linhas editáveis; habilidades, magias e anotações são tabelas-resumo com janela de registro; inventário mostra carga, armadura e itens antes de abrir detalhes. Cartões expansíveis genéricos são proibidos nessas seções.
 - Campos modificadores aparecem imediatamente antes, à esquerda, do recurso ou estado que alteram.
 - A ficha simplificada usa largura máxima aproximada de 1060 px; a avançada expande até aproximadamente 1280 px.
+- A barra superior usa a mesma grade nas duas áreas (`1fr auto 1fr`): marca à esquerda, navegação centralizada, ações à direita. Em telas estreitas a navegação vira barra inferior — e a barra perde o `backdrop-filter`, que de outro modo a torna bloco de contenção e prende a navegação fixa dentro dela.
+- Uma página de História mostra os acontecimentos como cartões sequenciais, com o texto completo visível e os controles `^`, `v`, editar e excluir no canto superior do cartão.
 - Cores têm função: vermelho para PV/dano, ciano para PA/testes, violeta para PE/magia, dourado para recursos narrativos e verde para restauração/carga.
 
 ## Velocidade percebida
 
 - Evitar animações longas, carrosséis e transições de página.
 - Feedback de salvar, rolar e aplicar dano deve ser imediato.
-- Não esconder ações frequentes em menus de três pontos.
+- Ações frequentes de uma tela (rolar teste, aplicar dano, criar ficha) ficam sempre visíveis nela. As ações da barra superior são a exceção deliberada: tema, backup, importação e Obsidian moram no botão `⋯`, porque são raras e a barra precisa caber marca e navegação sem competição.
 - Em telas estreitas, navegação vira barra inferior e ações passam para baixo dos inimigos.
 - Na Mesa, equipamento, perícia e magia disparam ações integradas e levam a tela até a calculadora. Dano sempre separa o valor causado da simulação no alvo antes da aplicação.

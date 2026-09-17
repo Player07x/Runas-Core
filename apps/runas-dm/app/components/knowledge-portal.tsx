@@ -3,10 +3,10 @@
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, CloudDownload, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, RefreshCw, Search, Settings2, ShieldCheck, Swords, Trash2, WifiOff, X } from "lucide-react"
+import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, CloudDownload, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, Search, Settings2, ShieldCheck, Swords, Trash2, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
-import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, sortKnowledgePages, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
+import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, pageKindLabel, sortKnowledgePages, storyEventsOf, withStoryEvents, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
@@ -15,11 +15,13 @@ import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
 import { ChronologyTimeline, EraHeading } from "./chronology-timeline"
-import { normalizeUniverseEras } from "../lib/chronology"
+import { formatFictionalYear, normalizeUniverseEras, type UniverseEra } from "../lib/chronology"
 import { KnowledgeCardImage } from "./knowledge-card-image"
 import { KnowledgeGraph } from "./knowledge-graph"
+import { StoryDocument } from "./story-document"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
 import { ThemeToggle } from "./theme-toggle"
+import { TopbarMenu } from "./topbar-menu"
 
 type PortalArea = "campaigns" | "wiki"
 type AuthState = "checking" | "locked" | "ready"
@@ -41,16 +43,26 @@ function rememberAuthenticatedActivity(): void {
   if (typeof window !== "undefined") sessionStorage.setItem(AUTH_ACTIVITY_KEY, String(Date.now()))
 }
 
-function kindLabel(kind: string): string {
-  return WIKI_SECTIONS.find((item) => item.id === kind)?.label ?? CAMPAIGN_PAGE_KINDS.find((item) => item.id === kind)?.label ?? kind
-}
-
 function statusClass(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").replace(/\s+/g, "-")
 }
 
 function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+}
+
+/** Uma História é datada pelo calendário fictício dos seus acontecimentos, nunca pela criação do arquivo. */
+function storyYearRange(story: KnowledgePage, pages: KnowledgePage[], eras: UniverseEra[]): string {
+  const dated = story.storyEventIds.flatMap((id) => {
+    const event = pages.find((candidate) => candidate.id === id)
+    return event && event.eventYear != null ? [event] : []
+  })
+  if (dated.length === 0) return ""
+  const calendar = eras.find((era) => era.id === dated[0].eraId)?.calendar
+  const years = dated.map((event) => event.eventYear as number)
+  const first = Math.min(...years)
+  const last = Math.max(...years)
+  return first === last ? formatFictionalYear(first, calendar) : `${first.toLocaleString("pt-BR")} – ${formatFictionalYear(last, calendar)}`
 }
 
 function countLabel(count: number, singular: string, plural: string): string {
@@ -79,6 +91,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [eraFilter, setEraFilter] = useState("estrelas")
   const [statusFilter, setStatusFilter] = useState("all")
   const [editing, setEditing] = useState<KnowledgePage | null>(null)
+  const [openStoryId, setOpenStoryId] = useState<string | null>(null)
   const [categoryName, setCategoryName] = useState("")
   const [obsidianOpen, setObsidianOpen] = useState(false)
   const [obsidianPreferences, setObsidianPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
@@ -104,6 +117,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setSelectedKind(area === "wiki" ? "chronology" : "mission")
+      setOpenStoryId(null)
       setSearch("")
       setTagFilter("all")
       setCategoryFilter("all")
@@ -324,8 +338,28 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const campaignId = area === "campaigns" ? selectedCampaignId : null
     if (area === "campaigns" && !campaignId) { addCampaign(); return }
     if (selectedKind === "graph" || selectedKind === "appearance") return
+    // Uma História não é escrita num formulário: ela abre como documento e é
+    // preenchida criando acontecimentos.
+    if (selectedKind === "story") { createStory(); return }
     const today = new Date().toISOString().slice(0, 10)
     setEditing({ ...createKnowledgePage(area === "wiki" ? "wiki" : "campaign", selectedKind, campaignId), date: today, eraId: selectedKind === "chronology" && eraFilter !== "unassigned" ? eraFilter : "" })
+  }
+
+  function syncSavedState(next: KnowledgeWorkspaceState, label: string) {
+    if (!obsidianPreferences.enabled || !obsidianPreferences.automatic) return
+    // `true` permite renovar a permissão da pasta aqui: este código roda a
+    // partir do clique em "Salvar", então ainda está dentro da janela de
+    // ativação do usuário que a File System Access API exige para pedir
+    // permissão sem interação explícita adicional.
+    void withVaultLock(() => syncWorkspaceToLocalVault(next, true, undefined, "site"))
+      .then(async (result) => {
+        const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
+        stateRef.current = merged
+        setState(merged)
+        await saveKnowledgeWorkspace(merged)
+        setNotice(`“${label}” sincronizada com o vault.`)
+      })
+      .catch((error: unknown) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
   }
 
   function savePage(page: KnowledgePage) {
@@ -334,21 +368,101 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks])] }
     const next = mutate((current) => ({ ...current, pages: current.pages.some((candidate) => candidate.id === readyPage.id) ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate) : [readyPage, ...current.pages] }))
     setEditing(null)
-    if (obsidianPreferences.enabled && obsidianPreferences.automatic) {
-      // `true` permite renovar a permissão da pasta aqui: este código roda a
-      // partir do clique em "Salvar", então ainda está dentro da janela de
-      // ativação do usuário que a File System Access API exige para pedir
-      // permissão sem interação explícita adicional.
-      void withVaultLock(() => syncWorkspaceToLocalVault(next, true, undefined, "site"))
-        .then(async (result) => {
-          const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
-          stateRef.current = merged
-          setState(merged)
-          await saveKnowledgeWorkspace(merged)
-          setNotice(`“${readyPage.title}” sincronizada com o vault.`)
-        })
-        .catch((error: unknown) => setNotice(error instanceof Error ? `Página salva localmente. ${error.message}` : "Página salva localmente. O vault será atualizado quando estiver disponível."))
-    }
+    syncSavedState(next, readyPage.title)
+  }
+
+  /** Apaga as notas correspondentes no vault; sem isso a sincronização seguinte as reimporta intactas. */
+  function deleteVaultNotesFor(pages: KnowledgePage[]) {
+    const synced = pages.filter((page) => page.obsidianPath)
+    if (!obsidianPreferences.enabled || synced.length === 0) return
+    // Sequencial de propósito: pedir permissão de escrita concorrentemente
+    // arrisca disparar mais de um prompt do navegador ao mesmo tempo.
+    void withVaultLock(async () => {
+      let failed = 0
+      for (const page of synced) {
+        try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
+      }
+      setNotice(failed
+        ? `Registro excluído do site. ${synced.length - failed} de ${synced.length} notas excluídas do vault.`
+        : `${synced.length === 1 ? "Nota excluída também" : `${synced.length} notas excluídas também`} do vault.`)
+    })
+  }
+
+  function createStory() {
+    const story = { ...createKnowledgePage("wiki", "story", null), date: new Date().toISOString().slice(0, 10) }
+    const next = mutate((current) => ({ ...current, pages: [story, ...current.pages] }))
+    setOpenStoryId(story.id)
+    syncSavedState(next, story.title)
+  }
+
+  function changeStory(storyId: string, values: Partial<KnowledgePage>) {
+    mutate((current) => ({ ...current, pages: current.pages.map((page) => page.id === storyId ? { ...page, ...values, updatedAt: Date.now() } : page) }))
+  }
+
+  /** O acontecimento é um registro próprio; a história guarda apenas a ordem dos ids. */
+  function saveStoryEvent(storyId: string, event: KnowledgePage) {
+    const next = mutate((current) => {
+      const story = current.pages.find((page) => page.id === storyId)
+      if (!story) return current
+      const pages = current.pages.some((page) => page.id === event.id)
+        ? current.pages.map((page) => page.id === event.id ? event : page)
+        : [...current.pages, event]
+      return { ...current, pages: pages.map((page) => page.id === storyId ? withStoryEvents(story, [...story.storyEventIds, event.id], pages) : page) }
+    })
+    syncSavedState(next, event.title || "Evento")
+  }
+
+  function deleteStoryEvent(storyId: string, eventId: string) {
+    const removed = state.pages.find((page) => page.id === eventId)
+    const next = mutate((current) => {
+      const pages = current.pages.filter((page) => page.id !== eventId)
+      const story = pages.find((page) => page.id === storyId)
+      return {
+        ...current,
+        pages: pages.map((page) => page.id === storyId && story ? withStoryEvents(story, story.storyEventIds.filter((id) => id !== eventId), pages) : { ...page, linkedPageIds: page.linkedPageIds.filter((id) => id !== eventId) }),
+        deletedIds: [...new Set([...current.deletedIds, eventId])],
+      }
+    })
+    syncSavedState(next, state.pages.find((page) => page.id === storyId)?.title ?? "História")
+    if (removed) deleteVaultNotesFor([removed])
+  }
+
+  function moveStoryEvent(storyId: string, eventId: string, offset: -1 | 1) {
+    const next = mutate((current) => ({
+      ...current,
+      pages: current.pages.map((page) => {
+        if (page.id !== storyId) return page
+        const order = [...page.storyEventIds]
+        const from = order.indexOf(eventId)
+        const to = from + offset
+        if (from < 0 || to < 0 || to >= order.length) return page
+        order.splice(to, 0, ...order.splice(from, 1))
+        return withStoryEvents(page, order, current.pages)
+      }),
+    }))
+    syncSavedState(next, state.pages.find((page) => page.id === storyId)?.title ?? "História")
+  }
+
+  function removeStory(storyId: string) {
+    const story = state.pages.find((page) => page.id === storyId)
+    if (!story) return
+    const events = storyEventsOf(story, state.pages)
+    if (!window.confirm(events.length
+      ? `Excluir a história “${story.title || "sem nome"}” e seus ${events.length} acontecimento${events.length === 1 ? "" : "s"}?`
+      : `Excluir a história “${story.title || "sem nome"}”?`)) return
+    const removedIds = new Set([storyId, ...events.map((event) => event.id)])
+    mutate((current) => ({
+      ...current,
+      pages: current.pages.filter((page) => !removedIds.has(page.id)).map((page) => ({ ...page, linkedPageIds: page.linkedPageIds.filter((id) => !removedIds.has(id)) })),
+      deletedIds: [...new Set([...current.deletedIds, ...removedIds])],
+    }))
+    setOpenStoryId(null)
+    deleteVaultNotesFor([story, ...events])
+  }
+
+  function openPage(page: KnowledgePage) {
+    if (page.kind === "story") { setOpenStoryId(page.id); return }
+    setEditing(page)
   }
 
   function removePage(id: string) {
@@ -409,10 +523,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       .filter((page) => selectedKind !== "chronology" || (eraFilter === "unassigned" ? !page.eraId || !eras.some((era) => era.id === page.eraId) : page.eraId === eraFilter)), dateSort)
   }, [categoryFilter, scopedPages, search, selectedKind, statusFilter, tagFilter, dateSort, eraFilter, eras])
 
-  if (auth === "checking") return <SessionCheckingScreen area={area} />
-  if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} area={area} />
+  if (auth === "checking") return <SessionCheckingScreen />
+  if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} />
 
   const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [...CAMPAIGN_PAGE_KINDS, { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
+  const openStory = area === "wiki" && selectedKind === "story" ? state.pages.find((page) => page.id === openStoryId) ?? null : null
   return <main className={`knowledge-shell knowledge-app ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
     <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} onCloudImport={() => setCloudImportOpen(true)} />
     <div className={`knowledge-layout ${area === "wiki" ? "wiki-layout" : ""}`}>
@@ -420,9 +535,22 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       <section className="knowledge-workspace">
         {area === "campaigns" && selectedCampaign ? <CampaignHeading campaign={selectedCampaign} onChange={updateCampaign} onDelete={removeCampaign} /> : <div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>{area === "wiki" ? "Wiki" : "Campanhas"}</h1><p>{area === "wiki" ? "Seu mundo interligado, pesquisável e compatível com Obsidian." : "Organize aventuras, sessões e encontros em um único lugar."}</p></div>{area === "campaigns" && !selectedCampaign && <button className="primary-button" onClick={addCampaign}><Plus size={17} /> Criar campanha</button>}</div>}
         {(area === "wiki" || selectedCampaign) && <>
-          <nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as KnowledgePageKind | "graph" | "appearance"); if (kind.id === "mission") setDateSort("order"); else if (dateSort === "order") setDateSort("recent"); setStatusFilter("all"); setCategoryFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>
-          {selectedKind !== "graph" && selectedKind !== "appearance" && <div className="knowledge-toolbar"><label className="knowledge-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no título, texto, tag ou resumo…" /><kbd>{filteredPages.length}</kbd></label><div className="knowledge-filters"><label><Filter size={14} /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">Todas as tags</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Todas as categorias</option>{categoriesForSelectedKind.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>{area === "campaigns" && ["mission", "event"].includes(selectedKind) && <label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos os status</option>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}<label><CalendarDays size={14} /><select aria-label="Organizar por data" value={dateSort} onChange={(event) => setDateSort(event.target.value as PageSort)}><option value="recent">Mais Recentes</option><option value="oldest">Mais Antigas</option>{selectedKind === "mission" && <option value="order">Ordem das missões</option>}</select></label>{selectedKind === "chronology" && <label><select aria-label="Era" value={eraFilter} onChange={(event) => setEraFilter(event.target.value)}>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}<option value="unassigned">Sem era definida</option></select></label>}<button className="filter-clear" title="Limpar filtros" onClick={() => { setSearch(""); setTagFilter("all"); setCategoryFilter("all"); setStatusFilter("all"); setDateSort("recent") }}><X size={15} /></button></div><div className="category-creator"><label><FolderPlus size={16} /><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCategory() }} placeholder="Nova categoria" /></label><button onClick={addCategory}>Adicionar</button><button className="primary-button" onClick={addPage}><Plus size={17} /> {selectedKind === "encounter" ? "Novo encontro" : "Nova página"}</button></div></div>}
-          {selectedKind === "appearance" && selectedCampaign ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <>{selectedEra && <EraHeading key={selectedEra.id} era={selectedEra} onChange={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} />}<ChronologyTimeline pages={filteredPages} era={selectedEra} onOpen={setEditing} /></> : <PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} onOpen={setEditing} onCreate={addPage} />}
+          <nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as KnowledgePageKind | "graph" | "appearance"); setOpenStoryId(null); if (kind.id === "mission") setDateSort("order"); else if (dateSort === "order") setDateSort("recent"); setStatusFilter("all"); setCategoryFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>
+          {selectedKind !== "graph" && selectedKind !== "appearance" && !openStory && <div className="knowledge-toolbar"><label className="knowledge-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no título, texto, tag ou resumo…" /><kbd>{filteredPages.length}</kbd></label><div className="knowledge-filters"><label><Filter size={14} /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">Todas as tags</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Todas as categorias</option>{categoriesForSelectedKind.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>{area === "campaigns" && ["mission", "event"].includes(selectedKind) && <label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos os status</option>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}<label><CalendarDays size={14} /><select aria-label="Organizar por data" value={dateSort} onChange={(event) => setDateSort(event.target.value as PageSort)}><option value="recent">Mais Recentes</option><option value="oldest">Mais Antigas</option>{selectedKind === "mission" && <option value="order">Ordem das missões</option>}</select></label>{selectedKind === "chronology" && <label><select aria-label="Era" value={eraFilter} onChange={(event) => setEraFilter(event.target.value)}>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}<option value="unassigned">Sem era definida</option></select></label>}<button className="filter-clear" title="Limpar filtros" onClick={() => { setSearch(""); setTagFilter("all"); setCategoryFilter("all"); setStatusFilter("all"); setDateSort("recent") }}><X size={15} /></button></div><div className="category-creator"><label><FolderPlus size={16} /><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCategory() }} placeholder="Nova categoria" /></label><button onClick={addCategory}>Adicionar</button><button className="primary-button" onClick={addPage}><Plus size={17} /> {selectedKind === "encounter" ? "Novo encontro" : selectedKind === "story" ? "Nova história" : "Nova página"}</button></div></div>}
+          {openStory ? <StoryDocument
+            key={openStory.id}
+            story={openStory}
+            pages={state.pages}
+            categories={scopedCategories}
+            eras={eras}
+            bestiary={bestiary}
+            onChangeStory={(values) => changeStory(openStory.id, values)}
+            onDeleteStory={() => removeStory(openStory.id)}
+            onSaveEvent={(event) => saveStoryEvent(openStory.id, event)}
+            onDeleteEvent={(id) => deleteStoryEvent(openStory.id, id)}
+            onMoveEvent={(id, offset) => moveStoryEvent(openStory.id, id, offset)}
+            onBack={() => setOpenStoryId(null)}
+          /> : selectedKind === "appearance" && selectedCampaign ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <>{selectedEra && <EraHeading key={selectedEra.id} era={selectedEra} onChange={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} />}<ChronologyTimeline pages={filteredPages} era={selectedEra} onOpen={setEditing} /></> : <PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} eras={eras} onOpen={openPage} onCreate={addPage} />}
         </>}
       </section>
     </div>
@@ -441,24 +569,16 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   </main>
 }
 
-function SessionCheckingScreen({ area }: { area: PortalArea }) {
+function SessionCheckingScreen() {
   return <main className="knowledge-shell">
-    <header className="topbar knowledge-appbar">
-      <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
-      <KnowledgeNavigation area={area} />
-      <span aria-hidden="true" />
-    </header>
+    <LockedTopbar />
     <div className="loading-screen knowledge-session-loading"><span className="brand-rune">R</span><p>Reabrindo o arquivo do mestre…</p></div>
   </main>
 }
 
-function AccessScreen({ token, password, error, isLocal, onToken, onPassword, onSubmit, onLocal, area }: { token: string; password: string; error: string; isLocal: boolean; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void; onLocal: () => void; area: PortalArea }) {
+function AccessScreen({ token, password, error, isLocal, onToken, onPassword, onSubmit, onLocal }: { token: string; password: string; error: string; isLocal: boolean; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void; onLocal: () => void }) {
   return <main className="knowledge-shell">
-    <header className="topbar knowledge-appbar">
-      <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
-      <KnowledgeNavigation area={area} />
-      <span aria-hidden="true" />
-    </header>
+    <LockedTopbar />
     <section className="knowledge-access-layout">
       <div className="knowledge-access-copy">
         <p className="eyebrow"><ShieldCheck size={15} /> Área privada</p>
@@ -483,12 +603,32 @@ function AccessScreen({ token, password, error, isLocal, onToken, onPassword, on
 }
 
 function KnowledgeHeader({ area, syncState, onObsidian, onCloudImport }: { area: PortalArea; syncState: SyncState; onObsidian: () => void; onCloudImport: () => void }) {
-  const sync = syncState === "synced" ? { icon: Cloud, label: "Sincronizado" } : syncState === "syncing" || syncState === "loading" ? { icon: RefreshCw, label: "Sincronizando" } : syncState === "error" ? { icon: CircleAlert, label: "Falha ao salvar" } : { icon: WifiOff, label: "Salvo localmente" }
-  const Icon = sync.icon
+  const sync = syncState === "synced"
+    ? { tone: "good" as const, label: "Sincronizado" }
+    : syncState === "syncing" || syncState === "loading" ? { tone: "busy" as const, label: "Sincronizando" }
+      : syncState === "error" ? { tone: "bad" as const, label: "Falha ao salvar" } : { tone: "idle" as const, label: "Salvo localmente" }
   return <header className="topbar knowledge-appbar">
-    <a className="brand" href="/"><span className="brand-rune">R</span><span><strong>Runas DM</strong><small>Arquivo do mestre</small></span></a>
+    <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Arquivo do mestre</small></span><b className="topbar-badge">DM</b></a>
     <KnowledgeNavigation area={area} />
-    <div className="top-actions knowledge-header-actions"><span className={`knowledge-sync ${syncState}`}><Icon className={syncState === "syncing" || syncState === "loading" ? "spin" : ""} size={14} /> {sync.label}</span><ThemeToggle /><button className="secondary-button" onClick={onCloudImport}><CloudDownload size={16} /> Importar da nuvem</button><button className="secondary-button" onClick={onObsidian}><Settings2 size={16} /> Obsidian</button></div>
+    <div className="top-actions knowledge-header-actions">
+      <TopbarMenu status={sync}>
+        {(close) => <>
+          <ThemeToggle variant="menu" />
+          <button className="topbar-menu-item" onClick={() => { close(); onCloudImport() }}><CloudDownload size={18} /><span>Importar da nuvem</span></button>
+          <button className="topbar-menu-item" onClick={() => { close(); onObsidian() }}><Settings2 size={18} /><span>Obsidian</span></button>
+          <a className="topbar-menu-item" href="https://runas-book.pages.dev/dm" onClick={close}><BookOpen size={18} /><span>Runas Book DM</span></a>
+        </>}
+      </TopbarMenu>
+    </div>
+  </header>
+}
+
+/** Fora da sessão do mestre não existe arquivo para navegar: a barra fica reduzida à marca e ao caminho de volta. */
+function LockedTopbar() {
+  return <header className="topbar knowledge-appbar locked-appbar">
+    <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Área privada</small></span></a>
+    <span aria-hidden="true" />
+    <div className="top-actions"><a className="secondary-button" href="/"><Archive size={16} /><span>Voltar ao Bestiário</span></a></div>
   </header>
 }
 
@@ -501,7 +641,6 @@ function KnowledgeNavigation({ area }: { area: PortalArea }) {
     <a href="/?view=encounter"><Swords size={17} /> Mesa</a>
     <a className={area === "campaigns" ? "active" : ""} href="/campaigns"><BookMarked size={17} /> Campanhas</a>
     <a className={area === "wiki" ? "active" : ""} href="/wiki"><LibraryBig size={17} /> Wiki</a>
-    <a href="https://runas-book.pages.dev/dm"><BookOpen size={17} /> Runas Book DM</a>
   </nav>
 }
 
@@ -513,7 +652,7 @@ function CampaignHeading({ campaign, onChange, onDelete }: { campaign: CampaignR
   </div>
 }
 
-function PageGrid({ pages, allPages, categories, onOpen, onCreate }: { pages: KnowledgePage[]; allPages: KnowledgePage[]; categories: KnowledgeCategory[]; onOpen: (page: KnowledgePage) => void; onCreate: () => void }) {
+function PageGrid({ pages, allPages, categories, eras, onOpen, onCreate }: { pages: KnowledgePage[]; allPages: KnowledgePage[]; categories: KnowledgeCategory[]; eras: UniverseEra[]; onOpen: (page: KnowledgePage) => void; onCreate: () => void }) {
   if (pages.length === 0) return <div className="knowledge-empty"><BookMarked size={32} /><strong>Nenhum registro encontrado.</strong><p>Crie o primeiro registro ou ajuste os filtros desta seção.</p><button className="primary-button" onClick={onCreate}><Plus size={16} /> Criar</button></div>
   return <div className="knowledge-grid">{pages.map((page) => {
     const creatureCount = page.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0)
@@ -522,9 +661,13 @@ function PageGrid({ pages, allPages, categories, onOpen, onCreate }: { pages: Kn
     const color = page.status.includes("Concluída") ? "var(--green)" : page.status.includes("Fracassada") ? "var(--red)" : page.status === "Em Progresso" ? "var(--cyan)" : "var(--line)"
     // Legacy per-page colors must not override campaign-wide appearance or status.
     return <button key={page.id} className="knowledge-card" style={{ "--status-border": hasStatus ? color : "var(--line)" } as CSSProperties} onClick={() => onOpen(page)}>
-      <header><span>{page.order ? `${page.order} · ` : ""}{kindLabel(page.kind)}</span>{hasStatus && <b className={statusClass(page.status)}>{page.status}</b>}</header>
+      <header><span>{page.order ? `${page.order} · ` : ""}{pageKindLabel(page.kind, page.scope)}</span>{hasStatus && <b className={statusClass(page.status)}>{page.status}</b>}</header>
       <div className="knowledge-card-body"><KnowledgeCardImage page={page} /><div className="knowledge-card-copy"><h2>{page.title || (page.kind === "encounter" ? "Encontro sem nome" : "Página sem nome")}</h2><p>{page.summary || (page.kind === "encounter" ? "Sem notas do mestre." : plainTextFromHtml(page.contentHtml).slice(0, 180) || "Sem resumo.")}</p>
-        <div className="knowledge-card-meta">{page.date && <span><CalendarDays size={13} /> {page.date.match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${page.date}T12:00:00`).toLocaleDateString("pt-BR") : page.date}</span>}{page.kind !== "encounter" && links.length > 0 && <span><Network size={13} /> {countLabel(links.length, "vínculo", "vínculos")}</span>}{creatureCount > 0 && <span><Swords size={13} /> {countLabel(creatureCount, "inimigo", "inimigos")}</span>}</div>
+        <div className="knowledge-card-meta">{page.kind === "story"
+          ? storyYearRange(page, allPages, eras) && <span><CalendarDays size={13} /> {storyYearRange(page, allPages, eras)}</span>
+          : page.date && <span><CalendarDays size={13} /> {page.date.match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${page.date}T12:00:00`).toLocaleDateString("pt-BR") : page.date}</span>}{page.kind === "story"
+          ? page.storyEventIds.length > 0 && <span><Network size={13} /> {countLabel(page.storyEventIds.length, "acontecimento", "acontecimentos")}</span>
+          : page.kind !== "encounter" && links.length > 0 && <span><Network size={13} /> {countLabel(links.length, "vínculo", "vínculos")}</span>}{creatureCount > 0 && <span><Swords size={13} /> {countLabel(creatureCount, "inimigo", "inimigos")}</span>}</div>
         <footer>{categories.filter((category) => page.categoryIds.includes(category.id)).slice(0, 2).map((category) => <span key={category.id}>{category.name}</span>)}{page.tags.slice(0, 3).map((tag) => <i key={tag}>#{tag}</i>)}</footer>
       </div></div>
     </button>

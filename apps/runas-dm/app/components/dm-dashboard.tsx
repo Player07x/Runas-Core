@@ -30,6 +30,7 @@ import { AdvancedSheetEditor } from "./advanced-sheet-editor"
 import { AttributeBands } from "./attribute-bands"
 import { PwaInstallCard } from "./pwa-install-card"
 import { ThemeToggle } from "./theme-toggle"
+import { TopbarMenu } from "./topbar-menu"
 import { clampSimpleSheetWidth, plainTextSummary } from "../lib/simple-sheet"
 import { BatchExportDialog } from "./batch-export-dialog"
 import { PortraitCropDialog } from "./portrait-crop-dialog"
@@ -322,7 +323,7 @@ export function DmDashboard() {
       <header className="topbar">
         <button className="brand" onClick={() => setView("gallery")} aria-label="Abrir galeria">
           <span className="brand-rune">R</span>
-          <span><strong>Runas DM</strong><small>Mesa rápida</small></span>
+          <span className="brand-copy"><strong>Runas DM</strong><small>Mesa rápida</small></span>
         </button>
         <nav className="view-switch" aria-label="Áreas do Runas DM">
           <button className={view === "gallery" ? "active" : ""} onClick={() => setView("gallery")}><Archive size={17} /> Bestiário</button>
@@ -331,10 +332,14 @@ export function DmDashboard() {
           <a href="/wiki"><LibraryBig size={17} /> Wiki</a>
         </nav>
         <div className="top-actions">
-          <span className={`save-state ${saveStatus}`}><i />{saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : "Salvo localmente"}</span>
-          <ThemeToggle />
-          <button className="icon-button" onClick={exportWorkspace} title="Exportar backup"><Download size={18} /></button>
-          <button className="icon-button" onClick={() => importRef.current?.click()} title="Importar fichas JSON ou ZIP"><Upload size={18} /></button>
+          <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }}>
+            {(close) => <>
+              <ThemeToggle variant="menu" />
+              <button className="topbar-menu-item" onClick={() => { close(); exportWorkspace() }}><Download size={18} /><span>Exportar backup</span></button>
+              <button className="topbar-menu-item" onClick={() => { close(); importRef.current?.click() }}><Upload size={18} /><span>Importar fichas JSON ou ZIP</span></button>
+              <a className="topbar-menu-item" href="https://runas-book.pages.dev/dm" onClick={close}><BookOpenText size={18} /><span>Runas Book DM</span></a>
+            </>}
+          </TopbarMenu>
           <input ref={importRef} hidden multiple type="file" accept="application/json,.json,application/zip,.zip" onChange={(event) => { void importWorkspace(Array.from(event.target.files ?? [])); event.currentTarget.value = "" }} />
         </div>
       </header>

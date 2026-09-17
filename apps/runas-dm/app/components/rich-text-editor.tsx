@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from "react"
 import { AlignCenter, AlignLeft, AlignRight, Bold, Eraser, Heading2, ImagePlus, Italic, Link2, List, ListOrdered, Quote, Underline, Unlink } from "lucide-react"
 import { readCachedVaultAsset } from "../lib/vault-assets"
 
@@ -47,6 +47,38 @@ export function wikiTitlesFromRichText(value: string): string[] {
   return [...documentValue.querySelectorAll<HTMLAnchorElement>("a[data-wiki-title]")]
     .map((anchor) => anchor.dataset.wikiTitle?.trim() ?? "")
     .filter(Boolean)
+}
+
+/**
+ * Leitura do mesmo HTML que o editor grava. Reaproveita a sanitização e a
+ * resolução de anexos do vault para que uma página exibida fora do editor
+ * (como um evento dentro de uma História) apareça exatamente igual.
+ */
+export function RichTextView({ html, className = "" }: { html: string; className?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const safe = useMemo(() => sanitizeRichText(html), [html])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let cancelled = false
+    const objectUrls: string[] = []
+    void Promise.all([...container.querySelectorAll<HTMLImageElement>("img[data-obsidian-path]")].map(async (image) => {
+      const path = image.dataset.obsidianPath?.trim()
+      if (!path) return
+      const content = await readCachedVaultAsset(path)
+      if (!content || cancelled) return
+      const url = URL.createObjectURL(content)
+      objectUrls.push(url)
+      image.src = url
+    }))
+    return () => {
+      cancelled = true
+      objectUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [safe])
+
+  return <div ref={containerRef} className={`rich-text-content rich-text-view ${className}`} dangerouslySetInnerHTML={{ __html: safe }} />
 }
 
 type RichTextEditorProps = {
@@ -251,6 +283,36 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
     emitCurrentValue()
   }
 
+  /**
+   * Colar uma imagem precisa produzir um anexo de verdade. A colagem padrão
+   * do `contenteditable` insere `<img src="https://…">`, que a sanitização
+   * (e o próprio `img-src` da CSP) descarta — é daí que vinha a imagem
+   * quebrada. Com o arquivo da área de transferência em mãos, o mesmo
+   * caminho do botão "Inserir imagem" é usado: a imagem entra como `data:`,
+   * e a sincronização grava o arquivo em `Assets` do vault, trocando o
+   * conteúdo por `![[imagem.jpg]]` no Markdown.
+   */
+  async function pasteContent(event: ClipboardEvent<HTMLDivElement>) {
+    const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"))
+    if (files.length > 0) {
+      event.preventDefault()
+      for (const file of files) await insertImage(file)
+      return
+    }
+    const html = event.clipboardData.getData("text/html")
+    if (!/<img\b/i.test(html)) return
+    // Sem o binário na área de transferência, a imagem remota não pode ser
+    // baixada (a CSP restringe `connect-src` ao próprio site) nem exibida.
+    // Em vez de deixar um quadro quebrado, cola o endereço como link.
+    event.preventDefault()
+    const source = html.match(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i)?.[1] ?? ""
+    const text = event.clipboardData.getData("text/plain").trim()
+    editorRef.current?.focus()
+    if (/^https:/i.test(source)) document.execCommand("insertHTML", false, `<a href="${source.replaceAll('"', "&quot;")}" target="_blank" rel="noreferrer">${text || source}</a>`)
+    else if (text) document.execCommand("insertText", false, text)
+    emitCurrentValue()
+  }
+
   function formatImage(width = imageWidth, align = imageAlign) {
     const selectedImage = selectedImageRef.current
     if (!selectedImage || !editorRef.current?.contains(selectedImage)) return
@@ -302,6 +364,7 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
         aria-multiline="true"
         aria-labelledby={`${id}-label`}
         suppressContentEditableWarning
+        onPaste={(event) => { void pasteContent(event) }}
         onClick={(event) => {
           const selectedImage = event.target instanceof HTMLImageElement ? event.target : null
           selectedImageRef.current = selectedImage

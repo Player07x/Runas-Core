@@ -7,6 +7,7 @@ import {
   CAMPAIGN_PAGE_KINDS,
   CAMPAIGN_STATUSES,
   WIKI_SECTIONS,
+  pageKindLabel,
   parseList,
   missionOrderLinks,
   normalizeMissionOrder,
@@ -19,13 +20,8 @@ import { fictionalYear, type UniverseEra } from "../lib/chronology"
 import { KnowledgeImagePicker } from "./knowledge-image-picker"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 
-function kindLabel(kind: string): string {
-  return WIKI_SECTIONS.find((item) => item.id === kind)?.label
-    ?? CAMPAIGN_PAGE_KINDS.find((item) => item.id === kind)?.label
-    ?? kind
-}
-
 export function KnowledgeEditor({
+  variant = "modal",
   page,
   eras,
   pages,
@@ -37,6 +33,8 @@ export function KnowledgeEditor({
   onClose,
   onLaunchEncounter,
 }: {
+  /** `inline` desenha o mesmo editor dentro do documento, sem sobreposição: é como um acontecimento é editado dentro da sua História. */
+  variant?: "modal" | "inline"
   page: KnowledgePage
   eras: UniverseEra[]
   pages: KnowledgePage[]
@@ -63,7 +61,10 @@ export function KnowledgeEditor({
     [draft.id, pages, relationSearch],
   )
   const isEncounter = draft.scope === "campaign" && draft.kind === "encounter"
+  const isStoryEvent = draft.scope === "wiki" && draft.kind === "event"
   const supportsSheet = draft.scope === "wiki" && ["characters", "fauna", "monsters"].includes(draft.kind)
+  // Um acontecimento já aconteceu: status ("Concluída", "Em Progresso") só
+  // faz sentido para missões e eventos de campanha.
   const hasStatus = draft.scope === "campaign" && ["mission", "event"].includes(draft.kind)
   const creatureTotal = draft.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0)
 
@@ -103,7 +104,7 @@ export function KnowledgeEditor({
   }
 
   function save() {
-    if (draft.kind === "chronology" && yearText.trim() && fictionalYear(yearText) == null) { setError("Informe um ano inteiro, como -4725, 0 ou 4027."); return }
+    if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && fictionalYear(yearText) == null) { setError("Informe um ano inteiro, como -4725, 0 ou 4027."); return }
     if (draft.order && !normalizeMissionOrder(draft.order)) { setError("Use uma ordem como 1, 2, 3.1 ou 3.2."); return }
     onSave({ ...draft, eventYear: fictionalYear(yearText), tags: parseList(tagText), updatedAt: Date.now() })
   }
@@ -114,18 +115,17 @@ export function KnowledgeEditor({
     onLaunchEncounter(ready)
   }
 
-  const deleteLabel = isEncounter ? "Excluir encontro" : "Excluir página"
-  const saveLabel = isEncounter ? "Salvar encontro" : "Salvar alterações"
+  const deleteLabel = isEncounter ? "Excluir encontro" : isStoryEvent ? "Excluir acontecimento" : "Excluir página"
+  const saveLabel = isEncounter ? "Salvar encontro" : isStoryEvent ? "Salvar acontecimento" : "Salvar alterações"
 
-  return <div
-    className="knowledge-modal-backdrop"
-    role="presentation"
-    onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}
+  const editor = <section
+    className={`knowledge-editor ${isEncounter ? "encounter-editor" : ""} ${variant === "inline" ? "inline-editor" : ""}`}
+    {...(variant === "modal" ? { role: "dialog", "aria-modal": true } : {})}
+    aria-labelledby="knowledge-editor-title"
   >
-    <section className={`knowledge-editor ${isEncounter ? "encounter-editor" : ""}`} role="dialog" aria-modal="true" aria-labelledby="knowledge-editor-title">
       <header>
         <div>
-          <p className="eyebrow">{draft.scope === "wiki" ? "Wiki" : "Campanha"} · {kindLabel(draft.kind)}</p>
+          <p className="eyebrow">{draft.scope === "wiki" ? "Wiki" : "Campanha"} · {pageKindLabel(draft.kind, draft.scope)}</p>
           <h2 id="knowledge-editor-title">{draft.title || (isEncounter ? "Encontro sem nome" : "Página sem nome")}</h2>
         </div>
         <div>
@@ -138,11 +138,13 @@ export function KnowledgeEditor({
         <main>
           <div className="knowledge-editor-identity">
             <label className="wide"><span>{isEncounter ? "Nome do encontro" : "Título"}</span><input value={draft.title} onChange={(event) => patch({ title: event.target.value })} /></label>
-            <label><span>Tipo</span><select value={draft.kind} onChange={(event) => patch({ kind: event.target.value as KnowledgePage["kind"] })}>{draft.scope === "wiki" ? WIKI_SECTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>) : CAMPAIGN_PAGE_KINDS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-            {draft.kind === "chronology" ? <>
-              <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>
+            {isStoryEvent
+              ? <label><span>Tipo</span><input readOnly value="Acontecimento da História" /></label>
+              : <label><span>Tipo</span><select value={draft.kind} onChange={(event) => patch({ kind: event.target.value as KnowledgePage["kind"] })}>{draft.scope === "wiki" ? WIKI_SECTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>) : CAMPAIGN_PAGE_KINDS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+            {draft.kind === "chronology" || isStoryEvent ? <>
+              {draft.kind === "chronology" && <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>}
               <label><span>Era</span><select value={draft.eraId || ""} onChange={(event) => patch({ eraId: event.target.value })}><option value="">Sem era definida</option>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}</select></label>
-              <label><span>Ano do evento ({eras.find((era) => era.id === draft.eraId)?.calendar || "calendário fictício"})</span><input inputMode="numeric" value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725" /></label>
+              <label><span>Ano do acontecimento ({eras.find((era) => era.id === draft.eraId)?.calendar || "calendário fictício"})</span><input inputMode="numeric" value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725" /></label>
             </> : <label><span>Data</span><input type="date" value={draft.date} onChange={(event) => patch({ date: event.target.value })} /></label>}
             {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <label><span>Ordem</span><input value={draft.order || ""} onChange={(event) => patch({ order: event.target.value })} placeholder="3.1" /></label>}
             {hasStatus && <label><span>Status</span><select value={draft.status} onChange={(event) => patch({ status: event.target.value as KnowledgePage["status"] })}>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}
@@ -199,14 +201,14 @@ export function KnowledgeEditor({
             <header><Link2 size={16} /><strong>Vínculos</strong></header>
             {automaticLinks.length > 0 && <div className="backlinks"><b>Automáticos pela ordem</b>{pages.filter((candidate) => automaticLinks.includes(candidate.id)).map((candidate) => <span key={candidate.id}>{candidate.order} · {candidate.title}</span>)}</div>}
             <label className="mini-search"><Search size={14} /><input value={relationSearch} onChange={(event) => setRelationSearch(event.target.value)} placeholder="Buscar página" /></label>
-            <div className="relation-list">{relatedPages.slice(0, 30).map((candidate) => <label key={candidate.id}><input type="checkbox" checked={draft.linkedPageIds.includes(candidate.id)} onChange={() => toggleValue("linkedPageIds", candidate.id)} /><span><strong>{candidate.title}</strong><small>{kindLabel(candidate.kind)}</small></span></label>)}</div>
+            <div className="relation-list">{relatedPages.slice(0, 30).map((candidate) => <label key={candidate.id}><input type="checkbox" checked={draft.linkedPageIds.includes(candidate.id)} onChange={() => toggleValue("linkedPageIds", candidate.id)} /><span><strong>{candidate.title}</strong><small>{pageKindLabel(candidate.kind, candidate.scope)}</small></span></label>)}</div>
             {backlinks.length > 0 && <div className="backlinks"><b>Ligam para esta página</b>{backlinks.map((candidate) => <span key={candidate.id}>[[{candidate.title}]]</span>)}</div>}
           </section>}
           <section>
             <header><BookOpen size={16} /><strong>Categorias</strong></header>
             <div className="relation-list">{categories.length === 0 ? <p className="mini-empty">Crie categorias na tela principal.</p> : categories.map((category) => <label key={category.id}><input type="checkbox" checked={draft.categoryIds.includes(category.id)} onChange={() => toggleValue("categoryIds", category.id)} /><span><strong>{category.name}</strong></span></label>)}</div>
           </section>
-          {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <section><header><BookOpen size={16} /><strong>Imagem {draft.kind === "mission" ? "da missão" : "do evento"}</strong></header><KnowledgeImagePicker value={draft.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => patch({ backgroundImageDataUrl })} /></section>}
+          {["mission", "event"].includes(draft.kind) && <section><header><BookOpen size={16} /><strong>Imagem {draft.kind === "mission" ? "da missão" : isStoryEvent ? "do acontecimento" : "do evento"}</strong></header><KnowledgeImagePicker value={draft.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => patch({ backgroundImageDataUrl })} /></section>}
           {supportsSheet && <section>
             <header><BookOpen size={16} /><strong>Ficha vinculada</strong></header>
             <label className="aside-select"><span>Bestiário</span><select value={draft.bestiaryEntryId ?? ""} onChange={(event) => patch({ bestiaryEntryId: event.target.value || null })}><option value="">Nenhuma ficha</option>{bestiary.map((entry) => <option key={entry.id} value={entry.id}>{entry.character.name || "Criatura sem nome"}</option>)}</select></label>
@@ -221,6 +223,12 @@ export function KnowledgeEditor({
         <button className="secondary-button" onClick={onClose}>Cancelar</button>
         <button className="primary-button" onClick={save}><Save size={16} /> {saveLabel}</button>
       </footer>
-    </section>
-  </div>
+  </section>
+
+  if (variant === "inline") return editor
+  return <div
+    className="knowledge-modal-backdrop"
+    role="presentation"
+    onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}
+  >{editor}</div>
 }

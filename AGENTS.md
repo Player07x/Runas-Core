@@ -35,6 +35,8 @@ Antes de alterar qualquer parte desta suíte, leia integralmente:
 - O endereço canônico do Runas DM é `https://runas-dm.pages.dev`; mantenha o Cloudflare Access e o workflow dedicado antes de substituir uma publicação.
 - O Runas DM não limita fichas ou cópias. A galeria do Runas Tools aceita até 100 fichas, paginadas em 20 por página (máximo de 5 páginas), conforme decisão explícita de produto.
 - A importação do Runas DM aceita uma ficha JSON, vários JSON selecionados simultaneamente e o ZIP JSON exportado pela galeria do Runas Tools.
+- Uma página de História da Wiki nunca é editada como texto: `contentHtml` é derivado de `storyEventIds` por `withStoryEvents`. Alterar a sequência, o corpo ou o `.md` de uma História passa por essa função.
+- Na Wiki, `kind: "event"` chama-se **Acontecimento** e não tem status; `Evento` continua sendo o registro de campanha. Use `pageKindLabel(kind, scope)` para rotular.
 - Mudanças compartilhadas exigem teste no `@runas/core`, typecheck e build dos dois aplicativos.
 - Os dois aplicativos são PWAs. A opção de instalação existe somente nas telas iniciais e nenhum fluxo principal pode depender da rede.
 - Service workers nunca armazenam `/api/backup`, autenticação ou respostas do Cloudflare Access/Sites.

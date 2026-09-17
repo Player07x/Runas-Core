@@ -1,10 +1,12 @@
-import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
+import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_NESTED_KINDS, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, pageKindLabel, wikiLinkTitles, withStoryEvents, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
 import { createTextZip, downloadBlob, safeFilename } from "./export"
 import { cacheVaultAsset, readCachedVaultAsset } from "./vault-assets"
 import { fictionalYear } from "./chronology"
 import { normalizeMissionOrder } from "./knowledge-model"
 
 export const WIKI_VAULT_FOLDERS = WIKI_SECTIONS.map((section) => section.label)
+/** Pasta raiz da seção História; cada história vira uma subpasta com seus acontecimentos. */
+export const STORY_VAULT_FOLDER = WIKI_SECTIONS.find((section) => section.id === "story")?.label ?? "História"
 // Campanhas faz parte do arquivo sincronizado. Bases continua fora da
 // interface, mas seus arquivos `.base` são lidos pelo adaptador para ativar a
 // organização física das novas notas. Runas-Book é a pasta raiz de outro app
@@ -93,7 +95,12 @@ function pathInsideRoot(path: string, rootFolder: string): string {
 }
 
 function kindLabel(page: KnowledgePage): string {
-  return WIKI_SECTIONS.find((item) => item.id === page.kind)?.label ?? CAMPAIGN_PAGE_KINDS.find((item) => item.id === page.kind)?.label ?? page.kind
+  return pageKindLabel(page.kind, page.scope)
+}
+
+function storyFolderOf(page: KnowledgePage, state: KnowledgeWorkspaceState): string {
+  const story = state.pages.find((candidate) => candidate.scope === "wiki" && candidate.kind === "story" && candidate.storyEventIds.includes(page.id))
+  return folderPart(story?.title ?? "", "Acontecimentos")
 }
 
 function normalizedLabel(value: string): string {
@@ -126,7 +133,7 @@ function isSynchronizableVaultPath(path: string): boolean {
 
 function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: KnowledgePageKind): KnowledgePageKind {
   const candidate = normalizedLabel(text(value))
-  const options = scope === "wiki" ? WIKI_SECTIONS : CAMPAIGN_PAGE_KINDS
+  const options: readonly { id: KnowledgePageKind; label: string }[] = scope === "wiki" ? [...WIKI_SECTIONS, ...WIKI_NESTED_KINDS] : CAMPAIGN_PAGE_KINDS
   return options.find((item) => normalizedLabel(item.id) === candidate || normalizedLabel(item.label) === candidate)?.id
     ?? fallback
     ?? (scope === "wiki" ? "chronology" : "gm-note")
@@ -139,7 +146,11 @@ function wikiLocation(path: string): { kind: KnowledgePageKind; category: string
   if (!matchesSection) return null
   const folder = rootLabel === "cronologia geral" ? "Cronologia" : parts[0]
   const section = WIKI_SECTIONS.find((candidate) => normalizedLabel(candidate.label) === normalizedLabel(folder))
-  return section ? { kind: section.id, category: parts.length > 2 ? parts[1] : "" } : null
+  if (!section) return null
+  // Em História, a subpasta é a própria história, não uma categoria: o que
+  // está dentro dela é um acontecimento daquela história.
+  if (section.id === "story") return { kind: parts.length > 2 ? "event" : "story", category: "" }
+  return { kind: section.id, category: parts.length > 2 ? parts[1] : "" }
 }
 
 /**
@@ -186,6 +197,7 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
     ...(page.order ? { order: page.order } : {}),
     ...(page.eraId ? { eraId: page.eraId } : {}),
     ...(page.eventYear != null ? { eventYear: page.eventYear } : {}),
+    ...(page.storyEventIds.length ? { storyEventIds: page.storyEventIds } : {}),
   })
 }
 
@@ -312,11 +324,20 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     page.eraId ? `runas_era: ${yaml(page.eraId)}` : "",
     page.eventYear != null ? `ano_evento: ${page.eventYear}` : "",
     page.bestiaryEntryId ? `ficha_bestiario: ${yaml(page.bestiaryEntryId)}` : "",
+    page.kind === "story" ? `runas_story_events: [${page.storyEventIds.map(yaml).join(", ")}]` : "",
     ...extraFrontmatterLines(page.obsidianExtraFrontmatter), "---",
   ].filter(Boolean).join("\n")
-  const relations = linked.length ? `\n\n## Páginas relacionadas\n${linked.map((title) => `- [[${title}]]`).join("\n")}` : ""
+  // A História já é a lista de tópicos dos seus eventos; repeti-la como
+  // "Páginas relacionadas" só duplicaria os mesmos links no arquivo.
+  const relations = linked.length && page.kind !== "story" ? `\n\n## Páginas relacionadas\n${linked.map((title) => `- [[${title}]]`).join("\n")}` : ""
   const encounter = page.encounterCreatures.length ? `\n\n## Fichas do encontro\n${page.encounterCreatures.map((item) => `- ${item.quantity}× ${item.name} \`${item.entryId}\``).join("\n")}` : ""
-  const body = page.kind === "encounter" ? "" : htmlToMarkdown(page.contentHtml)
+  // A História grava a lista a partir da própria ordem dos eventos, sem
+  // depender do DOM: o corpo do arquivo é exatamente os tópicos com os links.
+  const storyBody = page.storyEventIds.flatMap((id) => {
+    const event = state.pages.find((candidate) => candidate.id === id)
+    return event ? [`- [[${event.title || "Evento sem nome"}]]`] : []
+  }).join("\n")
+  const body = page.kind === "encounter" ? "" : page.kind === "story" ? storyBody : htmlToMarkdown(page.contentHtml)
   return `${frontmatter}\n\n# ${page.title}\n\n${page.summary ? `${page.kind === "encounter" ? "## Notas do mestre\n\n" : ""}${page.summary}\n\n` : ""}${body}${relations}${encounter}\n`
 }
 
@@ -325,6 +346,8 @@ export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspa
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
   const filename = `${filePart(page.title, "Página sem nome")}.md`
   if (page.scope === "campaign") return pathInsideRoot(filename, rootFolder)
+  // Um evento da Wiki pertence a uma história e mora na pasta dela.
+  if (page.kind === "event") return pathInsideRoot(joinVaultPath(STORY_VAULT_FOLDER, storyFolderOf(page, state), filename), rootFolder)
   const section = WIKI_SECTIONS.find((candidate) => candidate.id === page.kind)?.label ?? "Cronologia"
   const primaryCategory = state.categories.find((category) => page.categoryIds.includes(category.id) && category.scope === "wiki")
   return pathInsideRoot(joinVaultPath(section, primaryCategory ? folderPart(primaryCategory.name, "Categoria") : "", filename), rootFolder)
@@ -356,7 +379,7 @@ export function exportKnowledgeZip(state: KnowledgeWorkspaceState): void {
     used.add(normalizedLabel(name))
     return { name, content: pageToMarkdown(page, state) }
   })
-  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, Geografia, Personagens, Fauna, Monstros e Itens. A primeira categoria define a subpasta; categorias adicionais ficam no frontmatter. Anexos ficam em `Assets`.\n" })
+  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, História, Geografia, Personagens, Fauna, Monstros e Itens. Cada história é uma subpasta de História, com um arquivo por evento. A primeira categoria define a subpasta; categorias adicionais ficam no frontmatter. Anexos ficam em `Assets`.\n" })
   const zip = createTextZip(files)
   const buffer = new ArrayBuffer(zip.byteLength)
   new Uint8Array(buffer).set(zip)
@@ -486,7 +509,7 @@ function statusFromValue(value: unknown): KnowledgePage["status"] {
 const KNOWN_FRONTMATTER_KEYS = new Set([
   "runas", "runas_id", "runas_scope", "runas_kind", "runas_title", "runas_summary", "Resumo", "runas_created_at", "runas_updated_at",
   "tipo", "status", "data", "Data", "campanha", "runas_campaign_id", "tags", "categorias", "runas_linked_ids",
-  "ordem", "runas_era", "ano_evento", "ficha_bestiario",
+  "ordem", "runas_era", "ano_evento", "ficha_bestiario", "runas_story_events",
 ])
 
 function extraFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {
@@ -516,13 +539,14 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
   const title = text(frontmatter.runas_title) || text(frontmatter.title) || titleFromMarkdown(parsed.body, note.path)
   const summary = text(frontmatter.runas_summary) || text(frontmatter.Resumo) || text(frontmatter.resumo)
   const content = contentMarkdown(parsed.body, title, summary)
+  const kind = location?.kind ?? kindFromValue(frontmatter.runas_kind ?? frontmatter.tipo, scope)
   const page: KnowledgePage = {
     id: text(frontmatter.runas_id) || fallback?.id || createKnowledgeId("page"),
     scope,
     campaignId: campaign?.id ?? null,
     // Dentro das seis pastas canônicas, a localização física é a fonte de verdade.
     // Isso também corrige frontmatter antigo que tenha sido salvo como `chronology`.
-    kind: location?.kind ?? kindFromValue(frontmatter.runas_kind ?? frontmatter.tipo, scope),
+    kind,
     title,
     summary: summary || content.split(/\n\s*\n/).find((block) => !/^\s*(#|[-*+]\s)/.test(block))?.replace(/\s+/g, " ").slice(0, 280) || "",
     contentHtml: markdownToHtml(content),
@@ -536,6 +560,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     categoryIds: [],
     linkedPageIds: stringArray(frontmatter.runas_linked_ids),
     bestiaryEntryId: text(frontmatter.ficha_bestiario) || null,
+    storyEventIds: kind === "story" ? stringArray(frontmatter.runas_story_events) : [],
     encounterCreatures: fallback?.encounterCreatures ?? [],
     obsidianPath: normalizePath(note.path),
     obsidianExtraFrontmatter: extraFrontmatter(frontmatter),
@@ -675,8 +700,32 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
     page.linkedPageIds = [...new Set([...page.linkedPageIds.filter((id) => state.pages.some((candidate) => candidate.id === id)), ...resolved])]
     page.obsidianFingerprint = pageObsidianFingerprint(page, state)
   }
+  reconcileStories(state)
   state.updatedAt = Math.max(state.updatedAt, ...notes.map((note) => note.modifiedAt), 0)
   return { state, imported }
+}
+
+/**
+ * A sequência gravada no frontmatter manda, mas um evento criado direto no
+ * Obsidian dentro da pasta da história também precisa entrar na lista — e um
+ * evento apagado por lá precisa sair dela, junto com seu link no corpo.
+ */
+function reconcileStories(state: KnowledgeWorkspaceState): void {
+  const storyRoot = normalizedLabel(STORY_VAULT_FOLDER)
+  for (const [index, story] of state.pages.entries()) {
+    if (story.scope !== "wiki" || story.kind !== "story") continue
+    const folder = normalizedLabel(folderPart(story.title, ""))
+    const known = story.storyEventIds.filter((id) => state.pages.some((candidate) => candidate.id === id))
+    const nested = state.pages.filter((candidate) => {
+      if (candidate.scope !== "wiki" || candidate.kind !== "event" || known.includes(candidate.id)) return false
+      const parts = normalizePath(candidate.obsidianPath).split("/")
+      return parts.length > 2 && normalizedLabel(parts[0]) === storyRoot && normalizedLabel(parts[1]) === folder
+    }).sort((a, b) => a.title.localeCompare(b.title, "pt-BR")).map((candidate) => candidate.id)
+    const eventIds = [...known, ...nested]
+    if (eventIds.length === story.storyEventIds.length && eventIds.every((id, position) => id === story.storyEventIds[position])) continue
+    const updated = withStoryEvents(story, eventIds, state.pages)
+    state.pages[index] = { ...updated, obsidianFingerprint: pageObsidianFingerprint(updated, state) }
+  }
 }
 
 async function cacheEmbeddedVaultImages(state: KnowledgeWorkspaceState, adapter: VaultAdapter, rootFolder: string): Promise<KnowledgeWorkspaceState> {

@@ -147,7 +147,9 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
       if (fromHash.chapterId) setExpanded((current) => new Set(current).add(fromHash.chapterId!))
     } else if (fallbackBookId) {
       const book = workspace.books.find((item) => item.id === fallbackBookId)!
-      setNav({ bookId: fallbackBookId, chapterId: book.chapters[0]?.id ?? null, entryId: null, mode: "topic" })
+      const firstChapterId = book.chapters[0]?.id ?? null
+      setNav({ bookId: fallbackBookId, chapterId: firstChapterId, entryId: null, mode: "topic" })
+      if (firstChapterId) setExpanded((current) => new Set(current).add(firstChapterId))
     }
     setNavReady(true)
   }, [hydrated, navReady, workspace.books, workspace.selectedBookId])
@@ -255,6 +257,24 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     setNewChapterTitle(""); setShowChapterEditor(false); setNotice("Tópico criado")
     openTopic(id)
   }
+
+  /** A ordem dos tópicos é a do sumário e a da exportação; mover um deles renumera todos para não deixar empates. */
+  const moveChapter = useCallback((chapterId: string, offset: -1 | 1) => {
+    if (!book) return
+    setWorkspace((current) => ({
+      ...current,
+      books: current.books.map((item) => {
+        if (item.id !== book.id) return item
+        const ordered = [...item.chapters].sort((left, right) => left.order - right.order)
+        const from = ordered.findIndex((chapter) => chapter.id === chapterId)
+        const to = from + offset
+        if (from < 0 || to < 0 || to >= ordered.length) return item
+        ordered.splice(to, 0, ...ordered.splice(from, 1))
+        return { ...item, chapters: ordered.map((chapter, index) => ({ ...chapter, order: index + 1 })) }
+      }),
+      updatedAt: Date.now(),
+    }))
+  }, [book, setWorkspace])
 
   const activeChapterId = nav.chapterId
   const removeChapter = useCallback((chapterId: string) => {
@@ -433,7 +453,7 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
       </div>
     </header>
     <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={openChapterEditor} onAddEntry={openNewPage} onDeleteChapter={removeChapter} />
+      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={openChapterEditor} onAddEntry={openNewPage} onDeleteChapter={removeChapter} onMoveChapter={moveChapter} />
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Fechar índice" />}
       <section className="book-content">
         {nav.mode === "edit" && entry && <PageEditor entry={entry} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}

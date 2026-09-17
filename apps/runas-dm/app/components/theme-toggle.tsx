@@ -33,10 +33,17 @@ function getServerSnapshot(): Theme {
  * então este componente funciona igual no Bestiário/Mesa e em Campanhas/Wiki
  * sem duplicar a leitura do localStorage nem disparar setState num efeito.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ variant = "icon" }: { variant?: "icon" | "menu" } = {}) {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const next = theme === "dark" ? "light" : "dark"
 
-  return <button className="icon-button" onClick={() => applyTheme(theme === "dark" ? "light" : "dark")} title="Alternar tema" aria-label={`Alternar para tema ${theme === "dark" ? "claro" : "escuro"}`}>
+  return <button
+    className={variant === "menu" ? "topbar-menu-item" : "icon-button"}
+    onClick={() => applyTheme(next)}
+    title="Alternar tema"
+    aria-label={`Alternar para tema ${next === "light" ? "claro" : "escuro"}`}
+  >
     {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+    {variant === "menu" && <span>Tema {next === "light" ? "claro" : "escuro"}</span>}
   </button>
 }

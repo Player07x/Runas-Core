@@ -25,6 +25,22 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - Ações agregam itens equipados, habilidades não raciais e magias no formato `nome categoria`.
 - O uso `Equipado` não escolhe automaticamente uma armadura. Vários itens, inclusive várias armaduras, podem permanecer equipados; o usuário seleciona separadamente um único item equipado como armadura ativa, e somente o RDF/RDM desse item entra nas calculadoras de dano.
 
+## Barra superior
+
+- A barra superior carrega apenas marca, navegação e um botão de ações (`⋯`). Tema, backup, importação, Obsidian e atalhos externos ficam dentro desse painel.
+- O estado de salvamento continua fora do painel, reduzido a um ponto colorido no próprio botão: num aplicativo local-first, saber que a alteração foi gravada não pode depender de abrir um menu.
+- A barra do arquivo do mestre (Campanhas e Wiki) exibe o selo `DM` e a navegação completa. Fora da sessão autenticada, a barra fica reduzida à marca e ao caminho de volta ao Bestiário — as duas versões nunca parecem a mesma tela.
+
+## Wiki: História
+
+- `História` é uma seção da Wiki, ao lado de Cronologia. Uma página de História não é escrita como texto: ela é a sequência ordenada dos seus **acontecimentos**.
+- O nome é `Acontecimento`, e não `Evento`, para não se confundir com os Eventos de campanha. Um acontecimento já ocorreu, então não tem status (`Concluída`, `Em Progresso`).
+- Um acontecimento é o mesmo registro `KnowledgePage` usado nas campanhas (`kind: "event"`), com escopo `wiki`. Ele é criado, editado, movido (`^`/`v`) e excluído dentro da própria página de História.
+- Criar ou editar um acontecimento abre o editor **dentro do documento**, na posição dele. Não é modal: a História continua visível em volta.
+- O corpo da página de História é sempre derivado da lista. No arquivo `.md` ele aparece como tópicos `- [[Acontecimento]]`; no site, cada link é substituído pelo conteúdo completo do acontecimento.
+- Excluir um acontecimento remove o arquivo `.md` dele e o tira da sequência. Excluir a História remove também os acontecimentos dela.
+- Cronologia e História datam pelo calendário fictício (era + ano), nunca pela data real de criação do arquivo.
+
 ## Mesa de encontro
 
 - Anexar uma ficha cria cópia independente; mudanças de recursos não alteram o bestiário.
