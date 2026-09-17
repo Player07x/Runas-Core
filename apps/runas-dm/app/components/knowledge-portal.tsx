@@ -6,7 +6,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, CloudDownload, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, Search, Settings2, ShieldCheck, Swords, Trash2, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
-import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, pageKindLabel, sortKnowledgePages, storyEventsOf, withStoryEvents, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
+import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
@@ -366,7 +366,12 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const typedLinks = [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)]
     const automaticLinks = state.pages.filter((candidate) => candidate.id !== page.id && typedLinks.some((title) => title.toLocaleLowerCase("pt-BR") === candidate.title.toLocaleLowerCase("pt-BR"))).map((candidate) => candidate.id)
     const readyPage = { ...page, linkedPageIds: [...new Set([...page.linkedPageIds, ...automaticLinks])] }
-    const next = mutate((current) => ({ ...current, pages: current.pages.some((candidate) => candidate.id === readyPage.id) ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate) : [readyPage, ...current.pages] }))
+    const next = mutate((current) => {
+      const pages = current.pages.some((candidate) => candidate.id === readyPage.id)
+        ? current.pages.map((candidate) => candidate.id === readyPage.id ? readyPage : candidate)
+        : [readyPage, ...current.pages]
+      return { ...current, pages: withRefreshedStories(pages, readyPage.id) }
+    })
     setEditing(null)
     syncSavedState(next, readyPage.title)
   }
@@ -462,6 +467,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   function openPage(page: KnowledgePage) {
     if (page.kind === "story") { setOpenStoryId(page.id); return }
+    // Um acontecimento pertence a uma História e é editado dentro dela;
+    // abri-lo pela linha do tempo leva ao documento, não a um formulário solto.
+    const story = state.pages.find((candidate) => candidate.kind === "story" && candidate.storyEventIds.includes(page.id))
+    if (story) { setSelectedKind("story"); setOpenStoryId(story.id); return }
     setEditing(page)
   }
 
@@ -515,7 +524,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const selectedEra = eras.find((era) => era.id === eraFilter)
   const filteredPages = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("pt-BR")
-    return sortKnowledgePages(scopedPages.filter((page) => selectedKind === "graph" || page.kind === selectedKind)
+    // A Cronologia é a linha do tempo inteira: páginas de Cronologia e os
+    // acontecimentos das Histórias, que compartilham era e ano fictício.
+    return sortKnowledgePages(scopedPages.filter((page) => selectedKind === "graph" || page.kind === selectedKind || (selectedKind === "chronology" && isChronologyPage(page)))
       .filter((page) => !term || [page.title, page.summary, ...(page.kind === "encounter" ? [] : [plainTextFromHtml(page.contentHtml)]), ...page.tags].some((value) => value.toLocaleLowerCase("pt-BR").includes(term)))
       .filter((page) => tagFilter === "all" || page.tags.includes(tagFilter))
       .filter((page) => categoryFilter === "all" || page.categoryIds.includes(categoryFilter))
@@ -550,7 +561,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
             onDeleteEvent={(id) => deleteStoryEvent(openStory.id, id)}
             onMoveEvent={(id, offset) => moveStoryEvent(openStory.id, id, offset)}
             onBack={() => setOpenStoryId(null)}
-          /> : selectedKind === "appearance" && selectedCampaign ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <>{selectedEra && <EraHeading key={selectedEra.id} era={selectedEra} onChange={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} />}<ChronologyTimeline pages={filteredPages} era={selectedEra} onOpen={setEditing} /></> : <PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} eras={eras} onOpen={openPage} onCreate={addPage} />}
+          /> : selectedKind === "appearance" && selectedCampaign ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedKind === "graph" ? <KnowledgeGraph pages={scopedPages.filter((page) => area === "wiki" ? true : ["mission", "event", "gm-note"].includes(page.kind))} onOpen={setEditing} /> : selectedKind === "chronology" ? <>{selectedEra && <EraHeading key={selectedEra.id} era={selectedEra} onChange={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} />}<ChronologyTimeline pages={filteredPages} era={selectedEra} stories={scopedPages.filter((page) => page.kind === "story")} onOpen={openPage} /></> : <PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} eras={eras} onOpen={openPage} onCreate={addPage} />}
         </>}
       </section>
     </div>

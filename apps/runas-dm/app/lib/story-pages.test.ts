@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createKnowledgePage, normalizeKnowledgeWorkspace, storyEventsOf, withStoryEvents, type KnowledgePage, type KnowledgeWorkspaceState } from "./knowledge-model"
+import { createKnowledgePage, isChronologyPage, normalizeKnowledgeWorkspace, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type KnowledgePage, type KnowledgeWorkspaceState } from "./knowledge-model"
 import { isIgnoredVaultPath, mergeObsidianNotes, obsidianPathForPage, pageToMarkdown } from "./obsidian-sync"
 
 function page(id: string, kind: KnowledgePage["kind"], title: string, patch: Partial<KnowledgePage> = {}): KnowledgePage {
@@ -66,6 +66,28 @@ describe("História", () => {
     expect(event?.scope).toBe("wiki")
     // A subpasta nomeia a história, nunca uma categoria da página.
     expect(event?.categoryIds).toEqual([])
+  })
+
+  it("entra na linha do tempo da Cronologia, ordenado pelo ano fictício", () => {
+    const state = storyState()
+    const dated = state.pages.map((page) => page.kind === "event" ? { ...page, eraId: "monges", eventYear: page.id === "event-1" ? 1200 : 900 } : page)
+    const marker = { ...page("chronology-1", "chronology", "Queda do primeiro rei"), eraId: "monges", eventYear: 1000 }
+    const timeline = [...dated, marker].filter(isChronologyPage)
+    expect(timeline.map((candidate) => candidate.id)).toEqual(["event-1", "event-2", "chronology-1"])
+    expect(sortKnowledgePages(timeline, "oldest").map((candidate) => candidate.id)).toEqual(["event-2", "chronology-1", "event-1"])
+    expect(sortKnowledgePages(timeline, "recent").map((candidate) => candidate.id)).toEqual(["event-1", "chronology-1", "event-2"])
+    // A História em si não é um marco da linha do tempo; só seus acontecimentos.
+    expect(isChronologyPage(state.pages[0])).toBe(false)
+  })
+
+  it("reescreve o corpo da história quando o acontecimento é renomeado por fora", () => {
+    const state = storyState()
+    const renamed = state.pages.map((candidate) => candidate.id === "event-1" ? { ...candidate, title: "A ponte que resistiu" } : candidate)
+    const story = withRefreshedStories(renamed, "event-1").find((candidate) => candidate.id === "story-1")
+    expect(story?.contentHtml).toContain("A ponte que resistiu")
+    expect(story?.contentHtml).not.toContain("A queda da ponte")
+    // Sem mudança de título, nada é reescrito.
+    expect(withRefreshedStories(state.pages, "event-1").find((candidate) => candidate.id === "story-1")).toBe(state.pages[0])
   })
 
   it("adota um evento criado direto na pasta da história e descarta a posição de um evento que sumiu", () => {

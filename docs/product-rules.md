@@ -40,6 +40,9 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - O corpo da página de História é sempre derivado da lista. No arquivo `.md` ele aparece como tópicos `- [[Acontecimento]]`; no site, cada link é substituído pelo conteúdo completo do acontecimento.
 - Excluir um acontecimento remove o arquivo `.md` dele e o tira da sequência. Excluir a História remove também os acontecimentos dela.
 - Cronologia e História datam pelo calendário fictício (era + ano), nunca pela data real de criação do arquivo.
+- O ano é digitado no calendário que o mestre preferir: `1200`, `1.200 C.E.` ou `0 Logi`. Sem sufixo, vale C.E. O campo mostra a conversão antes de salvar, e o registro guarda sempre o ano canônico em C.E., para que uma única escala ordene a linha do tempo. `4.027 C.E.` equivale a `0 Logi`, conforme a Era dos Caçadores em `[O&C] História do Universo`.
+- Onde um ano fictício aparece — linha do tempo, cabeçalho do acontecimento e limites da era — os dois calendários são exibidos. Uma era com calendário renomeado pelo mestre não tem equivalência conhecida e mostra apenas o próprio.
+- A Cronologia é a linha do tempo inteira: além das suas próprias páginas, ela exibe os acontecimentos de todas as Histórias, filtrados pela mesma era e ordenados pelo mesmo ano fictício. Cada um mostra a que História pertence e, ao ser aberto, leva ao documento dela — nunca a um formulário solto.
 
 ## Mesa de encontro
 

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { ArrowLeft, ChevronDown, ChevronUp, Edit3, Plus, Trash2 } from "lucide-react"
 import type { BestiaryEntry } from "../lib/model"
 import { createKnowledgePage, storyEventsOf, type KnowledgeCategory, type KnowledgePage } from "../lib/knowledge-model"
-import { formatFictionalYear, type UniverseEra } from "../lib/chronology"
+import { formatCalendarYears, type UniverseEra } from "../lib/chronology"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { RichTextView } from "./rich-text-editor"
@@ -13,7 +13,7 @@ import { RichTextView } from "./rich-text-editor"
 function fictionalDate(event: KnowledgePage, eras: UniverseEra[]): string {
   const era = eras.find((candidate) => candidate.id === event.eraId)
   if (event.eventYear == null) return era ? era.name : ""
-  const year = formatFictionalYear(event.eventYear, era?.calendar)
+  const year = formatCalendarYears(event.eventYear, era?.calendar)
   return era ? `${year} · ${era.name}` : year
 }
 

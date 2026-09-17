@@ -301,7 +301,18 @@ export function effectivePageLinks(page: KnowledgePage, pages: KnowledgePage[]):
   return [...new Set([...page.linkedPageIds, ...missionOrderLinks(page, pages)])]
 }
 
-/** Os eventos de uma história, na ordem registrada, ignorando ids já excluídos. */
+/**
+ * Cronologia e acontecimentos de História ocupam a mesma linha do tempo: os
+ * dois são datados pelo calendário fictício (`eraId` + `eventYear`), e não
+ * pela data real do arquivo.
+ */
+export function isChronologyPage(page: KnowledgePage): boolean {
+  // O escopo só importa para `event`: na campanha ele é um Evento com status e
+  // data real, e não pertence à linha do tempo do universo.
+  return page.kind === "chronology" || (page.scope === "wiki" && page.kind === "event")
+}
+
+/** Os acontecimentos de uma história, na ordem registrada, ignorando ids já excluídos. */
 export function storyEventsOf(story: KnowledgePage, pages: KnowledgePage[]): KnowledgePage[] {
   return story.storyEventIds.flatMap((id) => {
     const event = pages.find((candidate) => candidate.id === id)
@@ -327,7 +338,7 @@ export function storyEventsHtml(events: KnowledgePage[]): string {
   return `<ul>${items}</ul>`
 }
 
-/** Grava a nova sequência de eventos e mantém corpo e vínculos coerentes com ela. */
+/** Grava a nova sequência de acontecimentos e mantém corpo e vínculos coerentes com ela. */
 export function withStoryEvents(story: KnowledgePage, eventIds: string[], pages: KnowledgePage[]): KnowledgePage {
   const storyEventIds = [...new Set(eventIds)].filter((id) => pages.some((candidate) => candidate.id === id))
   const events = storyEventIds.flatMap((id) => pages.filter((candidate) => candidate.id === id))
@@ -341,10 +352,24 @@ export function withStoryEvents(story: KnowledgePage, eventIds: string[], pages:
   }
 }
 
+/**
+ * O corpo de uma História é derivado dos títulos dos seus acontecimentos.
+ * Salvar um acontecimento por fora (pela linha do tempo, por exemplo) precisa
+ * reescrever esse corpo; sem isso, a lista de tópicos manteria o título antigo
+ * até a próxima mudança de sequência.
+ */
+export function withRefreshedStories(pages: KnowledgePage[], eventId: string): KnowledgePage[] {
+  return pages.map((page) => {
+    if (page.kind !== "story" || !page.storyEventIds.includes(eventId)) return page
+    const refreshed = withStoryEvents(page, page.storyEventIds, pages)
+    return refreshed.contentHtml === page.contentHtml ? page : refreshed
+  })
+}
+
 export type PageSort = "recent" | "oldest" | "order"
 
 export function sortKnowledgePages(pages: KnowledgePage[], sort: PageSort): KnowledgePage[] {
-  const timestamp = (page: KnowledgePage) => page.kind === "chronology" ? page.eventYear ?? null : (page.date && Number.isFinite(Date.parse(page.date)) ? Date.parse(page.date) : page.createdAt)
+  const timestamp = (page: KnowledgePage) => isChronologyPage(page) ? page.eventYear ?? null : (page.date && Number.isFinite(Date.parse(page.date)) ? Date.parse(page.date) : page.createdAt)
   return [...pages].sort((a, b) => {
     if (sort === "order") {
       const left = normalizeMissionOrder(a.order), right = normalizeMissionOrder(b.order)

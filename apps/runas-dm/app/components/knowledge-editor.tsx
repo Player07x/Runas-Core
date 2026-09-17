@@ -16,7 +16,7 @@ import {
 } from "../lib/knowledge-model"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { RichTextEditor } from "./rich-text-editor"
-import { fictionalYear, type UniverseEra } from "../lib/chronology"
+import { formatCalendarYears, LOGI_EPOCH_IN_CE, parseCalendarYear, readCalendarYear, type UniverseEra } from "../lib/chronology"
 import { KnowledgeImagePicker } from "./knowledge-image-picker"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 
@@ -67,6 +67,12 @@ export function KnowledgeEditor({
   // faz sentido para missões e eventos de campanha.
   const hasStatus = draft.scope === "campaign" && ["mission", "event"].includes(draft.kind)
   const creatureTotal = draft.encounterCreatures.reduce((sum, item) => sum + item.quantity, 0)
+  // O mestre digita no calendário que quiser; a conversão aparece antes de salvar.
+  const readYear = readCalendarYear(yearText)
+  const yearHint = !yearText.trim()
+    ? "Aceita C.E. ou Logi. Sem sufixo, o ano é lido como C.E."
+    : readYear ? formatCalendarYears(readYear.calendar === "logi" ? readYear.year + LOGI_EPOCH_IN_CE : readYear.year, eras.find((era) => era.id === draft.eraId)?.calendar)
+      : "Ano inválido. Use -4725, 4027 C.E. ou 0 Logi."
 
   function patch(values: Partial<KnowledgePage>) {
     setDraft((current) => ({ ...current, ...values, updatedAt: Date.now() }))
@@ -104,9 +110,9 @@ export function KnowledgeEditor({
   }
 
   function save() {
-    if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && fictionalYear(yearText) == null) { setError("Informe um ano inteiro, como -4725, 0 ou 4027."); return }
+    if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && parseCalendarYear(yearText) == null) { setError("Informe um ano inteiro, com ou sem calendário: -4725, 4027 C.E. ou 0 Logi."); return }
     if (draft.order && !normalizeMissionOrder(draft.order)) { setError("Use uma ordem como 1, 2, 3.1 ou 3.2."); return }
-    onSave({ ...draft, eventYear: fictionalYear(yearText), tags: parseList(tagText), updatedAt: Date.now() })
+    onSave({ ...draft, eventYear: parseCalendarYear(yearText), tags: parseList(tagText), updatedAt: Date.now() })
   }
 
   function saveAndLaunchEncounter() {
@@ -144,7 +150,7 @@ export function KnowledgeEditor({
             {draft.kind === "chronology" || isStoryEvent ? <>
               {draft.kind === "chronology" && <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>}
               <label><span>Era</span><select value={draft.eraId || ""} onChange={(event) => patch({ eraId: event.target.value })}><option value="">Sem era definida</option>{eras.map((era) => <option key={era.id} value={era.id}>{era.name}</option>)}</select></label>
-              <label><span>Ano do acontecimento ({eras.find((era) => era.id === draft.eraId)?.calendar || "calendário fictício"})</span><input inputMode="numeric" value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725" /></label>
+              <label><span>Ano do acontecimento</span><input value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725, 4027 C.E. ou 0 Logi" /><small className="field-hint">{yearHint}</small></label>
             </> : <label><span>Data</span><input type="date" value={draft.date} onChange={(event) => patch({ date: event.target.value })} /></label>}
             {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <label><span>Ordem</span><input value={draft.order || ""} onChange={(event) => patch({ order: event.target.value })} placeholder="3.1" /></label>}
             {hasStatus && <label><span>Status</span><select value={draft.status} onChange={(event) => patch({ status: event.target.value as KnowledgePage["status"] })}>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}

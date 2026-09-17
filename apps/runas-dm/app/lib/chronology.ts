@@ -21,6 +21,55 @@ export const UNIVERSE_ERAS: UniverseEra[] = [
   { id: "cacadores", name: "Era dos Caçadores", startYear: 4027, endYear: null, calendar: "C.E.", note: "Era atual, também chamada Era dos Reis. 4.027 C.E. equivale a 0 Logi." },
 ]
 
+/**
+ * `4.027 C.E. equivale a 0 Logi` (nota da Era dos Caçadores em
+ * `[O&C] História do Universo`). Os dois calendários contam o mesmo tempo com
+ * origens diferentes, então um ano digitado em Logi vira C.E. somando esta
+ * distância — e o armazenamento continua tendo uma escala única.
+ */
+export const LOGI_EPOCH_IN_CE = 4027
+
+export type CalendarName = "ce" | "logi"
+
+function normalizedCalendar(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.\s]/g, "").toLowerCase()
+}
+
+/** Lê "1200", "1.200 C.E." ou "0 Logi" sem exigir um calendário específico do mestre. */
+export function readCalendarYear(value: unknown): { year: number; calendar: CalendarName } | null {
+  if (typeof value === "number") return Number.isSafeInteger(value) ? { year: value, calendar: "ce" } : null
+  if (typeof value !== "string") return null
+  const match = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().match(/^(-?[\d.\s]+?)\s*(c\.?\s*e\.?|logi)?$/)
+  if (!match) return null
+  const digits = match[1].replace(/[.\s]/g, "")
+  if (!/^-?\d+$/.test(digits)) return null
+  const year = Number(digits)
+  if (!Number.isSafeInteger(year)) return null
+  return { year, calendar: match[2]?.startsWith("logi") ? "logi" : "ce" }
+}
+
+/** Ano canônico em C.E., seja qual for o calendário digitado. */
+export function parseCalendarYear(value: unknown): number | null {
+  const read = readCalendarYear(value)
+  return read ? (read.calendar === "logi" ? read.year + LOGI_EPOCH_IN_CE : read.year) : null
+}
+
+export function toLogiYear(year: number): number {
+  return year - LOGI_EPOCH_IN_CE
+}
+
+/**
+ * Os dois calendários lado a lado. Uma era com calendário próprio (renomeado
+ * pelo mestre) não tem equivalência conhecida com Logi, então só o dela é
+ * exibido.
+ */
+export function formatCalendarYears(year: number | null | undefined, calendar = "C.E."): string {
+  if (year == null) return "Não definido"
+  const primary = formatFictionalYear(year, calendar)
+  if (normalizedCalendar(calendar) !== "ce") return primary
+  return `${primary} · ${toLogiYear(year).toLocaleString("pt-BR")} Logi`
+}
+
 export function fictionalYear(value: unknown): number | null {
   if (typeof value === "string" && !/^-?\d+$/.test(value.trim())) return null
   if (typeof value !== "number" && typeof value !== "string") return null
