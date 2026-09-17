@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { ChevronRight, FileText, Plus, Trash2 } from "lucide-react"
 import type { BookChapter, BookRecord } from "../lib/book-model"
 
@@ -17,7 +18,8 @@ interface Props {
   onDeleteChapter: (chapterId: string) => void
 }
 
-export function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntryId, onToggleChapter, onSelectChapter, onSelectEntry, onAddChapter, onAddEntry, onDeleteChapter }: Props) {
+// Memorizada: digitar na busca ou em modais não precisa redesenhar a árvore de tópicos.
+export const BookSidebar = memo(function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntryId, onToggleChapter, onSelectChapter, onSelectEntry, onAddChapter, onAddEntry, onDeleteChapter }: Props) {
   const chapters = [...book.chapters].sort((left: BookChapter, right: BookChapter) => left.order - right.order)
   return <aside className="book-sidebar">
     <div className="sidebar-heading"><span>Tópicos</span>{isDm && <button className="mini-action" onClick={onAddChapter} title="Novo tópico"><Plus size={15} /></button>}</div>
@@ -40,4 +42,4 @@ export function BookSidebar({ book, isDm, expanded, activeChapterId, activeEntry
       })}
     </nav>
   </aside>
-}
+})

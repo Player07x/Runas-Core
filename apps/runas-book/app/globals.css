@@ -1,9 +1,7 @@
-@import 'tailwindcss';
-
 @font-face { font-family: "Norse"; src: url("/fonts/Norse.otf") format("opentype"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Norse Bold"; src: url("/fonts/NorseBold.otf") format("opentype"); font-weight: 700; font-display: swap; }
 
-:root { color-scheme: dark; --ink: #eef1ee; --muted: #9a9d9c; --bg: #0a0e12; --panel: #12161b; --panel-2: #171c22; --line: #2b3035; --gold: #cfd6d1; --cyan: #7d97a6; --red: #a35b52; --purple: #8f7fa8; --danger: #c06b5f; --font-display: "Metal Mania", "Cinzel", Georgia, serif; --font-norse: "Norse", var(--font-display); --font-norse-bold: "Norse Bold", var(--font-display); --book-accent: var(--gold); }
+:root { color-scheme: dark; --ink: #eef1ee; --muted: #9a9d9c; --bg: #0a0e12; --panel: #12161b; --panel-2: #171c22; --line: #2b3035; --gold: #cfd6d1; --cyan: #7d97a6; --red: #a35b52; --purple: #8f7fa8; --danger: #c06b5f; --font-display: var(--font-metal-mania), "Cinzel", Georgia, serif; --font-norse: "Norse", var(--font-display); --font-norse-bold: "Norse Bold", var(--font-display); --book-accent: var(--gold); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 body { background-image: radial-gradient(circle at 12% -8%, rgb(255 255 255 / .05), transparent 30rem), radial-gradient(circle at 90% 6%, rgb(255 255 255 / .03), transparent 26rem), linear-gradient(180deg, #0d1115, #0a0e12 32rem); }
@@ -33,6 +31,9 @@ a { color: inherit; text-decoration: none; }
 .icon-link:hover { background: rgb(255 255 255 / .07); }
 
 /* Layout */
+/* Enquanto a navegação salva não é aplicada, o conteúdo estático fica oculto (ver book-view-bootstrap.ts); o tempo limite garante a exibição mesmo sem JavaScript. */
+[data-book-pending] .book-layout, [data-book-pending] .book-footer { visibility: hidden; animation: book-pending-timeout 0s 6s forwards; }
+@keyframes book-pending-timeout { to { visibility: visible; } }
 .book-layout { width: min(1440px, 100%); flex: 1; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0; margin: 0 auto; align-items: start; }
 .book-sidebar { position: sticky; top: 76px; max-height: calc(100dvh - 76px); overflow-y: auto; border-right: 1px solid rgb(255 255 255 / .08); padding: 26px 14px 36px 4vw; scrollbar-width: thin; }
 .sidebar-heading { display: flex; justify-content: space-between; align-items: center; margin: 0 0 14px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
@@ -157,6 +158,7 @@ kbd { padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; color
 @keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
 .modal-card { width: min(100%, 480px); max-height: min(720px, calc(100dvh - 40px)); overflow: auto; padding: 23px; border: 1px solid var(--line); border-radius: 10px; background: #101418; box-shadow: 0 24px 90px rgb(0 0 0 / .5); }
 .modal-card.editor-modal { width: min(100%, 560px); }
+.modal-loading { display: grid; place-items: center; width: min(100%, 160px); min-height: 120px; color: var(--muted); }
 .modal-card header { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 20px; }
 .modal-card h2 { margin: 0 0 5px; font-size: 24px; letter-spacing: -.03em; } .modal-card header p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .book-list { display: grid; gap: 6px; }
@@ -262,7 +264,7 @@ kbd { padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; color
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .auth-shell { position: relative; min-height: 100dvh; display: grid; place-items: center; padding: 24px; overflow: hidden; background-image: radial-gradient(circle at 50% 0%, rgb(255 255 255 / .06), transparent 35rem), linear-gradient(180deg, #0d1115, #0a0e12); }
-.auth-watermark { position: absolute; top: 50%; left: 50%; width: 620px; height: auto; color: #fff; opacity: .035; transform: translate(-50%, -52%); pointer-events: none; }
+.auth-watermark { position: absolute; top: 50svh; left: 50%; width: 620px; height: auto; color: #fff; opacity: .035; transform: translate(-50%, -52%); pointer-events: none; }
 .auth-card { position: relative; width: min(100%, 430px); padding: 32px; border: 1px solid var(--line); border-radius: 10px; background: rgb(16 20 24 / .9); box-shadow: 0 30px 90px rgb(0 0 0 / .5); }
 .auth-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border: 1px solid #3a3f42; border-radius: 8px; background: #15191d; color: var(--ink); }
 .auth-card h1 { margin-bottom: 10px; font-family: var(--font-display); font-weight: 400; font-size: 30px; letter-spacing: .01em; } .auth-copy { margin-bottom: 25px; color: var(--muted); font-size: 14px; line-height: 1.6; }.auth-card label { display: block; margin-top: 14px; color: var(--muted); font-size: 12px; font-weight: 700; }.auth-card label div { display: flex; align-items: center; gap: 9px; margin-top: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: 5px; background: #0a0d10; color: var(--muted); }.auth-card input { width: 100%; height: 42px; border: 0; outline: 0; background: transparent; color: var(--ink); }.auth-error { margin: 13px 0 0; color: #dba49c; font-size: 12px; }.auth-card small { display: block; margin-top: 18px; color: #717674; font-size: 11px; line-height: 1.5; }.auth-loading { display: grid; place-items: center; gap: 12px; color: var(--muted); }.auth-loading p { margin: 0; font-size: 13px; }

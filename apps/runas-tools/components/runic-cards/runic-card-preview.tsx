@@ -1,9 +1,26 @@
 "use client"
 
-import { forwardRef } from "react"
+import { forwardRef, useEffect, useState } from "react"
 import { getCharacterElement } from "@runas/core/data/elements"
+import { afterPageLoad } from "@/lib/afterPageLoad"
 import { cn } from "@/lib/utils"
 import { getDamageLabel, getRarity, type RunicCard } from "@/lib/runicCards"
+
+let runicFontsRequested = false
+
+/**
+ * A fonte decorativa (Norse, ~55 KB) não disputa o carregamento inicial: ela passa a
+ * ser usada depois que a página termina de carregar. As regras @font-face continuam no CSS,
+ * então a exportação em PNG segue embutindo a fonte.
+ */
+function useRunicFontsReady(): boolean {
+  const [ready, setReady] = useState(runicFontsRequested)
+  useEffect(() => {
+    if (ready) return
+    return afterPageLoad(() => { runicFontsRequested = true; setReady(true) })
+  }, [ready])
+  return ready
+}
 
 function sanitizeRichText(html: string): string {
   return html
@@ -35,9 +52,10 @@ export const RunicCardPreview = forwardRef<HTMLDivElement, RunicCardPreviewProps
   const color = element?.color ?? "#667085"
   const rulesLength = textLength(card.rulesHtml)
   const flavorLength = card.flavorText.trim().length
+  const fontsReady = useRunicFontsReady()
 
   return (
-    <div className={cn("runic-card-shell", className)}>
+    <div className={cn("runic-card-shell", className)} data-fonts={fontsReady ? "ready" : undefined}>
       <article
         ref={ref}
         data-kind={card.kind}

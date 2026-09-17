@@ -1,0 +1,20 @@
+/** Notas de precedência do núcleo, anexadas às páginas de regra com o mesmo título. */
+export const CORE_RULE_NOTES: Record<string, string> = {
+  "Atributos": "Precedência do @runas/core: os nove atributos são organizados nos grupos Físico (Físico, Força, Destreza, Vitalidade), Mental (Mental, Inteligência, Conhecimento, Social) e Místico (Místico, Fé, Poder, Sorte). Testes secundários somam o atributo primário do grupo ao secundário.",
+  "Status": "Precedência do @runas/core: PV, PA, PE, PA Extra, Determinação, Casualidade, carga e deslocamento são valores derivados por calculateCharacterStatSnapshot; alterações de ficha devem sincronizar os atuais com os limites calculados.",
+  "Dados": "Precedência do @runas/core: testes de perícia rolam dois dados de dez faces (2d10), com críticos em 1/1 e 10/10; dados de dano usam d6 e convertem cada +4 positivo em +1D quando há dados-base.",
+  "Testes": "Precedência do @runas/core: o resultado de um teste é a soma do atributo, modificadores da perícia e modificadores situacionais contra 2d10; a margem é preservada para disputas e efeitos de Determinação/Casualidade.",
+  "Testes de Habilidade": "Precedência do @runas/core: use rollSkillTest com a perícia estruturada da ficha. A margem é valor do teste menos a soma de 2d10 e 1/1 é sucesso crítico, 10/10 é falha crítica.",
+  "Inventário": "Precedência do @runas/core: itens permanecem registros estruturados com id. Vários itens podem estar equipados, mas apenas um pode ter equippedAsArmor=true e fornecer RDF/RDM à calculadora defensiva.",
+  "Elementos": "Precedência do @runas/core: elementos e afinidades são dados versionados; resistências e fraquezas pessoais são combinadas com as do elemento durante a sincronização da ficha.",
+  "Estatísticas": "Precedência do @runas/core: PV máximo = Físico + 2×Vitalidade + bônus; PA máximo = Místico + Poder + Afinidade×ceil(Poder/2) + bônus; PE máximo = ceil(Místico/2) + ceil(Poder/2) + Afinidade×ceil(Poder/4) + bônus. Valores atuais são limitados aos máximos.",
+  "Tamanho": "Precedência do @runas/core: o MT é derivado do tamanho real/base; MT +1 multiplica deslocamento por 1,5 e MT positivos seguintes usam o próprio valor. MT negativo reduz o deslocamento sem deixá-lo abaixo de 1.",
+  "Capacidade de Carga": "Precedência do @runas/core: a carga base é 2×(Físico + bônus de Força)×escala³, truncada. O sobrepeso aplica penalidade física e de deslocamento conforme a calculadora compartilhada.",
+  "Danos": "Precedência do @runas/core: dano segue PA Extra → PA → PV; a categoria física usa RDF, mágica usa RDM, híbrida usa o menor dos dois e dano especial ignora redução. Resistências e fraquezas são multiplicadores aplicados por camada.",
+  "Tipos de Dano": "Precedência do @runas/core: tipos e categorias vêm de damageTypes.ts. Não crie novos tipos no livro; use os IDs compartilhados e preserve físico, mágico, híbrido e especial.",
+  "Regras de Combate": "Precedência do @runas/cronos-core: Cronos usa 3 ações por turno, teste de Reação para iniciativa e disputas por sucessos. A ordem de aplicação de dano e a RD devem permanecer compatíveis com o motor compartilhado do livro.",
+  "Regras Gerais": "Precedência do @runas/cronos-core: atributos são Força, Destreza, Mente, Vontade e Espírito; bônus de atributo = atributo − 10; Vida, Mana, Sanidade, Resistência Mental, Percepção e Reflexos são derivados por calculateCronosStats.",
+  "Regras de Magias": "Precedência do @runas/cronos-core: magia consome Mana e usa os elementos de Cronos. Categorias, resistências e fraquezas devem usar cronosElements; não reutilize tipos de dano do Livro Azul sem mapeamento explícito.",
+  "Regras de Sincronia": "Precedência do @runas/cronos-core: Sincronia é derivada dos pontos PS nos limiares 1.095, 4.380, 17.520 e 70.080; limites de atributos e ganhos de evolução são calculados pelo núcleo.",
+  "Regras de Fama": "Precedência do @runas/cronos-core: Fama é uma escala por escopo (local a global) com níveis Esquecido, Desconhecido, Conhecido, Adorado e Venerado; use calculateFameProgress e os limiares versionados.",
+}

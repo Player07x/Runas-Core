@@ -4,8 +4,20 @@ import { useEffect, useMemo, useRef } from "react"
 import { ChevronRight, Download, FileText, Pencil, Sparkles } from "lucide-react"
 import { CHARACTER_VERSION } from "@runas/core/types/character"
 import { allEntries, buildPageIndex, kindLabel, normalizeLinkTarget, slugify, type BookChapter, type BookEntry, type BookRecord, type BookResource } from "../lib/book-model"
-import { sanitizeRichText, wikiTitlesFromRichText } from "./rich-text-editor"
+import { sanitizeRichTextCached, wikiTitlesFromRichText } from "../lib/rich-text"
 import { exportPageResources, exportResource, ResourceCard } from "./resource-panel"
+
+const wikiTitlesByEntry = new WeakMap<BookEntry, string[]>()
+
+/** As páginas são imutáveis: cada edição gera um novo objeto, então o resultado pode ficar associado à instância. */
+function entryWikiTitles(entry: BookEntry): string[] {
+  let titles = wikiTitlesByEntry.get(entry)
+  if (!titles) {
+    titles = wikiTitlesFromRichText(entry.content)
+    wikiTitlesByEntry.set(entry, titles)
+  }
+  return titles
+}
 
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" })
@@ -29,10 +41,10 @@ interface Props {
 export function PageView({ book, chapter, entry, isDm, onOpenBooks, onOpenTopic, onOpenEntry, onEdit, onEditResource }: Props) {
   const pageIndex = useMemo(() => buildPageIndex(book), [book])
   const contentRef = useRef<HTMLDivElement>(null)
-  const safeContent = useMemo(() => sanitizeRichText(entry.content), [entry.content])
+  const safeContent = useMemo(() => sanitizeRichTextCached(entry.content), [entry.content])
   const backlinks = useMemo(() => {
     const targetKey = normalizeLinkTarget(entry.title)
-    return allEntries(book).filter((candidate) => candidate.id !== entry.id && wikiTitlesFromRichText(candidate.content).some((title) => normalizeLinkTarget(title) === targetKey))
+    return allEntries(book).filter((candidate) => candidate.id !== entry.id && entryWikiTitles(candidate).some((title) => normalizeLinkTarget(title) === targetKey))
   }, [book, entry])
 
   useEffect(() => {

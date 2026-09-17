@@ -3,7 +3,8 @@
 import { useRef, useState } from "react"
 import { Check, Plus, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react"
 import { parseCharacterFile } from "@runas/core/lib/characterStorage"
-import { createResource, parseResourceImport, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
+import { createResource, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
+import { parseResourceImport } from "../lib/resource-import"
 import { ResourceEditorDialog } from "./resource-panel"
 import { RichTextEditor } from "./rich-text-editor"
 

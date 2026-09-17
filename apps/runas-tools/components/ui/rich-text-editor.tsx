@@ -2,23 +2,31 @@
 
 import { useEffect, useId, useState } from "react"
 import CharacterCount from "@tiptap/extension-character-count"
-import { EditorContent, useEditor } from "@tiptap/react"
+import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import { Bold, Eraser, Italic, List, ListOrdered, Underline } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { RICH_TEXT_CONTENT_CLASS, RichTextFrame, RichTextToolButton, StaticRichTextContent, richTextLength, richTextTools, type RichTextEditorProps, type RichTextToolName } from "./rich-text-frame"
 
-interface RichTextEditorProps {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  maxLength?: number
-  className?: string
-  readOnly?: boolean
+export type { RichTextEditorProps } from "./rich-text-frame"
+
+function isToolActive(editor: Editor | null, name: RichTextToolName): boolean {
+  if (!editor || name === "clear") return false
+  return editor.isActive(name)
 }
 
-export function RichTextEditor({ label, value, onChange, maxLength = 1000, className, readOnly = false }: RichTextEditorProps) {
+function runTool(editor: Editor | null, name: RichTextToolName) {
+  const chain = editor?.chain().focus()
+  if (!chain) return
+  if (name === "bold") chain.toggleBold().run()
+  else if (name === "italic") chain.toggleItalic().run()
+  else if (name === "underline") chain.toggleUnderline().run()
+  else if (name === "bulletList") chain.toggleBulletList().run()
+  else if (name === "orderedList") chain.toggleOrderedList().run()
+  else chain.unsetAllMarks().clearNodes().run()
+}
+
+export function RichTextEditor({ label, value, onChange, maxLength = 1000, className, readOnly = false, autoFocus = false }: RichTextEditorProps & { autoFocus?: boolean }) {
   const id = useId()
-  const [length, setLength] = useState(0)
+  const [length, setLength] = useState(() => richTextLength(value))
 
   const editor = useEditor({
     extensions: [
@@ -27,12 +35,12 @@ export function RichTextEditor({ label, value, onChange, maxLength = 1000, class
     ],
     content: value,
     editable: !readOnly,
+    autofocus: autoFocus && !readOnly ? "end" : false,
     immediatelyRender: false,
     editorProps: {
       attributes: {
         "aria-labelledby": `${id}-label`,
-        class:
-          "min-h-52 px-4 py-3 text-sm leading-relaxed text-foreground outline-none [&_p]:my-1.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5",
+        class: RICH_TEXT_CONTENT_CLASS,
       },
     },
     onCreate: ({ editor: currentEditor }) => {
@@ -54,73 +62,18 @@ export function RichTextEditor({ label, value, onChange, maxLength = 1000, class
     editor?.setEditable(!readOnly)
   }, [editor, readOnly])
 
-  const tools = [
-    {
-      label: "Negrito",
-      icon: Bold,
-      active: editor?.isActive("bold") ?? false,
-      run: () => editor?.chain().focus().toggleBold().run(),
-    },
-    {
-      label: "Itálico",
-      icon: Italic,
-      active: editor?.isActive("italic") ?? false,
-      run: () => editor?.chain().focus().toggleItalic().run(),
-    },
-    {
-      label: "Sublinhado",
-      icon: Underline,
-      active: editor?.isActive("underline") ?? false,
-      run: () => editor?.chain().focus().toggleUnderline().run(),
-    },
-    {
-      label: "Lista",
-      icon: List,
-      active: editor?.isActive("bulletList") ?? false,
-      run: () => editor?.chain().focus().toggleBulletList().run(),
-    },
-    {
-      label: "Lista numerada",
-      icon: ListOrdered,
-      active: editor?.isActive("orderedList") ?? false,
-      run: () => editor?.chain().focus().toggleOrderedList().run(),
-    },
-    {
-      label: "Limpar formatação",
-      icon: Eraser,
-      active: false,
-      run: () => editor?.chain().focus().unsetAllMarks().clearNodes().run(),
-    },
-  ]
-
   return (
-    <div className={cn("min-w-0", className)}>
-      <div className="mb-1.5 flex items-center justify-between gap-3 px-2">
-        <label id={`${id}-label`} className="text-sm font-medium text-muted-foreground">{label}</label>
-        {!readOnly && <span className="text-[0.68rem] tabular-nums text-muted-foreground">{length}/{maxLength}</span>}
-      </div>
-      <div className="overflow-hidden rounded-[18px] border border-input bg-background/65 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
-        {!readOnly && <div className="flex flex-wrap gap-1 border-b border-border/70 bg-muted/55 p-1.5">
-          {tools.map(({ label: toolLabel, icon: Icon, active, run }) => (
-            <button
-              key={toolLabel}
-              type="button"
-              title={toolLabel}
-              aria-label={toolLabel}
-              aria-pressed={active}
-              disabled={!editor}
-              onClick={run}
-              className={cn(
-                "flex size-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-card hover:text-foreground disabled:opacity-40",
-                active && "bg-card text-foreground shadow-sm",
-              )}
-            >
-              <Icon className="size-4" />
-            </button>
-          ))}
-        </div>}
-        <EditorContent editor={editor} />
-      </div>
-    </div>
+    <RichTextFrame
+      labelId={`${id}-label`}
+      label={label}
+      length={length}
+      maxLength={maxLength}
+      readOnly={readOnly}
+      className={className}
+      toolbar={richTextTools.map((tool) => <RichTextToolButton key={tool.name} label={tool.label} icon={tool.icon} active={isToolActive(editor, tool.name)} disabled={!editor} onClick={() => runTool(editor, tool.name)} />)}
+    >
+      {/* Até o TipTap criar a instância, mostra o mesmo conteúdo com as mesmas classes (sem altura zero). */}
+      {editor ? <EditorContent editor={editor} /> : <StaticRichTextContent html={value} labelId={`${id}-label`} />}
+    </RichTextFrame>
   )
 }

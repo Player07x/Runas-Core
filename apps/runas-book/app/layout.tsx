@@ -1,5 +1,10 @@
 import type { Metadata, Viewport } from "next"
+import { Metal_Mania } from "next/font/google"
 import "./globals.css"
+
+// Fonte baixada no build e servida pelo próprio site, com pré-carregamento e
+// fallback de métricas ajustadas (sem CSS externo bloqueando a renderização).
+const metalMania = Metal_Mania({ weight: "400", subsets: ["latin"], display: "swap", variable: "--font-metal-mania" })
 
 export const metadata: Metadata = {
   title: "Runas Book",
@@ -13,12 +18,8 @@ export const viewport: Viewport = {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR">
-    <head>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link href="https://fonts.googleapis.com/css2?family=Metal+Mania&display=swap" rel="stylesheet" />
-    </head>
+  // O script de inicialização da página pode marcar <html> antes da hidratação.
+  return <html lang="pt-BR" className={metalMania.variable} suppressHydrationWarning>
     <body>{children}</body>
   </html>
 }

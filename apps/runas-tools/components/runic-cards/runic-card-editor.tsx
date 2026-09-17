@@ -6,7 +6,7 @@ import { Download, FileJson, ImageDown, Images, RotateCcw, Save, Search, Trash2,
 import { ImageCropper } from "@/components/runic-cards/image-cropper"
 import { RunicCardPreview } from "@/components/runic-cards/runic-card-preview"
 import { Button } from "@/components/ui/button"
-import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { DeferredRichTextEditor } from "@/components/ui/deferred-rich-text-editor"
 import { SelectField } from "@/components/ui/select-field"
 import { TextField } from "@/components/ui/text-field"
 import { cardFilename, createEmptyRunicCard, createRunicCardFile, createRunicCardGalleryFile, normalizeRunicCard, normalizeRunicCardCollection, RUNIC_CARD_GALLERY_LIMIT, runicCardKinds, runicCardRarities, type RunicCard, type RunicCardKind } from "@/lib/runicCards"
@@ -164,6 +164,10 @@ export function RunicCardEditor({ view = "create", onOpenCreate }: { view?: "cre
     setExporting(true)
     setMessage("")
     try {
+      // A prévia só aplica a fonte Norse quando a página fica ociosa; a exportação não espera por isso.
+      const shell = node.closest<HTMLElement>(".runic-card-shell")
+      if (shell && shell.dataset.fonts !== "ready") shell.dataset.fonts = "ready"
+      await Promise.all([document.fonts.load("1em Norse"), document.fonts.load('700 1em "Norse Bold"')]).catch(() => undefined)
       const { toBlob } = await import("html-to-image")
       const blob = await toBlob(node, {
         cacheBust: true,
@@ -253,7 +257,7 @@ export function RunicCardEditor({ view = "create", onOpenCreate }: { view?: "cre
 
           <ImageCropper currentImage={card.artDataUrl} onApply={(dataUrl) => update("artDataUrl", dataUrl)} />
 
-          <RichTextEditor label="Texto de regras" value={card.rulesHtml} onChange={(value) => update("rulesHtml", value)} maxLength={3000} />
+          <DeferredRichTextEditor label="Texto de regras" value={card.rulesHtml} onChange={(value) => update("rulesHtml", value)} maxLength={3000} />
           <TextField label="Flavor text" type="textarea" value={card.flavorText} onChange={(value) => update("flavorText", value)} placeholder="Uma frase narrativa curta…" />
         </section>
 

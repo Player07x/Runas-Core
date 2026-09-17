@@ -9,6 +9,7 @@ import { AppHeader } from "@/components/layout/app-header"
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration"
 import { RulesetProvider } from "@/components/rulesets/ruleset-provider"
 import { CronosCharacterProvider } from "@/components/cronos/cronos-character-provider"
+import { BRAND_FAVICON_DATA_URL } from "@/lib/brandImages"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 
@@ -17,8 +18,9 @@ export const metadata: Metadata = {
   description: "Uma coleção de ferramentas para facilitar partidas de Runas: Livro Azul.",
   generator: "v0.app",
   icons: {
-    icon: [{ url: "./icon-192.png", type: "image/png", sizes: "192x192" }],
-    apple: [{ url: "./icon-192.png", type: "image/png", sizes: "192x192" }],
+    // Favicon embutido: sem requisição extra e sem o caminho relativo que quebrava nas subpáginas.
+    icon: [{ url: BRAND_FAVICON_DATA_URL, type: "image/png", sizes: "48x48" }],
+    apple: [{ url: "/icon-192.png", type: "image/png", sizes: "192x192" }],
   },
 }
 

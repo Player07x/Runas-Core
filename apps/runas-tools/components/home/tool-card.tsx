@@ -76,7 +76,7 @@ export function ToolCard({
 
   if (href) {
     return (
-      <Link href={href} className={cn(base, interactive)}>
+      <Link href={href} prefetch={false} className={cn(base, interactive)}>
         {content}
       </Link>
     )

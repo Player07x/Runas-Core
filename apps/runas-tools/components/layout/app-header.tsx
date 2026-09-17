@@ -1,14 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { navItems } from "@/data/navigation"
 import { ThemeToggle } from "./theme-toggle"
 import { useCharacterPanel } from "@/components/character/character-panel"
 import { useRuleset } from "@/components/rulesets/ruleset-provider"
+import { BRAND_LOGO_DATA_URL } from "@/lib/brandImages"
+import { afterPageLoad } from "@/lib/afterPageLoad"
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/"
@@ -17,6 +19,11 @@ function isActive(pathname: string, href: string) {
 
 export function AppHeader() {
   const pathname = usePathname()
+  const router = useRouter()
+
+  // As rotas continuam pré-carregadas para a navegação ser instantânea, mas só depois
+  // do carregamento: a pré-busca automática dos links disputava a primeira pintura.
+  useEffect(() => afterPageLoad(() => { for (const item of navItems) router.prefetch(item.href) }), [router])
   const { open } = useCharacterPanel()
   const { activeRuleset } = useRuleset()
   return (
@@ -24,9 +31,11 @@ export function AppHeader() {
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background shadow-[0_1px_0_rgba(20,25,40,0.02)]">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link href="/" className="group flex items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+          <Link href="/" prefetch={false} className="group flex items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
             <span className="flex size-10 items-center justify-center overflow-hidden rounded-full bg-black shadow-[0_6px_18px_color-mix(in_srgb,var(--primary)_30%,transparent)] transition-transform group-hover:-rotate-3">
-              <Image src="/icon-192.png" alt="Logo Runas Tools" width={192} height={192} className="size-full object-cover" />
+              {/* Logo 80×80 embutido: exibido a 40 px, sem requisição antes da primeira pintura. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={BRAND_LOGO_DATA_URL} alt="Logo Runas Tools" width={80} height={80} decoding="async" className="size-full object-cover" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-bold tracking-tight text-foreground sm:text-base">Runas Tools</span>
@@ -42,6 +51,7 @@ export function AppHeader() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   aria-current={active ? "page" : undefined}
                 className={cn(
                     "rounded-xl px-2.5 py-2 text-sm font-semibold transition-all md:px-3.5",
@@ -91,6 +101,7 @@ export function AppHeader() {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[0.68rem] font-semibold transition-colors min-[390px]:text-xs",

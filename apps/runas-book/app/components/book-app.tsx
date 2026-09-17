@@ -1,24 +1,54 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import dynamic from "next/dynamic"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Trash2, Upload, WandSparkles, X } from "lucide-react"
 import { RuneMark } from "./rune-mark"
-import { allEntries, createSeedWorkspace, findEntry, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
+import { allEntries, applyLegacyContent, findEntry, legacyContentRequests, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
+import { BOOK_PENDING_ATTRIBUTE, BOOK_STORAGE_KEY } from "../lib/book-view-bootstrap"
+import { useDeferredLocalStorage } from "../lib/use-deferred-local-storage"
 import { BookSidebar } from "./book-sidebar"
 import { PageView } from "./page-view"
-import { PageEditor } from "./page-editor"
 import { ResourceEditorDialog } from "./resource-panel"
-import { BookSettingsDialog } from "./book-settings-dialog"
-import { CustomPagesEditor } from "./custom-pages-editor"
-import { generateBookDocxBlob } from "../lib/book-export/toDocx"
-import { generateBookPdfBlob } from "../lib/book-export/toPdf"
 
-const STORAGE_KEY = "runas-book.workspace.v1"
+// Editores e diálogos da área DM ficam fora do pacote inicial da leitura.
+const loadPageEditor = () => import("./page-editor")
+const loadBookSettingsDialog = () => import("./book-settings-dialog")
+const loadCustomPagesEditor = () => import("./custom-pages-editor")
+
+const PageEditor = dynamic(() => loadPageEditor().then((module) => module.PageEditor), { ssr: false, loading: () => <article className="page-article page-editor"><p className="page-copy-empty"><Loader2 size={15} className="spin" /> Abrindo o editor…</p></article> })
+const BookSettingsDialog = dynamic(() => loadBookSettingsDialog().then((module) => module.BookSettingsDialog), { ssr: false, loading: () => <LoadingModal /> })
+const CustomPagesEditor = dynamic(() => loadCustomPagesEditor().then((module) => module.CustomPagesEditor), { ssr: false, loading: () => <LoadingModal /> })
+
+const STORAGE_KEY = BOOK_STORAGE_KEY
 const AUTH_KEY = "runas-book.authenticated"
 type Mode = "public" | "dm"
 type NavMode = "topic" | "page" | "edit"
 
 interface Nav { bookId: string | null; chapterId: string | null; entryId: string | null; mode: NavMode }
+
+type IdleWindow = Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number; cancelIdleCallback?: (handle: number) => void }
+
+/** Executa `callback` quando o navegador estiver ocioso; devolve a função de cancelamento. */
+function whenIdle(callback: () => void, timeout = 3000): () => void {
+  const idleWindow = window as IdleWindow
+  if (idleWindow.requestIdleCallback) {
+    const handle = idleWindow.requestIdleCallback(callback, { timeout })
+    return () => idleWindow.cancelIdleCallback?.(handle)
+  }
+  const handle = window.setTimeout(callback, 200)
+  return () => window.clearTimeout(handle)
+}
+
+/** A tela estática mostra o primeiro tópico do primeiro livro; a navegação inicial parte do mesmo ponto. */
+function defaultNav(workspace: BookWorkspace): Nav {
+  const firstBook = workspace.books[0]
+  return { bookId: firstBook?.id ?? null, chapterId: firstBook?.chapters[0]?.id ?? null, entryId: null, mode: "topic" }
+}
+
+function LoadingModal() {
+  return <div className="modal-backdrop"><section className="modal-card modal-loading" aria-busy="true"><Loader2 size={20} className="spin" /></section></div>
+}
 
 function serializeHash(nav: Nav): string {
   if (!nav.bookId) return "#/"
@@ -39,15 +69,15 @@ function parseHash(hash: string): Nav | null {
   return { bookId, chapterId: chapterId ?? null, entryId: entryId ?? null, mode: isEdit ? "edit" : entryId ? "page" : "topic" }
 }
 
-export function BookApp({ mode }: { mode: Mode }) {
-  const [workspace, setWorkspace] = useState<BookWorkspace>(() => createSeedWorkspace())
+export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
+  const [workspace, setWorkspace] = useState<BookWorkspace>(seed)
   const [hydrated, setHydrated] = useState(false)
   const [authenticated, setAuthenticated] = useState(mode === "public")
   const [authChecking, setAuthChecking] = useState(mode === "dm")
   const [authError, setAuthError] = useState("")
   const [token, setToken] = useState("")
   const [password, setPassword] = useState("")
-  const [nav, setNav] = useState<Nav>({ bookId: null, chapterId: null, entryId: null, mode: "topic" })
+  const [nav, setNav] = useState<Nav>(() => defaultNav(seed))
   const [navReady, setNavReady] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState("")
@@ -68,17 +98,38 @@ export function BookApp({ mode }: { mode: Mode }) {
   const [exporting, setExporting] = useState<string | null>(null)
 
   useEffect(() => {
+    let saved: BookWorkspace | null = null
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) setWorkspace(normalizeWorkspace(JSON.parse(saved)))
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) saved = normalizeWorkspace(JSON.parse(raw), seed)
     } catch { /* dados corrompidos voltam ao catálogo inicial */ }
+    if (saved) setWorkspace(saved)
     setHydrated(true)
-  }, [])
+
+    // Páginas salvas sem conteúdo são preenchidas pela fonte do livro, carregada só nesse caso.
+    const requests = saved ? legacyContentRequests(saved) : []
+    if (requests.length === 0) return
+    let active = true
+    const cancelIdle = whenIdle(() => {
+      void import("../lib/legacy-content")
+        .then(({ resolveLegacyContent }) => resolveLegacyContent(requests))
+        .then((contents) => { if (active && contents.size > 0) setWorkspace((current) => applyLegacyContent(current, contents)) })
+        .catch(() => { /* sem a fonte, a página segue vazia como uma página nova */ })
+    })
+    return () => { active = false; cancelIdle() }
+  }, [seed])
+
+  const reportStorageError = useCallback(() => setNotice("Não foi possível salvar no armazenamento deste navegador."), [])
+  useDeferredLocalStorage(STORAGE_KEY, workspace, hydrated, reportStorageError)
+
+  useLayoutEffect(() => {
+    if (navReady) document.documentElement.removeAttribute(BOOK_PENDING_ATTRIBUTE)
+  }, [navReady])
 
   useEffect(() => {
-    if (!hydrated) return
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace))
-  }, [hydrated, workspace])
+    if (mode !== "dm" || !authenticated) return
+    return whenIdle(() => { void loadPageEditor(); void loadBookSettingsDialog(); void loadCustomPagesEditor() })
+  }, [mode, authenticated])
 
   useEffect(() => {
     if (mode !== "dm") return
@@ -124,11 +175,14 @@ export function BookApp({ mode }: { mode: Mode }) {
   const entry = found?.entry ?? null
   const isDm = mode === "dm"
 
+  // Texto de busca de cada página do tópico, preparado uma vez em vez de a cada tecla.
+  const chapterSearchIndex = useMemo(() => chapter
+    ? chapter.entries.map((candidate) => ({ entry: candidate, text: [candidate.title, candidate.summary, plainTextFromHtml(candidate.content)].join(" ").toLocaleLowerCase("pt-BR") }))
+    : [], [chapter])
   const visibleEntries = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("pt-BR")
-    if (!chapter) return []
-    return chapter.entries.filter((candidate) => !term || [candidate.title, candidate.summary, plainTextFromHtml(candidate.content)].join(" ").toLocaleLowerCase("pt-BR").includes(term))
-  }, [chapter, query])
+    return chapterSearchIndex.filter((candidate) => !term || candidate.text.includes(term)).map((candidate) => candidate.entry)
+  }, [chapterSearchIndex, query])
   const pageTitles = useMemo(() => book ? allEntries(book).filter((candidate) => candidate.id !== entry?.id).map((candidate) => candidate.title) : [], [book, entry])
 
   function goToBooks() { setShowBooks(true) }
@@ -138,19 +192,20 @@ export function BookApp({ mode }: { mode: Mode }) {
     setShowBooks(false); setQuery("")
     setWorkspace((current) => ({ ...current, selectedBookId: nextId, updatedAt: Date.now() }))
   }
-  function toggleChapter(chapterId: string) {
+  const toggleChapter = useCallback((chapterId: string) => {
     setExpanded((current) => { const next = new Set(current); if (next.has(chapterId)) next.delete(chapterId); else next.add(chapterId); return next })
-  }
-  function openTopic(chapterId: string) {
+  }, [])
+  const openTopic = useCallback((chapterId: string) => {
     setNav((current) => ({ ...current, chapterId, entryId: null, mode: "topic" })); setQuery("")
     setExpanded((current) => new Set(current).add(chapterId))
     setSidebarOpen(false)
-  }
-  function openEntry(chapterId: string, entryId: string) {
+  }, [])
+  const openEntry = useCallback((chapterId: string, entryId: string) => {
     setNav((current) => ({ ...current, chapterId, entryId, mode: "page" }))
     setExpanded((current) => new Set(current).add(chapterId))
     setSidebarOpen(false)
-  }
+  }, [])
+  const openChapterEditor = useCallback(() => setShowChapterEditor(true), [])
   function openEdit() {
     if (!nav.entryId) return
     setNav((current) => ({ ...current, mode: "edit" }))
@@ -201,7 +256,8 @@ export function BookApp({ mode }: { mode: Mode }) {
     openTopic(id)
   }
 
-  function removeChapter(chapterId: string) {
+  const activeChapterId = nav.chapterId
+  const removeChapter = useCallback((chapterId: string) => {
     if (!book) return
     const target = book.chapters.find((item) => item.id === chapterId)
     if (!target) return
@@ -213,17 +269,17 @@ export function BookApp({ mode }: { mode: Mode }) {
     const remainingChapters = book.chapters.filter((item) => item.id !== chapterId)
     setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, chapters: item.chapters.filter((chapterItem) => chapterItem.id !== chapterId) } : item), updatedAt: Date.now() }))
     setExpanded((current) => { const next = new Set(current); next.delete(chapterId); return next })
-    if (nav.chapterId === chapterId) {
+    if (activeChapterId === chapterId) {
       const fallback = remainingChapters[0]
       setNav({ bookId: book.id, chapterId: fallback?.id ?? null, entryId: null, mode: "topic" })
     }
     setNotice("Tópico excluído")
-  }
+  }, [book, activeChapterId])
 
-  function openNewPage(chapterId: string) {
+  const openNewPage = useCallback((chapterId: string) => {
     setNav((current) => ({ ...current, chapterId }))
     setNewPageTitle(""); setNewPageKind("rule"); setShowNewPage(true)
-  }
+  }, [])
 
   function createPage() {
     if (!book || !nav.chapterId) return
@@ -322,7 +378,10 @@ export function BookApp({ mode }: { mode: Mode }) {
     if (!book) return
     setExporting(`${destination}-${format}`)
     try {
-      const blob = format === "pdf" ? await generateBookPdfBlob(book) : await generateBookDocxBlob(book)
+      // Os geradores (pdfmake/docx) só são baixados quando alguém exporta.
+      const blob = format === "pdf"
+        ? await (await import("../lib/book-export/toPdf")).generateBookPdfBlob(book)
+        : await (await import("../lib/book-export/toDocx")).generateBookDocxBlob(book)
       const filename = `${slugify(book.title)}.${format}`
       if (destination === "vault") {
         if (!window.showDirectoryPicker) { setNotice("Use Chrome ou Edge para salvar direto no vault do Obsidian."); return }
@@ -374,7 +433,7 @@ export function BookApp({ mode }: { mode: Mode }) {
       </div>
     </header>
     <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={() => setShowChapterEditor(true)} onAddEntry={openNewPage} onDeleteChapter={removeChapter} />
+      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={openChapterEditor} onAddEntry={openNewPage} onDeleteChapter={removeChapter} />
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Fechar índice" />}
       <section className="book-content">
         {nav.mode === "edit" && entry && <PageEditor entry={entry} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
@@ -434,9 +493,10 @@ export function BookApp({ mode }: { mode: Mode }) {
   </main>
 }
 
+// Chaves distintas: o cartão de login é um elemento novo, não a caixa de carregamento redimensionada (evita deslocamento de layout).
 function AuthScreen({ checking, token, password, error, onToken, onPassword, onSubmit }: { checking: boolean; token: string; password: string; error: string; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void }) {
-  if (checking) return <main className="auth-shell"><RuneMark className="auth-watermark" /><div className="auth-loading" style={{ position: "relative" }}><span className="brand-mark"><RuneMark size={16} /></span><p>Reabrindo o arquivo DM…</p></div></main>
-  return <main className="auth-shell"><RuneMark className="auth-watermark" /><div className="auth-card"><span className="auth-icon"><LockKeyhole size={24} /></span><p className="eyebrow"><ShieldCheck size={14} /> Runas Book DM</p><h1>Desbloquear biblioteca</h1><p className="auth-copy">Tópicos, páginas e recursos exportáveis ficam protegidos pela mesma camada privada do Runas DM.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit() }}><label><span>Token privado</span><div><KeyRound size={16} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label><label><span>Senha</span><div><LockKeyhole size={16} /><input type="password" value={password} onChange={(event) => onPassword(event.target.value)} autoComplete="current-password" placeholder="Digite sua senha" /></div></label>{error && <p className="auth-error">{error}</p>}<button className="primary-action full" disabled={!token || !password}><WandSparkles size={16} /> Entrar e editar</button></form><small>Cloudflare Access continua sendo a primeira barreira em produção.</small></div></main>
+  if (checking) return <main className="auth-shell"><RuneMark className="auth-watermark" /><div key="auth-loading" className="auth-loading" style={{ position: "relative" }}><span className="brand-mark"><RuneMark size={16} /></span><p>Reabrindo o arquivo DM…</p></div></main>
+  return <main className="auth-shell"><RuneMark className="auth-watermark" /><div key="auth-card" className="auth-card"><span className="auth-icon"><LockKeyhole size={24} /></span><p className="eyebrow"><ShieldCheck size={14} /> Runas Book DM</p><h1>Desbloquear biblioteca</h1><p className="auth-copy">Tópicos, páginas e recursos exportáveis ficam protegidos pela mesma camada privada do Runas DM.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit() }}><label><span>Token privado</span><div><KeyRound size={16} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label><label><span>Senha</span><div><LockKeyhole size={16} /><input type="password" value={password} onChange={(event) => onPassword(event.target.value)} autoComplete="current-password" placeholder="Digite sua senha" /></div></label>{error && <p className="auth-error">{error}</p>}<button className="primary-action full" disabled={!token || !password}><WandSparkles size={16} /> Entrar e editar</button></form><small>Cloudflare Access continua sendo a primeira barreira em produção.</small></div></main>
 }
 
 async function directoryAt(root: FileSystemDirectoryHandle, parts: string[]) {

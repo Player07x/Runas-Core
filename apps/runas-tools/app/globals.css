@@ -313,8 +313,16 @@ html[data-ruleset='cronos'].dark {
   }
 
   .runic-card-shell {
+    /* A fonte Norse só é aplicada depois do carregamento da página (useRunicFontsReady); até lá cada regra usa os próprios fallbacks. */
+    --runic-font: 'Runas Norse Pending';
+    --runic-font-bold: 'Runas Norse Pending';
     container-type: inline-size;
     width: 100%;
+  }
+
+  .runic-card-shell[data-fonts='ready'] {
+    --runic-font: 'Norse';
+    --runic-font-bold: 'Norse Bold', 'Norse';
   }
 
   .runic-card {
@@ -378,7 +386,7 @@ html[data-ruleset='cronos'].dark {
   .runic-card__element {
     overflow: hidden;
     color: color-mix(in srgb, var(--runic-element) 74%, white);
-    font-family: 'Norse', 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
     font-size: 2.5625cqw;
     font-weight: 400;
     letter-spacing: 0.16em;
@@ -399,7 +407,7 @@ html[data-ruleset='cronos'].dark {
   .runic-card__title-row h2 {
     min-width: 0;
     overflow: hidden;
-    font-family: 'Norse Bold', 'Norse', 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
+    font-family: var(--runic-font-bold), 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
     font-size: 6cqw;
     font-weight: 700;
     letter-spacing: 0.035em;
@@ -423,7 +431,7 @@ html[data-ruleset='cronos'].dark {
     flex: 0 0 auto;
     flex-direction: column;
     align-items: end;
-    font-family: 'Norse', 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
     gap: 0.3cqw;
     font-size: 4.1875cqw;
     font-weight: 400;
@@ -435,7 +443,7 @@ html[data-ruleset='cronos'].dark {
 
   .runic-card__header-meta strong {
     color: color-mix(in srgb, var(--runic-element) 72%, white);
-    font-family: 'Norse', 'Bahnschrift Condensed', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', sans-serif;
     font-size: 3.4375cqw;
     line-height: 1;
     font-weight: 400;
@@ -604,7 +612,7 @@ html[data-ruleset='cronos'].dark {
     grid-column: 1;
     overflow: hidden;
     padding: 0 10cqw 0 2.5cqw;
-    font-family: 'Norse', 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', 'Arial Narrow', sans-serif;
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
@@ -612,7 +620,7 @@ html[data-ruleset='cronos'].dark {
 
   .runic-card__spell-meta span {
     font-size: 3.975cqw;
-    font-family: 'Norse Bold', 'Norse', 'Bahnschrift Condensed', sans-serif;
+    font-family: var(--runic-font-bold), 'Bahnschrift Condensed', sans-serif;
     font-weight: 700;
     letter-spacing: 0.08em;
     line-height: 1;
@@ -651,7 +659,7 @@ html[data-ruleset='cronos'].dark {
   }
 
   .runic-card__damage-badge strong {
-    font-family: 'Norse Bold', 'Norse', sans-serif;
+    font-family: var(--runic-font-bold), sans-serif;
     font-size: 10.7cqw;
     line-height: 1;
   }
@@ -661,7 +669,7 @@ html[data-ruleset='cronos'].dark {
     margin-top: 0.7cqw;
     padding-top: 0.7cqw;
     border-top: 0.56cqw solid color-mix(in srgb, var(--runic-element) 72%, white);
-    font-family: 'Norse', 'Bahnschrift Condensed', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', sans-serif;
     display: block;
     font-size: 5.1cqw;
     font-weight: 400;
@@ -773,7 +781,7 @@ html[data-ruleset='cronos'].dark {
     border-radius: 0 0 1.6cqw 1.6cqw;
     background: linear-gradient(90deg, rgb(15 16 20 / 0.86), color-mix(in srgb, var(--runic-element) 32%, rgb(16 17 21 / 0.86)));
     color: color-mix(in srgb, var(--runic-element) 58%, white);
-    font-family: 'Norse', 'Bahnschrift Condensed', sans-serif;
+    font-family: var(--runic-font), 'Bahnschrift Condensed', sans-serif;
     font-size: 3.1cqw;
     font-weight: 400;
     letter-spacing: 0.16em;
