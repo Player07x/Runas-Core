@@ -14,10 +14,8 @@ async function loginResponse(request, env) {
   try {
     const body = await request.json()
     const token = typeof body?.token === "string" ? body.token : ""
-    const password = typeof body?.password === "string" ? body.password : ""
     const expectedToken = env.RUNAS_BOOK_TOKEN || env.RUNAS_DM_BACKUP_TOKEN || ""
-    const expectedPassword = env.RUNAS_BOOK_PASSWORD || env.RUNAS_DM_CAMPAIGN_PASSWORD || ""
-    if (!safeEqual(token, expectedToken) || !safeEqual(password, expectedPassword)) return Response.json({ authenticated: false }, { status: 401 })
+    if (!safeEqual(token, expectedToken)) return Response.json({ authenticated: false }, { status: 401 })
     return Response.json({ authenticated: true }, {
       headers: { "Set-Cookie": "runas-book-session=1; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Strict" },
     })

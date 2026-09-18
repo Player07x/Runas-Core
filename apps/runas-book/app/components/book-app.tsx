@@ -76,7 +76,6 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
   const [authChecking, setAuthChecking] = useState(mode === "dm")
   const [authError, setAuthError] = useState("")
   const [token, setToken] = useState("")
-  const [password, setPassword] = useState("")
   const [nav, setNav] = useState<Nav>(() => defaultNav(seed))
   const [navReady, setNavReady] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -463,14 +462,14 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     }
   }
 
-  if (mode === "dm" && (authChecking || !authenticated)) return <AuthScreen checking={authChecking} token={token} password={password} error={authError} onToken={setToken} onPassword={setPassword} onSubmit={async () => {
+  if (mode === "dm" && (authChecking || !authenticated)) return <AuthScreen checking={authChecking} token={token} error={authError} onToken={setToken} onSubmit={async () => {
     setAuthError("")
     try {
-      const response = await fetch("/api/book-auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) })
-      if (!response.ok) throw new Error("Token ou senha incorretos.")
-      sessionStorage.setItem(AUTH_KEY, "yes"); setAuthenticated(true); setToken(""); setPassword("")
+      const response = await fetch("/api/book-auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
+      if (!response.ok) throw new Error("Token incorreto.")
+      sessionStorage.setItem(AUTH_KEY, "yes"); setAuthenticated(true); setToken("")
     } catch (error) {
-      if ((location.hostname === "localhost" || location.hostname === "127.0.0.1") && token && password) { sessionStorage.setItem(AUTH_KEY, "yes"); setAuthenticated(true) }
+      if ((location.hostname === "localhost" || location.hostname === "127.0.0.1") && token) { sessionStorage.setItem(AUTH_KEY, "yes"); setAuthenticated(true) }
       else setAuthError(error instanceof Error ? error.message : "Não foi possível validar o acesso.")
     }
   }} />
@@ -553,9 +552,9 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
 }
 
 // Chaves distintas: o cartão de login é um elemento novo, não a caixa de carregamento redimensionada (evita deslocamento de layout).
-function AuthScreen({ checking, token, password, error, onToken, onPassword, onSubmit }: { checking: boolean; token: string; password: string; error: string; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void }) {
+function AuthScreen({ checking, token, error, onToken, onSubmit }: { checking: boolean; token: string; error: string; onToken: (value: string) => void; onSubmit: () => void }) {
   if (checking) return <main className="auth-shell"><RuneMark className="auth-watermark" /><div key="auth-loading" className="auth-loading" style={{ position: "relative" }}><span className="brand-mark"><RuneMark size={16} /></span><p>Reabrindo o arquivo DM…</p></div></main>
-  return <main className="auth-shell"><RuneMark className="auth-watermark" /><div key="auth-card" className="auth-card"><span className="auth-icon"><LockKeyhole size={24} /></span><p className="eyebrow"><ShieldCheck size={14} /> Runas Book DM</p><h1>Desbloquear biblioteca</h1><p className="auth-copy">Tópicos, páginas e recursos exportáveis ficam protegidos pela mesma camada privada do Runas DM.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit() }}><label><span>Token privado</span><div><KeyRound size={16} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label><label><span>Senha</span><div><LockKeyhole size={16} /><input type="password" value={password} onChange={(event) => onPassword(event.target.value)} autoComplete="current-password" placeholder="Digite sua senha" /></div></label>{error && <p className="auth-error">{error}</p>}<button className="primary-action full" disabled={!token || !password}><WandSparkles size={16} /> Entrar e editar</button></form><small>Cloudflare Access continua sendo a primeira barreira em produção.</small></div></main>
+  return <main className="auth-shell"><RuneMark className="auth-watermark" /><div key="auth-card" className="auth-card"><span className="auth-icon"><LockKeyhole size={24} /></span><p className="eyebrow"><ShieldCheck size={14} /> Runas Book DM</p><h1>Desbloquear biblioteca</h1><p className="auth-copy">Tópicos, páginas e recursos exportáveis ficam protegidos pela mesma camada privada do Runas DM.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit() }}><label><span>Token privado</span><div><KeyRound size={16} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label>{error && <p className="auth-error">{error}</p>}<button className="primary-action full" disabled={!token}><WandSparkles size={16} /> Entrar e editar</button></form><small>Cloudflare Access continua sendo a primeira barreira em produção.</small></div></main>
 }
 
 async function directoryAt(root: FileSystemDirectoryHandle, parts: string[]) {
