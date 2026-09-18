@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/runas-dm/**"
       - "packages/runas-core/**"
+      - "packages/vtt-bridge/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy-runas-dm.yml"

@@ -17,6 +17,8 @@ Contém tipos versionados, migração/normalização de `Character`, leitura de 
 
 O núcleo não importa React, navegador, IndexedDB, Next.js, Cloudflare ou componentes. Seus módulos são publicados por subpaths, como `@runas/core/lib/damageCalculator`.
 
+`packages/vtt-bridge` contém somente o contrato versionado entre os sites e o RunasVTT: envelope de ficha, resumo de recursos, imagem do token, leitura dos tokens da cena e entradas do Registro. Ele pode importar `@runas/core` para montar o envelope e o resumo, mas o RunasVTT guarda esses dados sem interpretar regras.
+
 ## Runas Tools
 
 - Next.js com `output: "export"`.

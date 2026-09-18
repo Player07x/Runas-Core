@@ -1,13 +1,14 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { CheckSquare, Download, Filter, Search, Square, X } from "lucide-react"
+import { CheckSquare, Download, Filter, Search, Send, Square, X } from "lucide-react"
 import { getCharacterElement } from "@runas/core/data/elements"
 import type { BestiaryEntry } from "../lib/model"
 import { exportCharactersZip } from "../lib/export"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 
-export function BatchExportDialog({ entries, onClose }: { entries: BestiaryEntry[]; onClose: () => void }) {
+/** `onSendToVtt`: dentro do RunasVTT, as fichas selecionadas viram tokens em vez de um ZIP. */
+export function BatchExportDialog({ entries, onClose, onSendToVtt }: { entries: BestiaryEntry[]; onClose: () => void; onSendToVtt?: (entries: BestiaryEntry[]) => void }) {
   useEscapeToClose(onClose)
   const [search, setSearch] = useState("")
   const [race, setRace] = useState("all")
@@ -51,7 +52,9 @@ export function BatchExportDialog({ entries, onClose }: { entries: BestiaryEntry
         const character = entry.character
         return <label key={entry.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={() => toggle(entry.id)} /><span className={`mini-rune ${character.portraitDataUrl ? "has-portrait" : ""}`}>{character.portraitDataUrl ? <img src={character.portraitDataUrl} alt="" /> : character.name.slice(0, 1) || "R"}</span><span><strong>{character.name || "Ficha sem nome"}</strong><small>{character.info.race || "Sem raça"} · {getCharacterElement(character.stats.elementId)?.name ?? "Sem elemento"} · {character.info.affinity || "Sem afinidade"}</small></span></label>
       })}</div>
-      <footer><span>Será criado um ZIP com fichas JSON compatíveis com o Runas Tools e o Runas DM.</span><div><button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={selectedEntries.length === 0} onClick={() => { exportCharactersZip(selectedEntries.map((entry) => entry.character)); onClose() }}><Download size={16} /> Exportar {selectedEntries.length || ""} ficha{selectedEntries.length === 1 ? "" : "s"}</button></div></footer>
+      <footer><span>{onSendToVtt ? "Cada ficha vira um token na cena aberta do RunasVTT." : "Será criado um ZIP com fichas JSON compatíveis com o Runas Tools e o Runas DM."}</span><div><button className="secondary-button" onClick={onClose}>Cancelar</button>{onSendToVtt
+        ? <button className="primary-button" disabled={selectedEntries.length === 0} onClick={() => { onSendToVtt(selectedEntries); onClose() }}><Send size={16} /> Enviar {selectedEntries.length || ""} ficha{selectedEntries.length === 1 ? "" : "s"} ao RunasVTT</button>
+        : <button className="primary-button" disabled={selectedEntries.length === 0} onClick={() => { exportCharactersZip(selectedEntries.map((entry) => entry.character)); onClose() }}><Download size={16} /> Exportar {selectedEntries.length || ""} ficha{selectedEntries.length === 1 ? "" : "s"}</button>}</div></footer>
     </section>
   </div>
 }

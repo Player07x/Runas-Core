@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { createPortal } from "react-dom"
-import { Check, CheckSquare, Download, FileArchive, Plus, Search, Square, Trash2, Upload, UserCheck, UserRound, X } from "lucide-react"
+import { Check, CheckSquare, Download, FileArchive, Plus, Search, Send, Square, Trash2, Upload, UserCheck, UserRound, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCharacter } from "@/components/character/character-provider"
 import { useCharacterPanel } from "@/components/character/character-panel"
@@ -14,6 +14,7 @@ import { exportGalleryZip } from "@/lib/galleryExport"
 import { parseGalleryZip, type GalleryZipCharacter } from "@/lib/galleryImport"
 import type { CharacterGalleryEntry } from "@runas/core/types/character"
 import { GALLERY_MAX_CHARACTERS, GALLERY_MAX_PAGES, GALLERY_PAGE_SIZE } from "@/lib/galleryLimits"
+import { isRunasVttAvailable, sendCharacterToVtt, sendCharactersToVtt } from "@/lib/vttBridge"
 
 export function CharacterGallery() {
   const {
@@ -38,6 +39,7 @@ export function CharacterGallery() {
   const [readingZip, setReadingZip] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [searchQuery, setSearchQuery] = useState("")
+  const [inVtt, setInVtt] = useState(false)
   const previewEntry = useMemo(() => galleryEntries.find((entry) => entry.id === previewId) ?? null, [galleryEntries, previewId])
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")
@@ -51,6 +53,7 @@ export function CharacterGallery() {
 
   useEffect(() => { if (currentPage > pageCount) setCurrentPage(pageCount) }, [currentPage, pageCount])
   useEffect(() => { setCurrentPage(1) }, [searchQuery])
+  useEffect(() => { setInVtt(isRunasVttAvailable()) }, [])
 
   function createCharacter() {
     if (!createGalleryCharacter()) {
@@ -139,6 +142,33 @@ export function CharacterGallery() {
     if (previewId === entry.id) setPreviewId(null)
   }
 
+  async function exportEntry(entry: CharacterGalleryEntry) {
+    try {
+      if (inVtt && await sendCharacterToVtt(entry.character)) {
+        setMessage(`“${entry.character.name || "Personagem sem nome"}” foi enviado ao RunasVTT.`)
+        return
+      }
+      await exportCharacterJSON(entry.character)
+    } catch {
+      setMessage(inVtt ? "Não foi possível enviar a ficha ao RunasVTT." : "Não foi possível exportar a ficha.")
+    }
+  }
+
+  async function exportGalleryJson() {
+    try {
+      if (inVtt) {
+        const count = await sendCharactersToVtt(galleryEntries.map((entry) => entry.character))
+        if (count !== null) {
+          setMessage(`${count} ${count === 1 ? "ficha enviada" : "fichas enviadas"} ao RunasVTT.`)
+          return
+        }
+      }
+      await exportGalleryZip(galleryEntries, "json")
+    } catch {
+      setMessage(inVtt ? "Não foi possível enviar as fichas ao RunasVTT." : "Não foi possível exportar o ZIP.")
+    }
+  }
+
   if (!isReady) return <div className="h-72 animate-pulse rounded-[24px] border border-border bg-card" />
 
   return <div className="min-w-0 max-w-full overflow-x-clip">
@@ -155,7 +185,7 @@ export function CharacterGallery() {
         </div>
       </div>
       {message && <p role="status" className="mt-3 rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground">{message}</p>}
-      {galleryEntries.length > 0 && <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => exportGalleryZip(galleryEntries, "json")}><FileArchive /> Exportar ZIP (JSON)</Button><Button type="button" variant="outline" onClick={() => exportGalleryZip(galleryEntries, "md")}><Download /> Exportar ZIP (MD)</Button></div>}
+      {galleryEntries.length > 0 && <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => void exportGalleryJson()}>{inVtt ? <Send /> : <FileArchive />} {inVtt ? "Enviar fichas ao RunasVTT" : "Exportar ZIP (JSON)"}</Button><Button type="button" variant="outline" onClick={() => exportGalleryZip(galleryEntries, "md")}><Download /> Exportar ZIP (MD)</Button></div>}
     </section>
 
     <label className="relative mt-5 block"><span className="sr-only">Buscar personagem pelo nome</span><Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar personagem pelo nome" className="h-12 w-full rounded-2xl border border-input bg-card pl-11 pr-4 text-sm shadow-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/25" /></label>
@@ -164,7 +194,7 @@ export function CharacterGallery() {
     <div className="mt-5 grid min-w-0 max-w-full gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {galleryEntries.length === 0 && <div className="rounded-[24px] border border-dashed border-border bg-card/70 p-10 text-center sm:col-span-2 xl:col-span-3"><h2 className="font-bold text-foreground">Sua galeria está vazia</h2><p className="mt-2 text-sm text-muted-foreground">Salve a ficha atual, importe um arquivo JSON ou crie um novo personagem.</p></div>}
       {galleryEntries.length > 0 && filteredEntries.length === 0 && <div className="rounded-[24px] border border-dashed border-border bg-card/70 p-10 text-center sm:col-span-2 xl:col-span-3"><h2 className="font-bold text-foreground">Nenhum personagem encontrado</h2><p className="mt-2 text-sm text-muted-foreground">Tente outro nome ou limpe a busca.</p></div>}
-      {visibleEntries.map((entry) => <CharacterCard key={entry.id} entry={entry} active={entry.id === activeGalleryId} onPreview={() => setPreviewId(entry.id)} onUse={() => { activateGalleryCharacter(entry.id); setMessage(`“${entry.character.name || "Personagem sem nome"}” agora é a ficha ativa.`) }} onExport={() => exportCharacterJSON(entry.character)} onDelete={() => removeEntry(entry)} />)}
+      {visibleEntries.map((entry) => <CharacterCard key={entry.id} entry={entry} active={entry.id === activeGalleryId} onPreview={() => setPreviewId(entry.id)} onUse={() => { activateGalleryCharacter(entry.id); setMessage(`“${entry.character.name || "Personagem sem nome"}” agora é a ficha ativa.`) }} onExport={() => void exportEntry(entry)} onDelete={() => removeEntry(entry)} inVtt={inVtt} />)}
     </div>
 
     {filteredEntries.length > GALLERY_PAGE_SIZE && <nav aria-label="Páginas da galeria" className="mt-5 flex flex-wrap items-center justify-center gap-2">{Array.from({ length: pageCount }, (_, index) => index + 1).map((page) => <Button key={page} type="button" size="sm" variant={page === currentPage ? "default" : "outline"} aria-current={page === currentPage ? "page" : undefined} onClick={() => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: "smooth" }) }}>{page}</Button>)}</nav>}
@@ -201,7 +231,7 @@ export function CharacterGallery() {
   </div>
 }
 
-function CharacterCard({ entry, active, onPreview, onUse, onExport, onDelete }: { entry: CharacterGalleryEntry; active: boolean; onPreview: () => void; onUse: () => void; onExport: () => void; onDelete: () => void }) {
+function CharacterCard({ entry, active, onPreview, onUse, onExport, onDelete, inVtt }: { entry: CharacterGalleryEntry; active: boolean; onPreview: () => void; onUse: () => void; onExport: () => void; onDelete: () => void; inVtt: boolean }) {
   const { character } = entry
   return <article className={`grid min-h-44 grid-cols-[5.5rem_minmax(0,1fr)] gap-4 overflow-hidden rounded-[22px] border bg-card p-4 shadow-sm ${active ? "border-primary ring-2 ring-primary/15" : "border-border"}`}>
     <div className="relative row-span-2 aspect-[2/3] w-[5.5rem] self-start overflow-hidden rounded-2xl border border-border bg-muted shadow-sm">
@@ -215,7 +245,7 @@ function CharacterCard({ entry, active, onPreview, onUse, onExport, onDelete }: 
     <div className="col-start-2 flex flex-wrap items-end gap-2 self-end">
       <Button type="button" size="sm" variant="outline" onClick={onPreview}>Visualizar</Button>
       {!active && <Button type="button" size="icon-sm" onClick={onUse} aria-label={`Usar ficha de ${character.name || "personagem"}`} title="Usar ficha"><UserCheck /></Button>}
-      <Button type="button" size="icon-sm" variant="outline" onClick={onExport} aria-label={`Exportar ${character.name || "personagem"}`} title="Exportar"><Download /></Button>
+      <Button type="button" size="icon-sm" variant="outline" onClick={onExport} aria-label={`${inVtt ? "Enviar ao RunasVTT" : "Exportar"} ${character.name || "personagem"}`} title={inVtt ? "Enviar ao RunasVTT" : "Exportar"}>{inVtt ? <Send /> : <Download />}</Button>
       <Button type="button" size="icon-sm" variant="destructive" onClick={onDelete} aria-label={`Excluir ${character.name || "personagem"}`} title="Excluir"><Trash2 /></Button>
     </div>
   </article>

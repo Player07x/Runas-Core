@@ -15,6 +15,7 @@
     "@base-ui/react": "^1.5.0",
     "@runas/cronos-core": "*",
     "@runas/core": "*",
+    "@runas/vtt-bridge": "*",
     "@runas/ruleset-contracts": "*",
     "@tiptap/extension-character-count": "^3.30.2",
     "@tiptap/extension-underline": "^3.30.2",

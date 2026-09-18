@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Plus, RefreshCw,
-  Search, Shield, Sparkles, Swords, Trash2, Upload, X,
+  Search, Send, Shield, Sparkles, Swords, Trash2, Upload, X,
 } from "lucide-react"
+import type { VttLogEntry } from "@runas/vtt-bridge"
 import { attributeGroups } from "@runas/core/data/attributes"
 import { systemSkills } from "@runas/core/data/skills"
 import { characterElements, getCharacterElement } from "@runas/core/data/elements"
@@ -40,6 +41,7 @@ import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { BackupTokenDialog } from "./backup-token-dialog"
 import { RichTextEditor } from "./rich-text-editor"
 import { exportEncounterMarkdown, importEncounterMarkdown } from "../lib/encounter-notes"
+import { resourceLoss, useVttMesa } from "../lib/vtt-mesa"
 
 type WorkspaceView = "gallery" | "encounter"
 type SaveStatus = "loading" | "saving" | "saved" | "error"
@@ -79,6 +81,9 @@ export function DmDashboard() {
   const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
+  // Dentro do RunasVTT, a Mesa opera sobre os tokens da cena aberta nele.
+  const vttMesa = useVttMesa(setSyncMessage)
+  const encounterActors = vttMesa?.actors ?? state.encounter
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -131,7 +136,7 @@ export function DmDashboard() {
       })
   }, [categoryFilter, elementFilter, gallerySort, search, state.entries])
 
-  const selectedActor = state.encounter.find((actor) => actor.id === selectedActorId) ?? state.encounter[0] ?? null
+  const selectedActor = encounterActors.find((actor) => actor.id === selectedActorId) ?? encounterActors[0] ?? null
 
   function updateState(updater: (current: RunasDmState) => RunasDmState) {
     setState((current) => ({ ...updater(current), updatedAt: Date.now() }))
@@ -164,7 +169,14 @@ export function DmDashboard() {
     }))
   }
 
+  async function sendToVtt(entries: Pick<BestiaryEntry, "character" | "masteryTableId">[]) {
+    if (!vttMesa) return
+    const sent = await vttMesa.sendEntries(entries)
+    if (sent) setSyncMessage(`${sent} ${sent === 1 ? "ficha enviada" : "fichas enviadas"} ao RunasVTT`)
+  }
+
   function addToEncounter(entry: BestiaryEntry) {
+    if (vttMesa) { void sendToVtt([entry]); setView("encounter"); return }
     const copies = state.encounter.filter((actor) => actor.sourceId === entry.id).length
     const actor: EncounterActor = {
       id: id("actor"), sourceId: entry.id, copyNumber: copies + 1, character: cloneCharacter(entry.character), masteryTableId: entry.masteryTableId,
@@ -175,6 +187,7 @@ export function DmDashboard() {
   }
 
   function duplicateActor(actor: EncounterActor) {
+    if (vttMesa) { void sendToVtt([actor]); return }
     const copyNumber = Math.max(0, ...state.encounter.filter((item) => item.sourceId === actor.sourceId).map((item) => item.copyNumber)) + 1
     const copy = { ...actor, id: id("actor"), copyNumber, character: cloneCharacter(actor.character) }
     updateState((current) => ({ ...current, encounter: [...current.encounter, copy] }))
@@ -190,6 +203,11 @@ export function DmDashboard() {
   }
 
   function updateActor(actorId: string, character: Character, masteryTableId?: string) {
+    if (vttMesa) {
+      const actor = vttMesa.actors.find((candidate) => candidate.id === actorId)
+      void vttMesa.updateActor(actorId, character, masteryTableId ?? actor?.masteryTableId ?? "default")
+      return
+    }
     updateState((current) => ({
       ...current,
       encounter: current.encounter.map((actor) => actor.id === actorId ? { ...actor, character, masteryTableId: masteryTableId ?? actor.masteryTableId } : actor),
@@ -327,7 +345,7 @@ export function DmDashboard() {
         </button>
         <nav className="view-switch" aria-label="Áreas do Runas DM">
           <button className={view === "gallery" ? "active" : ""} onClick={() => setView("gallery")}><Archive size={17} /> Bestiário</button>
-          <button className={view === "encounter" ? "active" : ""} onClick={() => setView("encounter")}><Swords size={17} /> Mesa <span>{state.encounter.length}</span></button>
+          <button className={view === "encounter" ? "active" : ""} onClick={() => setView("encounter")}><Swords size={17} /> Mesa <span>{encounterActors.length}</span></button>
           <a href="/campaigns"><BookMarked size={17} /> Campanhas</a>
           <a href="/wiki"><LibraryBig size={17} /> Wiki</a>
         </nav>
@@ -346,10 +364,10 @@ export function DmDashboard() {
 
       {view === "gallery" ? (
         <section className="workspace gallery-workspace">
-          <PwaInstallCard />
+          {!vttMesa && <PwaInstallCard />}
           <div className="workspace-heading">
             <div><p className="eyebrow">Galeria de fichas</p><h1>Seu bestiário, pronto para agir.</h1><p>{state.entries.length} {state.entries.length === 1 ? "ficha salva" : "fichas salvas"}.</p></div>
-            <div className="heading-actions"><button className="secondary-button" disabled={state.entries.length === 0} onClick={() => setBatchExportOpen(true)}><FileArchive size={16} /> Exportar fichas</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload size={16} /> Importar fichas</button><button className="secondary-button" onClick={() => requestCloudAction("synchronize")}><RefreshCw size={16} /> Sincronizar</button><button className="secondary-button" onClick={() => requestCloudAction("backup")}><Database size={17} /> Backup</button><button className="primary-button" onClick={createSheet}><Plus size={18} /> Nova ficha</button></div>
+            <div className="heading-actions"><button className="secondary-button" disabled={state.entries.length === 0} onClick={() => setBatchExportOpen(true)}>{vttMesa ? <><Send size={16} /> Enviar fichas ao VTT</> : <><FileArchive size={16} /> Exportar fichas</>}</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload size={16} /> Importar fichas</button><button className="secondary-button" onClick={() => requestCloudAction("synchronize")}><RefreshCw size={16} /> Sincronizar</button><button className="secondary-button" onClick={() => requestCloudAction("backup")}><Database size={17} /> Backup</button><button className="primary-button" onClick={createSheet}><Plus size={18} /> Nova ficha</button></div>
           </div>
           {syncMessage && <div className="inline-notice">{syncMessage}</div>}
           <div className="gallery-toolbar">
@@ -367,12 +385,12 @@ export function DmDashboard() {
           </div>
         </section>
       ) : (
-        <EncounterWorkspace actors={state.encounter} selectedId={selectedActor?.id ?? null} entries={state.entries} notesHtml={state.workspaceNotesHtml} initiative={state.initiative} onNotesChange={(workspaceNotesHtml) => updateState((current) => ({ ...current, workspaceNotesHtml }))} onInitiativeChange={(initiative) => updateState((current) => ({ ...current, initiative }))} onSelect={setSelectedActorId} onAdd={addToEncounter} onEdit={(actor) => setEditingActor({ ...actor, character: cloneCharacter(actor.character) })} onRestore={restoreActor} onDuplicate={duplicateActor} onRemove={removeActor} onUpdate={updateActor} />
+        <EncounterWorkspace vtt={vttMesa ? { selectedTokenId: vttMesa.selectedTokenId, log: vttMesa.log, notice: syncMessage } : null} actors={encounterActors} selectedId={selectedActor?.id ?? null} entries={state.entries} notesHtml={state.workspaceNotesHtml} initiative={state.initiative} onNotesChange={(workspaceNotesHtml) => updateState((current) => ({ ...current, workspaceNotesHtml }))} onInitiativeChange={(initiative) => updateState((current) => ({ ...current, initiative }))} onSelect={setSelectedActorId} onAdd={addToEncounter} onEdit={(actor) => setEditingActor({ ...actor, character: cloneCharacter(actor.character) })} onRestore={restoreActor} onDuplicate={duplicateActor} onRemove={removeActor} onUpdate={updateActor} />
       )}
 
-      {editing && <SheetEditor entry={editing} tables={state.masteryTables} onClose={() => setEditing(null)} onSave={saveSheet} onTablesChange={(masteryTables) => updateState((current) => ({ ...current, masteryTables }))} />}
+      {editing && <SheetEditor entry={editing} tables={state.masteryTables} onSendToVtt={vttMesa ? (character, masteryTableId) => void sendToVtt([{ character, masteryTableId }]) : undefined} onClose={() => setEditing(null)} onSave={saveSheet} onTablesChange={(masteryTables) => updateState((current) => ({ ...current, masteryTables }))} />}
       {editingActor && <SheetEditor entry={{ id: editingActor.id, character: editingActor.character, masteryTableId: editingActor.masteryTableId, updatedAt: Date.now() }} tables={state.masteryTables} onClose={() => setEditingActor(null)} onSave={saveActorSheet} onTablesChange={(masteryTables) => updateState((current) => ({ ...current, masteryTables }))} />}
-      {batchExportOpen && <BatchExportDialog entries={state.entries} onClose={() => setBatchExportOpen(false)} />}
+      {batchExportOpen && <BatchExportDialog entries={state.entries} onSendToVtt={vttMesa ? (entries) => void sendToVtt(entries) : undefined} onClose={() => setBatchExportOpen(false)} />}
       {pendingCloudAction && <BackupTokenDialog onClose={() => setPendingCloudAction(null)} onSubmit={submitBackupToken} />}
       {!ready && <div className="loading-screen"><span className="brand-rune">R</span><p>Abrindo a mesa…</p></div>}
     </main>
@@ -394,25 +412,32 @@ function SheetCard({ entry, onOpen, onAdd, onDuplicate, onDelete }: { entry: Bes
   )
 }
 
-function EncounterWorkspace({ actors, selectedId, entries, notesHtml, initiative, onNotesChange, onInitiativeChange, onSelect, onAdd, onEdit, onRestore, onDuplicate, onRemove, onUpdate }: { actors: EncounterActor[]; selectedId: string | null; entries: BestiaryEntry[]; notesHtml: string; initiative: InitiativeEntry[]; onNotesChange: (value: string) => void; onInitiativeChange: (value: InitiativeEntry[]) => void; onSelect: (id: string) => void; onAdd: (entry: BestiaryEntry) => void; onEdit: (actor: EncounterActor) => void; onRestore: (actor: EncounterActor) => void; onDuplicate: (actor: EncounterActor) => void; onRemove: (id: string) => void; onUpdate: (id: string, character: Character) => void }) {
+/** Mesa dentro do RunasVTT: os atores são tokens, e testes e danos vão para o Registro dele. */
+interface VttEncounter {
+  selectedTokenId: string | null
+  log: (entry: VttLogEntry) => void
+  notice: string
+}
+
+function EncounterWorkspace({ vtt, actors, selectedId, entries, notesHtml, initiative, onNotesChange, onInitiativeChange, onSelect, onAdd, onEdit, onRestore, onDuplicate, onRemove, onUpdate }: { vtt: VttEncounter | null; actors: EncounterActor[]; selectedId: string | null; entries: BestiaryEntry[]; notesHtml: string; initiative: InitiativeEntry[]; onNotesChange: (value: string) => void; onInitiativeChange: (value: InitiativeEntry[]) => void; onSelect: (id: string) => void; onAdd: (entry: BestiaryEntry) => void; onEdit: (actor: EncounterActor) => void; onRestore: (actor: EncounterActor) => void; onDuplicate: (actor: EncounterActor) => void; onRemove: (id: string) => void; onUpdate: (id: string, character: Character) => void }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const selected = actors.find((actor) => actor.id === selectedId) ?? actors[0] ?? null
   return (
     <section className="workspace encounter-workspace">
       <div className="encounter-main">
-        <div className="workspace-heading compact"><div><p className="eyebrow">Mesa de encontro</p><h1>Controle sem trocar de tela.</h1><p>Cada criatura é uma cópia independente da ficha do bestiário.</p></div><button className="primary-button" onClick={() => setPickerOpen((value) => !value)}><Plus size={18} /> Anexar inimigo</button></div>
+        <div className="workspace-heading compact"><div><p className="eyebrow">Mesa de encontro{vtt ? " · RunasVTT" : ""}</p><h1>Controle sem trocar de tela.</h1><p>{vtt ? "Os atores são os tokens com ficha da cena aberta no RunasVTT. Dano confirmado atualiza o token." : "Cada criatura é uma cópia independente da ficha do bestiário."}</p></div><button className="primary-button" onClick={() => setPickerOpen((value) => !value)}><Plus size={18} /> {vtt ? "Enviar inimigo à cena" : "Anexar inimigo"}</button></div>{vtt?.notice && <div className="inline-notice">{vtt.notice}</div>}
         {pickerOpen && <div className="actor-picker">{entries.map((entry) => <button key={entry.id} onClick={() => { onAdd(entry); setPickerOpen(false) }}><span className={`mini-rune ${entry.character.portraitDataUrl ? "has-portrait" : ""}`}>{entry.character.portraitDataUrl ? <img src={entry.character.portraitDataUrl} alt="" /> : entry.character.name.slice(0, 1)}</span><span><strong>{entry.character.name}</strong><small>{entry.character.info.race}</small></span><Plus size={17} /></button>)}</div>}
-        {actors.length === 0 ? <div className="empty-encounter"><Swords size={42} /><h2>A mesa está vazia</h2><p>Anexe uma ficha do bestiário para criar uma cópia de combate.</p><button className="primary-button" onClick={() => setPickerOpen(true)}><Plus size={17} /> Anexar primeiro inimigo</button></div> : <div className="actor-grid">{actors.map((actor) => <ActorCard key={actor.id} actor={actor} selected={actor.id === selected?.id} onSelect={() => onSelect(actor.id)} onEdit={() => onEdit(actor)} onRestore={() => onRestore(actor)} onDuplicate={() => onDuplicate(actor)} onRemove={() => onRemove(actor.id)} />)}</div>}
+        {actors.length === 0 ? <div className="empty-encounter"><Swords size={42} /><h2>A mesa está vazia</h2><p>{vtt ? "Envie fichas do bestiário para a cena aberta no RunasVTT; cada uma vira um token." : "Anexe uma ficha do bestiário para criar uma cópia de combate."}</p><button className="primary-button" onClick={() => setPickerOpen(true)}><Plus size={17} /> Anexar primeiro inimigo</button></div> : <div className="actor-grid">{actors.map((actor) => <ActorCard key={actor.id} actor={actor} selected={actor.id === selected?.id} inVtt={vtt !== null} onSelect={() => onSelect(actor.id)} onEdit={() => onEdit(actor)} onRestore={() => onRestore(actor)} onDuplicate={() => onDuplicate(actor)} onRemove={() => onRemove(actor.id)} />)}</div>}
       </div>
-      <aside className="action-dock"><EncounterDock selected={selected} actors={actors} notesHtml={notesHtml} initiative={initiative} onNotesChange={onNotesChange} onInitiativeChange={onInitiativeChange} onUpdate={onUpdate} /></aside>
+      <aside className="action-dock"><EncounterDock vtt={vtt} selected={selected} actors={actors} notesHtml={notesHtml} initiative={initiative} onNotesChange={onNotesChange} onInitiativeChange={onInitiativeChange} onUpdate={onUpdate} /></aside>
     </section>
   )
 }
 
-function ActorCard({ actor, selected, onSelect, onEdit, onRestore, onDuplicate, onRemove }: { actor: EncounterActor; selected: boolean; onSelect: () => void; onEdit: () => void; onRestore: () => void; onDuplicate: () => void; onRemove: () => void }) {
+function ActorCard({ actor, selected, inVtt, onSelect, onEdit, onRestore, onDuplicate, onRemove }: { actor: EncounterActor; selected: boolean; inVtt: boolean; onSelect: () => void; onEdit: () => void; onRestore: () => void; onDuplicate: () => void; onRemove: () => void }) {
   const element = getCharacterElement(actor.character.stats.elementId)
   const snapshot = calculateCharacterStatSnapshot(actor.character.attributes, actor.character.info, actor.character.stats, actor.character.skills, actor.character.abilities)
-  return <article className={`actor-card ${selected ? "selected" : ""}`} onClick={onSelect} style={{ "--element-color": element?.color ?? "#79dce0" } as React.CSSProperties}><div className="actor-head"><span className={`mini-rune ${actor.character.portraitDataUrl ? "has-portrait" : ""}`}>{actor.character.portraitDataUrl ? <img src={actor.character.portraitDataUrl} alt="" /> : actor.copyNumber}</span><div><small>{element?.name ?? "Sem elemento"}</small><h2>{actor.character.name} #{actor.copyNumber}</h2></div><div><button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onEdit() }} title="Editar ficha desta cópia"><Edit3 size={15} /></button><button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onRestore() }} title="Restaurar ficha do bestiário"><RefreshCw size={15} /></button><button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onDuplicate() }} title="Duplicar"><Copy size={16} /></button><button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onRemove() }} title="Remover"><X size={16} /></button></div></div><div className="actor-resources"><ResourceBar label="PV" value={actor.character.stats.pv} maximum={snapshot.pvMax} color="red" /><ResourceBar label="PA" value={actor.character.stats.pa} maximum={snapshot.paMax} extra={actor.character.stats.paExtra} color="cyan" /><ResourceBar label="PE" value={actor.character.stats.pe} maximum={snapshot.peMax} extra={actor.character.stats.peTemporary} color="violet" /></div><p>{actor.character.stats.effects || "Nenhum efeito ativo"}</p></article>
+  return <article className={`actor-card ${selected ? "selected" : ""}`} onClick={onSelect} style={{ "--element-color": element?.color ?? "#79dce0" } as React.CSSProperties}><div className="actor-head"><span className={`mini-rune ${actor.character.portraitDataUrl ? "has-portrait" : ""}`}>{actor.character.portraitDataUrl ? <img src={actor.character.portraitDataUrl} alt="" /> : actor.copyNumber}</span><div><small>{element?.name ?? "Sem elemento"}</small><h2>{actor.character.name} #{actor.copyNumber}</h2></div><div><button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onEdit() }} title="Editar ficha desta cópia"><Edit3 size={15} /></button>{!inVtt && <button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onRestore() }} title="Restaurar ficha do bestiário"><RefreshCw size={15} /></button>}<button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onDuplicate() }} title="Duplicar"><Copy size={16} /></button>{!inVtt && <button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onRemove() }} title="Remover"><X size={16} /></button>}</div></div><div className="actor-resources"><ResourceBar label="PV" value={actor.character.stats.pv} maximum={snapshot.pvMax} color="red" /><ResourceBar label="PA" value={actor.character.stats.pa} maximum={snapshot.paMax} extra={actor.character.stats.paExtra} color="cyan" /><ResourceBar label="PE" value={actor.character.stats.pe} maximum={snapshot.peMax} extra={actor.character.stats.peTemporary} color="violet" /></div><p>{actor.character.stats.effects || "Nenhum efeito ativo"}</p></article>
 }
 
 function ResourceBar({ label, value, maximum, extra = 0, color }: { label: string; value: number; maximum: number; extra?: number; color: string }) {
@@ -420,9 +445,9 @@ function ResourceBar({ label, value, maximum, extra = 0, color }: { label: strin
   return <div className={`resource-bar ${color}`}><span>{label}</span><strong>{value}<small>/{maximum}</small>{extra > 0 ? ` +${extra}` : ""}</strong><i style={{ width: `${percentage}%` }} /></div>
 }
 
-function EncounterDock({ selected, actors, notesHtml, initiative, onNotesChange, onInitiativeChange, onUpdate }: { selected: EncounterActor | null; actors: EncounterActor[]; notesHtml: string; initiative: InitiativeEntry[]; onNotesChange: (value: string) => void; onInitiativeChange: (value: InitiativeEntry[]) => void; onUpdate: (id: string, character: Character) => void }) {
+function EncounterDock({ vtt, selected, actors, notesHtml, initiative, onNotesChange, onInitiativeChange, onUpdate }: { vtt: VttEncounter | null; selected: EncounterActor | null; actors: EncounterActor[]; notesHtml: string; initiative: InitiativeEntry[]; onNotesChange: (value: string) => void; onInitiativeChange: (value: InitiativeEntry[]) => void; onUpdate: (id: string, character: Character) => void }) {
   const [screen, setScreen] = useState<"actions" | "notes" | "initiative">("actions")
-  return <div className="dock-suite"><div className="dock-screen-tabs" role="tablist" aria-label="Painéis da mesa"><button className={screen === "actions" ? "active" : ""} onClick={() => setScreen("actions")}><Bolt size={15} /> Ações Integradas</button><button className={screen === "notes" ? "active" : ""} onClick={() => setScreen("notes")}><BookOpenText size={15} /> Notas</button><button className={screen === "initiative" ? "active" : ""} onClick={() => setScreen("initiative")}><ListOrdered size={15} /> Iniciativa</button></div>{screen === "actions" ? selected ? <><QuickActions key={selected.id} actor={selected} targets={[...actors.filter((candidate) => candidate.id !== selected.id), selected]} onUpdate={(character) => onUpdate(selected.id, character)} onUpdateTarget={onUpdate} /><MassiveDamagePanel attacker={selected} targets={actors} onUpdateTarget={onUpdate} /></> : <div className="dock-empty"><Bolt size={28} /><p>Selecione uma criatura para abrir testes e dano.</p></div> : screen === "notes" ? <EncounterNotes notesHtml={notesHtml} initiative={initiative} actors={actors} onNotesChange={onNotesChange} onInitiativeChange={onInitiativeChange} /> : <InitiativePanel actors={actors} initiative={initiative} onChange={onInitiativeChange} />}</div>
+  return <div className="dock-suite"><div className="dock-screen-tabs" role="tablist" aria-label="Painéis da mesa"><button className={screen === "actions" ? "active" : ""} onClick={() => setScreen("actions")}><Bolt size={15} /> Ações Integradas</button><button className={screen === "notes" ? "active" : ""} onClick={() => setScreen("notes")}><BookOpenText size={15} /> Notas</button><button className={screen === "initiative" ? "active" : ""} onClick={() => setScreen("initiative")}><ListOrdered size={15} /> Iniciativa</button></div>{screen === "actions" ? selected ? <><QuickActions key={selected.id} actor={selected} targets={[...actors.filter((candidate) => candidate.id !== selected.id), selected]} preferredTargetId={vtt?.selectedTokenId ?? null} onLog={vtt?.log} onUpdate={(character) => onUpdate(selected.id, character)} onUpdateTarget={onUpdate} /><MassiveDamagePanel attacker={selected} targets={actors} onLog={vtt?.log} onUpdateTarget={onUpdate} /></> : <div className="dock-empty"><Bolt size={28} /><p>Selecione uma criatura para abrir testes e dano.</p></div> : screen === "notes" ? <EncounterNotes notesHtml={notesHtml} initiative={initiative} actors={actors} onNotesChange={onNotesChange} onInitiativeChange={onInitiativeChange} /> : <InitiativePanel actors={actors} initiative={initiative} onChange={onInitiativeChange} />}</div>
 }
 
 function downloadMarkdown(content: string) {
@@ -488,7 +513,7 @@ interface MassiveDamagePreview {
   apply: boolean
 }
 
-function MassiveDamagePanel({ attacker, targets, onUpdateTarget }: { attacker: EncounterActor; targets: EncounterActor[]; onUpdateTarget: (id: string, character: Character) => void }) {
+function MassiveDamagePanel({ attacker, targets, onUpdateTarget, onLog }: { attacker: EncounterActor; targets: EncounterActor[]; onUpdateTarget: (id: string, character: Character) => void; onLog?: (entry: VttLogEntry) => void }) {
   const [enabled, setEnabled] = useState(false)
   const [expression, setExpression] = useState("2D cortante")
   const [defaultModifier, setDefaultModifier] = useState("")
@@ -552,7 +577,10 @@ function MassiveDamagePanel({ attacker, targets, onUpdateTarget }: { attacker: E
   }
 
   function applySelected(items: MassiveDamagePreview[]) {
-    for (const preview of items.filter((item) => item.apply)) onUpdateTarget(preview.actor.id, preview.next)
+    for (const preview of items.filter((item) => item.apply)) {
+      onUpdateTarget(preview.actor.id, preview.next)
+      onLog?.({ kind: "damage", title: `${preview.actor.character.name}: dano massivo de ${attacker.character.name}`, detail: preview.detail, tokenId: preview.actor.id, floatingText: `-${resourceLoss(preview.actor.character, preview.next)}` })
+    }
     setPreviews([])
     setChoosing(false)
   }
@@ -560,7 +588,11 @@ function MassiveDamagePanel({ attacker, targets, onUpdateTarget }: { attacker: E
   return <section className={`massive-damage ${enabled ? "enabled" : ""}`}><label className="massive-toggle"><input type="checkbox" checked={enabled} onChange={(event) => toggle(event.target.checked)} /><span>Massivo?</span></label>{!enabled ? <div className="massive-defaults"><p>Marque para simular o mesmo ataque em todas as fichas da mesa.</p><ModifierInput value={defaultModifier} onChange={setDefaultModifier} /><button className="secondary-button" onClick={() => setDefaultAdvancedOpen((value) => !value)}>Avançado <ChevronDown size={14} /></button>{defaultAdvancedOpen && <div className="massive-advanced-default"><NumberField label="RDF padrão" value={defaultRdf} min={0} onChange={setDefaultRdf} /><NumberField label="RDM padrão" value={defaultRdm} min={0} onChange={setDefaultRdm} /><label className="check-row"><input type="checkbox" checked={defaultMtEnabled} onChange={(event) => setDefaultMtEnabled(event.target.checked)} /> Aplicar MT do alvo</label><NumberField label="MT padrão" value={defaultMtValue} onChange={setDefaultMtValue} /></div>}</div> : <><label className="massive-expression"><span>Dano massivo</span><input value={expression} onChange={(event) => { setExpression(event.target.value); setPreviews([]) }} /></label><div className="massive-targets">{targets.map((target) => { const config = settings[target.id]; if (!config) return null; return <article key={target.id}><label className="massive-target-name"><input type="checkbox" checked={config.selected} onChange={(event) => updateSetting(target.id, { selected: event.target.checked })} /><span>{target.character.name} #{target.copyNumber}</span></label><ConfigurationButtons modifierOpen={config.modifierOpen} advancedOpen={config.advancedOpen} onModifier={() => updateSetting(target.id, { modifierOpen: !config.modifierOpen })} onAdvanced={() => updateSetting(target.id, { advancedOpen: !config.advancedOpen })} />{config.modifierOpen && <ModifierInput value={config.modifier} onChange={(modifier) => updateSetting(target.id, { modifier })} />}{config.advancedOpen && <div className="massive-target-advanced"><NumberField label="RDF" value={config.rdf} min={0} onChange={(rdf) => updateSetting(target.id, { rdf })} /><NumberField label="RDM" value={config.rdm} min={0} onChange={(rdm) => updateSetting(target.id, { rdm })} /><label className="check-row"><input type="checkbox" checked={config.mtEnabled} onChange={(event) => updateSetting(target.id, { mtEnabled: event.target.checked })} /> Aplicar MT</label><NumberField label="MT" value={config.mtValue} onChange={(mtValue) => updateSetting(target.id, { mtValue })} /></div>}</article> })}</div><button className="execute-button damage" onClick={simulate}>Simular dano em todas</button>{error && <p className="massive-error">{error}</p>}{previews.length > 0 && <div className="massive-results">{previews.map((preview) => <article key={preview.actor.id}><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><span>{preview.detail}</span></article>)}<div><button className="execute-button confirm" onClick={() => applySelected(previews.map((preview) => ({ ...preview, apply: true })))}>Aplicar em Todas</button><button className="secondary-button" onClick={() => setChoosing(true)}>Escolher Aplicação</button></div></div>}</>}{choosing && <div className="massive-popup-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setChoosing(false) }}><div className="massive-popup" role="dialog" aria-modal="true" aria-labelledby="massive-popup-title"><header><div><p className="eyebrow">Aplicação seletiva</p><h3 id="massive-popup-title">Escolher fichas</h3></div><button className="icon-button" onClick={() => setChoosing(false)}><X size={17} /></button></header><div>{previews.map((preview) => { const snapshot = calculateCharacterStatSnapshot(preview.actor.character.attributes, preview.actor.character.info, preview.actor.character.stats, preview.actor.character.skills, preview.actor.character.abilities); return <label key={preview.actor.id}><input type="checkbox" checked={preview.apply} onChange={(event) => setPreviews((current) => current.map((item) => item.actor.id === preview.actor.id ? { ...item, apply: event.target.checked } : item))} /><span><strong>{preview.actor.character.name} #{preview.actor.copyNumber}</strong><small>PV {preview.actor.character.stats.pv}/{snapshot.pvMax} · PA {preview.actor.character.stats.pa}/{snapshot.paMax} +{preview.actor.character.stats.paExtra} extra · PE {preview.actor.character.stats.pe}/{snapshot.peMax} +{preview.actor.character.stats.peTemporary} temporário</small></span></label> })}</div><footer><button className="secondary-button" onClick={() => setChoosing(false)}>Cancelar</button><button className="primary-button" onClick={() => applySelected(previews)}>Aplicar selecionadas</button></footer></div></div>}</section>
 }
 
-function QuickActions({ actor, targets, onUpdate, onUpdateTarget }: { actor: EncounterActor; targets: EncounterActor[]; onUpdate: (character: Character) => void; onUpdateTarget: (id: string, character: Character) => void }) {
+/**
+ * `preferredTargetId`: dentro do RunasVTT, o token selecionado no mapa vira
+ * o alvo do dano. `onLog`: testes e danos vão para o Registro do VTT.
+ */
+function QuickActions({ actor, targets, preferredTargetId = null, onLog, onUpdate, onUpdateTarget }: { actor: EncounterActor; targets: EncounterActor[]; preferredTargetId?: string | null; onLog?: (entry: VttLogEntry) => void; onUpdate: (character: Character) => void; onUpdateTarget: (id: string, character: Character) => void }) {
   const calculatorRef = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState<"test" | "damage">("damage")
   const [modifierOpen, setModifierOpen] = useState(false)
@@ -596,6 +628,17 @@ function QuickActions({ actor, targets, onUpdate, onUpdateTarget }: { actor: Enc
   const damageItems = actor.character.inventory.filter((item) => item.usage === "equipped" && (item.type === "weapon" || item.type === "shield" || item.type === "innate") && item.damage.trim())
   const usableSkills = actor.character.skills.filter((skill) => skill.attributeKey)
 
+  // Selecionar outro token no RunasVTT troca o alvo, como escolher no seletor.
+  const seenPreferredTargetId = useRef<string | null>(null)
+  useEffect(() => {
+    if (preferredTargetId === seenPreferredTargetId.current) return
+    seenPreferredTargetId.current = preferredTargetId
+    if (preferredTargetId && preferredTargetId !== targetId && targets.some((candidate) => candidate.id === preferredTargetId)) selectDamageTarget(preferredTargetId)
+    // `targets` é recriado pelo painel a cada atualização; a seleção é a única
+    // mudança externa que deve reposicionar o alvo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferredTargetId])
+
   function selectDamageTarget(nextId: string) {
     setTargetId(nextId)
     setPendingDamage(null)
@@ -630,7 +673,10 @@ function QuickActions({ actor, targets, onUpdate, onUpdateTarget }: { actor: Enc
   }
 
   function showSkillRoll(roll: SkillRoll, context?: string) {
-    setResult({ tone: roll.outcome.includes("success") ? "good" : "bad", title: `${context ? `${context} · ` : ""}${outcomeLabel(roll.outcome)} ${roll.margin >= 0 ? "+" : ""}${roll.margin}`, detail: `${roll.skillName}: teste ${roll.totalTest} contra ${roll.diceRolls.join(" + ")} = ${roll.diceSum}` })
+    const title = `${context ? `${context} · ` : ""}${outcomeLabel(roll.outcome)} ${roll.margin >= 0 ? "+" : ""}${roll.margin}`
+    const detail = `${roll.skillName}: teste ${roll.totalTest} contra ${roll.diceRolls.join(" + ")} = ${roll.diceSum}`
+    setResult({ tone: roll.outcome.includes("success") ? "good" : "bad", title, detail })
+    onLog?.({ kind: "test", title: `${actor.character.name}: ${title}`, detail, tokenId: actor.id, floatingText: `${outcomeLabel(roll.outcome)} ${roll.margin >= 0 ? "+" : ""}${roll.margin}` })
   }
 
   function spendDetermination() {
@@ -747,6 +793,8 @@ function QuickActions({ actor, targets, onUpdate, onUpdateTarget }: { actor: Enc
     if (!simulatedDamage?.character || !simulatedDamage.targetId) return
     onUpdateTarget(simulatedDamage.targetId, simulatedDamage.character)
     setResult({ tone: "good", title: `Dano aplicado ao alvo: ${simulatedDamage.title}`, detail: simulatedDamage.detail })
+    const target = targets.find((candidate) => candidate.id === simulatedDamage.targetId)
+    if (target) onLog?.({ kind: "damage", title: `${actor.character.name} → ${target.character.name}: ${simulatedDamage.title}`, detail: simulatedDamage.detail, tokenId: target.id, floatingText: `-${resourceLoss(target.character, simulatedDamage.character)}` })
     setPendingDamage(null)
   }
 
@@ -767,7 +815,8 @@ function ModifierInput({ value, onChange }: { value: string; onChange: (value: s
   return <label className="modifier-input"><span>Modificador final</span><input autoFocus value={value} onChange={(event) => onChange(event.target.value)} placeholder="+3, -2, x2 ou x0,5" /></label>
 }
 
-function SheetEditor({ entry, tables, onClose, onSave, onTablesChange }: { entry: BestiaryEntry; tables: MasteryTable[]; onClose: () => void; onSave: (entry: BestiaryEntry) => void; onTablesChange: (tables: MasteryTable[]) => void }) {
+/** `onSendToVtt`: dentro do RunasVTT, "Exportar ficha" envia a ficha como token em vez de baixar o JSON. */
+function SheetEditor({ entry, tables, onClose, onSave, onTablesChange, onSendToVtt }: { entry: BestiaryEntry; tables: MasteryTable[]; onClose: () => void; onSave: (entry: BestiaryEntry) => void; onTablesChange: (tables: MasteryTable[]) => void; onSendToVtt?: (character: Character, masteryTableId: string) => void }) {
   useEscapeToClose(onClose)
   const [character, setCharacter] = useState(() => cloneCharacter(entry.character))
   const [tab, setTab] = useState<"simple" | "advanced">("simple")
@@ -853,7 +902,9 @@ function SheetEditor({ entry, tables, onClose, onSave, onTablesChange }: { entry
       <SimpleSection className="statistics-section" title="Estatísticas" collapsed={collapsed.statistics} onToggle={() => toggleSection("statistics")} action={<button className="restore-stats-button simple" onClick={restoreStats}><RefreshCw size={14} /> Restaurar estatísticas</button>}><div className="field-grid six resource-ribbon"><ResourceField label="PV" value={character.stats.pv} maximum={snapshot.pvMax} onChange={(value) => mutate((draft) => { draft.stats.pv = value })} /><ResourceField label="PA" value={character.stats.pa} maximum={snapshot.paMax} onChange={(value) => mutate((draft) => { draft.stats.pa = value })} /><ResourceField label="PA extra" value={character.stats.paExtra} maximum={snapshot.paExtraMax} onChange={(value) => mutate((draft) => { draft.stats.paExtra = value })} /><ResourceField label="PE" value={character.stats.pe} maximum={snapshot.peMax} onChange={(value) => mutate((draft) => { draft.stats.pe = value })} /><ResourceField label="PE temporário" value={character.stats.peTemporary} maximum={snapshot.peTemporaryMax} onChange={(value) => mutate((draft) => { draft.stats.peTemporary = value })} /><div className="calculated-field"><span>Deslocamento</span><strong>{snapshot.movement} m</strong></div></div><div className="field-grid defense-grid"><label className="field"><span>Elemento principal</span><select value={character.stats.elementId} onChange={(event) => mutate((draft) => { const element = getCharacterElement(event.target.value); draft.stats.elementId = event.target.value; draft.stats.resistances = [...(element?.resistances ?? [])]; draft.stats.weaknesses = [...(element?.weaknesses ?? [])] })}><option value="none">Nenhum</option>{characterElements.map((element) => <option key={element.id} value={element.id}>{element.name}</option>)}</select></label><Field label="Resistências" value={character.stats.resistances.join(", ")} onChange={(value) => mutate((draft) => { draft.stats.resistances = listFromText(value) })} /><Field label="Fraquezas" value={character.stats.weaknesses.join(", ")} onChange={(value) => mutate((draft) => { draft.stats.weaknesses = listFromText(value) })} /></div><section className="compact-mastery"><div className="compact-mastery-title"><div><h4>Melhorias</h4><span>Pontos definidos por Afinidade, Eficiência e tabela selecionada.</span></div><MasterySummary total={availableMastery} spent={spentMastery} remaining={remainingMastery} /></div><div className="mastery-toolbar"><select value={tableId} onChange={(event) => setTableId(event.target.value)}>{tables.map((table) => <option key={table.id} value={table.id}>{table.name}</option>)}</select><button className="secondary-button" onClick={() => { const table = { id: id("table"), name: `Tabela ${tables.length + 1}`, multiplier: 1 }; onTablesChange([...tables, table]); setTableId(table.id) }}><Plus size={15} /> Nova tabela</button>{selectedTable && !["default", "double"].includes(selectedTable.id) && <><input value={selectedTable.name} onChange={(event) => onTablesChange(tables.map((table) => table.id === selectedTable.id ? { ...table, name: event.target.value } : table))} /><label className="mini-field">Multiplicador <DeferredNumberInput value={selectedTable.multiplier} min={0.1} defaultValue={1} onChange={(multiplier) => onTablesChange(tables.map((table) => table.id === selectedTable.id ? { ...table, multiplier } : table))} /></label><button className="secondary-button danger-icon" title="Remover tabela customizada" onClick={() => { onTablesChange(tables.filter((table) => table.id !== selectedTable.id)); setTableId("default") }}><Trash2 size={15} /> Remover</button></>}</div><div className="mastery-grid">{masteryImprovementOptions.map((option) => { const current = character.stats.masteryImprovements[option.key]; const maximum = Math.floor(Math.max(0, remainingMastery + current * option.cost) / option.cost); return <NumberField key={option.key} label={`${option.name} / ${option.cost} pontos`} value={current} min={0} max={maximum} onChange={(next) => mutate((draft) => { draft.stats.masteryImprovements[option.key] = clampMasteryImprovementQuantity(draft.stats.masteryImprovements, option.key, next, availableMastery) })} /> })}</div>{remainingMastery < 0 && <p className="mastery-overage" role="alert">As melhorias excedem o limite da tabela. Reduza compras ou aumente os pontos disponíveis.</p>}</section></SimpleSection>
       <SimpleSection className="linked-section" title="Perícias, características e ações" note="Registros vinculados à ficha completa" collapsed={collapsed.connections} onToggle={() => toggleSection("connections")}><SimpleConnections character={character} mutate={mutate} /></SimpleSection>
       <SimpleSection className="inventory-section" title="Recursos" collapsed={collapsed.resources} onToggle={() => toggleSection("resources")}><SimpleInventory character={character} mutate={mutate} /></SimpleSection></div> : <AdvancedSheetEditor character={character} onChange={setCharacter} />}
-    <footer className="modal-footer">{tab === "simple" && <button className="secondary-button export-current-sheet" onClick={() => exportCharacterJson(character)}><Download size={16} /> Exportar ficha</button>}<button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" onClick={save}>Salvar ficha</button></footer>
+    <footer className="modal-footer">{tab === "simple" && (onSendToVtt
+      ? <button className="secondary-button export-current-sheet" onClick={() => onSendToVtt(character, tableId)}><Send size={16} /> Enviar ao RunasVTT</button>
+      : <button className="secondary-button export-current-sheet" onClick={() => exportCharacterJson(character)}><Download size={16} /> Exportar ficha</button>)}<button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" onClick={save}>Salvar ficha</button></footer>
     {portraitFile && <PortraitCropDialog file={portraitFile} onCancel={() => setPortraitFile(null)} onConfirm={(portraitDataUrl) => { mutate((draft) => { draft.portraitDataUrl = portraitDataUrl }); setPortraitFile(null) }} />}
   </section></div>
 }
