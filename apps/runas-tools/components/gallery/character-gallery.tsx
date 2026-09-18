@@ -14,7 +14,7 @@ import { exportGalleryZip } from "@/lib/galleryExport"
 import { parseGalleryZip, type GalleryZipCharacter } from "@/lib/galleryImport"
 import type { CharacterGalleryEntry } from "@runas/core/types/character"
 import { GALLERY_MAX_CHARACTERS, GALLERY_MAX_PAGES, GALLERY_PAGE_SIZE } from "@/lib/galleryLimits"
-import { isRunasVttAvailable, sendCharacterToVtt, sendCharactersToVtt } from "@/lib/vttBridge"
+import { isRunasVttAvailable, sendCharacterToVtt, sendCharactersToVtt, vttErrorMessage } from "@/lib/vttBridge"
 
 export function CharacterGallery() {
   const {
@@ -149,8 +149,8 @@ export function CharacterGallery() {
         return
       }
       await exportCharacterJSON(entry.character)
-    } catch {
-      setMessage(inVtt ? "Não foi possível enviar a ficha ao RunasVTT." : "Não foi possível exportar a ficha.")
+    } catch (reason) {
+      setMessage(inVtt ? vttErrorMessage(reason, "Não foi possível enviar a ficha ao RunasVTT.") : "Não foi possível exportar a ficha.")
     }
   }
 
@@ -164,8 +164,8 @@ export function CharacterGallery() {
         }
       }
       await exportGalleryZip(galleryEntries, "json")
-    } catch {
-      setMessage(inVtt ? "Não foi possível enviar as fichas ao RunasVTT." : "Não foi possível exportar o ZIP.")
+    } catch (reason) {
+      setMessage(inVtt ? vttErrorMessage(reason, "Não foi possível enviar as fichas ao RunasVTT.") : "Não foi possível exportar o ZIP.")
     }
   }
 

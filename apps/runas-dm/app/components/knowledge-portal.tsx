@@ -4,6 +4,7 @@
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CloudDownload, CloudUpload, Filter, FolderPlus, LibraryBig, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
+import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
 import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
@@ -477,6 +478,22 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     }
     if (actors.length === 0) { setNotice("Nenhuma ficha válida do bestiário foi encontrada neste encontro."); return }
     const encounterNotes = [page.title, page.summary].filter(Boolean).map((value, index) => `<p>${index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value)}</p>`).join("")
+    // Dentro do RunasVTT, a Mesa são os tokens da cena: o encontro vira tokens
+    // na cena aberta, e a Mesa local não é substituída.
+    const vtt = getRunasVtt(window)
+    if (vtt) {
+      try {
+        for (let offset = 0; offset < actors.length; offset += VTT_MAX_IMPORT_BATCH) {
+          await vtt.importCharacters(actors.slice(offset, offset + VTT_MAX_IMPORT_BATCH).map((actor) => toVttCharacter(actor.character, "dm", { runasDm: { masteryTableId: actor.masteryTableId } })))
+        }
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "O RunasVTT recusou o encontro.")
+        return
+      }
+      await saveLocalState({ ...dmState, workspaceNotesHtml: encounterNotes, updatedAt: Date.now() })
+      window.location.assign("/?view=encounter")
+      return
+    }
     await saveLocalState({ ...dmState, encounter: actors, workspaceNotesHtml: encounterNotes, updatedAt: Date.now() })
     window.location.assign("/?view=encounter")
   }

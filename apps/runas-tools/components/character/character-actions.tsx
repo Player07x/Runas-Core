@@ -5,7 +5,7 @@ import { Braces, FileDown, RotateCcw, Send, Upload } from "lucide-react"
 import { useCharacter } from "./character-provider"
 import { exportCharacterJSON, exportCharacterMarkdown } from "@/lib/exportCharacter"
 import { parseCharacterFile } from "@/lib/characterStorage"
-import { isRunasVttAvailable, sendCharacterToVtt } from "@/lib/vttBridge"
+import { isRunasVttAvailable, sendCharacterToVtt, vttErrorMessage } from "@/lib/vttBridge"
 
 export function CharacterActions() {
   const { character, replaceCharacter, resetCharacter } = useCharacter()
@@ -42,8 +42,8 @@ export function CharacterActions() {
     try {
       if (inVtt && await sendCharacterToVtt(character)) return
       await exportCharacterJSON(character)
-    } catch {
-      setError(inVtt ? "Não foi possível enviar a ficha ao RunasVTT." : "Não foi possível exportar a ficha.")
+    } catch (reason) {
+      setError(inVtt ? vttErrorMessage(reason, "Não foi possível enviar a ficha ao RunasVTT.") : "Não foi possível exportar a ficha.")
     }
   }
 

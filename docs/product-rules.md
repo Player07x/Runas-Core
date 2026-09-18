@@ -78,3 +78,15 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - O projeto é particular e não possui cadastro público.
 - A hospedagem deve usar Cloudflare Access e token de backup.
 - Os componentes escolhidos possuem camada gratuita compatível com uso particular.
+
+## Integração com o RunasVTT
+
+Os sites detectam o RunasVTT pela ponte `window.runasVTT`, que só ele injeta, e só nas origens da suíte (`@runas/vtt-bridge` → `getRunasVtt`). Fora do VTT, nada muda. Dentro dele:
+
+- "Exportar ficha", "Exportar fichas" e "Exportar ZIP (JSON)" (Tools e DM) viram "Enviar ao RunasVTT": cada ficha vira um token na cena aberta. A imagem do token é, por enquanto, o retrato da ficha.
+- A Mesa do DM opera sobre os tokens com ficha da cena aberta, não sobre a Mesa local. O token é uma cópia independente: dano não altera o bestiário. "Restaurar" e "Remover" somem do cartão (tokens são removidos no VTT), e "Anexar inimigo" e "Duplicar" criam tokens.
+- O token selecionado no mapa do VTT vira o alvo do dano. O dano só é aplicado com a confirmação explícita de sempre.
+- Testes e danos confirmados (inclusive o dano massivo) vão para o Registro do VTT e sobem como texto sobre o token.
+- "Iniciar encontro" nas Campanhas envia as criaturas como tokens para a cena aberta, sem substituir a Mesa local.
+- O cartão de instalação (PWA) não aparece dentro do VTT.
+- O VTT nunca calcula regra: ele recebe o envelope `{ version, character }` e o resumo de PV/PA/PE calculado por `summarizeCharacterResources` (`@runas/core`).

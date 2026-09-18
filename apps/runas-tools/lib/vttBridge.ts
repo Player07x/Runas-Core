@@ -1,6 +1,11 @@
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
 import type { Character } from "@runas/core/types/character"
 
+/** Mensagem para o usuário: o RunasVTT explica o motivo (ex.: nenhuma cena aberta). */
+export function vttErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 /** Detecta a ponte apenas no navegador; durante o SSR ela não existe. */
 export function isRunasVttAvailable(): boolean {
   return typeof window !== "undefined" && getRunasVtt(window) !== null
