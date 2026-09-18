@@ -1,3 +1,2 @@
 # Defina estes valores como secrets no Cloudflare. Nunca grave valores reais aqui.
 RUNAS_DM_BACKUP_TOKEN=
-RUNAS_DM_CAMPAIGN_PASSWORD=

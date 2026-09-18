@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { getDb } from "../../../db"
 import { knowledgeSnapshots } from "../../../db/schema"
 import { normalizeKnowledgeWorkspace } from "../../lib/knowledge-model"
-import { isKnowledgeAuthorized } from "../../lib/server/knowledge-auth"
+import { verifyBackupBearer } from "../../lib/server/secret-verification"
 
 const PRIVATE_SLOT = "primary"
 const MAX_PAYLOAD_BYTES = 8_000_000
@@ -14,11 +14,11 @@ function isLocalRequest(request: Request): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1"
 }
 
+// Campanhas e Wiki abrem sem login; o token de backup só libera a cópia na nuvem.
 export async function GET(request: Request) {
-  if (!await isKnowledgeAuthorized(request)) return NextResponse.json({ error: "Não autorizado." }, { status: 401, headers: noStoreHeaders })
-  // O preview local permanece offline-first. Em produção, o D1 continua sendo
-  // a cópia privada sincronizada; dados locais nunca são enviados sem sessão.
+  // O preview local permanece offline-first e nunca toca o D1.
   if (isLocalRequest(request)) return NextResponse.json({ state: null, updatedAt: null, localOnly: true }, { headers: noStoreHeaders })
+  if (!await verifyBackupBearer(request)) return NextResponse.json({ error: "Não autorizado." }, { status: 401, headers: noStoreHeaders })
   const db = await getDb()
   const [snapshot] = await db.select().from(knowledgeSnapshots).where(eq(knowledgeSnapshots.id, PRIVATE_SLOT)).limit(1)
   if (!snapshot) return NextResponse.json({ state: null, updatedAt: null }, { headers: noStoreHeaders })
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  if (!await isKnowledgeAuthorized(request)) return NextResponse.json({ error: "Não autorizado." }, { status: 401, headers: noStoreHeaders })
+  if (!isLocalRequest(request) && !await verifyBackupBearer(request)) return NextResponse.json({ error: "Não autorizado." }, { status: 401, headers: noStoreHeaders })
   const length = Number(request.headers.get("content-length") ?? 0)
   if (length > MAX_PAYLOAD_BYTES) return NextResponse.json({ error: "Arquivo de campanha muito grande." }, { status: 413, headers: noStoreHeaders })
   const text = await request.text()

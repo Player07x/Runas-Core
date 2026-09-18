@@ -26,7 +26,6 @@ O build `npm run build:dm:pages` reúne o cliente Vinext e o Worker modular em `
 Variáveis de produção:
 
 - `RUNAS_DM_BACKUP_TOKEN`: segredo; nunca registrar no Git, logs ou arquivos `.env` versionados.
-- `RUNAS_DM_CAMPAIGN_PASSWORD`: segredo adicional das rotas de Campanhas e Wiki.
 
 O Cloudflare Access deve proteger `runas-dm.pages.dev`, com o proprietário e somente os e-mails explicitamente autorizados. A URL legada `runas-dm.player-7x.chatgpt.site` é contingência temporária; não deve ser divulgada como endereço canônico.
 

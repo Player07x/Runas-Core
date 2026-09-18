@@ -29,7 +29,8 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 
 - A barra superior carrega apenas marca, navegação e um botão de ações (`⋯`). Tema, backup, importação, Obsidian e atalhos externos ficam dentro desse painel.
 - O estado de salvamento continua fora do painel, reduzido a um ponto colorido no próprio botão: num aplicativo local-first, saber que a alteração foi gravada não pode depender de abrir um menu.
-- A barra do arquivo do mestre (Campanhas e Wiki) exibe o selo `DM` e a navegação completa. Fora da sessão autenticada, a barra fica reduzida à marca e ao caminho de volta ao Bestiário — as duas versões nunca parecem a mesma tela.
+- A barra do arquivo do mestre (Campanhas e Wiki) exibe o selo `DM` e a navegação completa.
+- Campanhas e Wiki abrem sem login nem senha. O token de backup apenas ativa a cópia na nuvem; sem ele, tudo continua local.
 
 ## Wiki: História
 

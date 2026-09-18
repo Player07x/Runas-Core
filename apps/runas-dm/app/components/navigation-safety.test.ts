@@ -12,10 +12,11 @@ describe("Runas DM production navigation contract", () => {
     expect(source).toContain('<a className={area === "wiki" ? "active" : ""} href="/wiki">')
   })
 
-  it("does not render the login form while a recent session is being restored", async () => {
+  it("opens Campaigns and Wiki without a login; the token only enables the cloud backup", async () => {
     const source = await readFile(new URL("./knowledge-portal.tsx", import.meta.url), "utf8")
-    expect(source).toContain('if (auth === "checking") return <SessionCheckingScreen')
-    expect(source).toContain('if (auth === "locked") return <AccessScreen')
+    expect(source).not.toContain("/api/campaign-auth")
+    expect(source).not.toContain("AccessScreen")
+    expect(source).toContain("authorization: `Bearer ${token}`")
   })
 
   it("versions every deployed cache and never stores RSC payloads", async () => {

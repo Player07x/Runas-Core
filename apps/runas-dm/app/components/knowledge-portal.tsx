@@ -3,13 +3,14 @@
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert, CloudDownload, Filter, FolderPlus, KeyRound, LibraryBig, LockKeyhole, Network, Plus, Search, Settings2, ShieldCheck, Swords, Trash2, X } from "lucide-react"
+import { Archive, BookMarked, BookOpen, CalendarDays, Check, ChevronRight, CloudDownload, CloudUpload, Filter, FolderPlus, LibraryBig, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
 import { cloneCharacter, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
 import { applyCloudBackup, CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_SECTIONS, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
+import { BackupTokenDialog } from "./backup-token-dialog"
 import { deleteCampaignHubNotesFromLocalVault, deletePageFromLocalVault, localVaultName, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
@@ -25,23 +26,16 @@ import { TopbarMenu } from "./topbar-menu"
 
 type PortalArea = "campaigns" | "wiki"
 type PortalKind = KnowledgePageKind | "campaign-stories" | "graph" | "appearance"
-type AuthState = "checking" | "locked" | "ready"
 type SyncState = "loading" | "local" | "syncing" | "synced" | "error"
+type CloudAction = "backup" | "import"
 
-const AUTH_ACTIVITY_KEY = "runas-dm.knowledge-last-activity"
-const AUTH_IDLE_MILLISECONDS = 10 * 60 * 1000
-function lastAuthenticatedActivity(): number {
-  if (typeof window === "undefined") return 0
-  return Number(sessionStorage.getItem(AUTH_ACTIVITY_KEY)) || 0
-}
+// Campanhas e Wiki são locais e abrem sem login. O token só ativa o backup na
+// nuvem e é o mesmo do Bestiário: fica apenas na sessão desta aba.
+const BACKUP_TOKEN_KEY = "runas-dm.backup-token"
 
-function hasRecentAuthentication(): boolean {
-  const lastActivity = lastAuthenticatedActivity()
-  return lastActivity > 0 && Date.now() - lastActivity < AUTH_IDLE_MILLISECONDS
-}
-
-function rememberAuthenticatedActivity(): void {
-  if (typeof window !== "undefined") sessionStorage.setItem(AUTH_ACTIVITY_KEY, String(Date.now()))
+function readBackupToken(): string {
+  if (typeof window === "undefined") return ""
+  return sessionStorage.getItem(BACKUP_TOKEN_KEY) ?? ""
 }
 
 function statusClass(value: string): string {
@@ -71,16 +65,10 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 export function KnowledgePortal({ area }: { area: PortalArea }) {
-  // O valor inicial precisa ser idêntico no servidor e na primeira hidratação.
-  // A sessão recente só é consultada no efeito. Enquanto isso, uma tela neutra
-  // evita expor o formulário de login durante uma navegação autenticada.
-  const [auth, setAuth] = useState<AuthState>("checking")
   const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 2, campaigns: [], categories: [], pages: [], deletedIds: [], updatedAt: 0 }))
   const [syncState, setSyncState] = useState<SyncState>("loading")
-  const [authError, setAuthError] = useState("")
-  const [token, setToken] = useState("")
-  const [password, setPassword] = useState("")
-  const [isLocal, setIsLocal] = useState(false)
+  const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
+  const [cloudBackupRequest, setCloudBackupRequest] = useState(0)
   const [bestiary, setBestiary] = useState<BestiaryEntry[]>([])
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
   const [selectedKind, setSelectedKind] = useState<PortalKind>(area === "wiki" ? "chronology" : "mission")
@@ -146,66 +134,31 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }, [])
 
   useEffect(() => {
-    const hostname = window.location.hostname
-    const localTimeout = window.setTimeout(() => setIsLocal(hostname === "localhost" || hostname === "127.0.0.1"), 0)
-    if (hasRecentAuthentication()) {
-      const hydrateTimeout = window.setTimeout(() => {
-        setAuth("ready")
-        void hydrate()
-      }, 0)
-      return () => {
-        window.clearTimeout(localTimeout)
-        window.clearTimeout(hydrateTimeout)
-      }
-    }
-    void fetch("/api/campaign-auth", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) throw new Error()
-      const payload = await response.json() as { authenticated?: boolean }
-      if (payload.authenticated) { rememberAuthenticatedActivity(); setAuth("ready"); await hydrate() } else setAuth("locked")
-    }).catch(() => setAuth("locked"))
-    return () => window.clearTimeout(localTimeout)
+    const timeout = window.setTimeout(() => void hydrate(), 0)
+    return () => window.clearTimeout(timeout)
   }, [hydrate])
 
   useEffect(() => {
-    if (auth !== "ready") return
-    let verificationRunning = false
-    const registerActivity = () => {
-      const idleFor = Date.now() - lastAuthenticatedActivity()
-      rememberAuthenticatedActivity()
-      if (idleFor < AUTH_IDLE_MILLISECONDS || verificationRunning) return
-      verificationRunning = true
-      void fetch("/api/campaign-auth", { cache: "no-store" }).then(async (response) => {
-        if (!response.ok) return
-        const payload = await response.json() as { authenticated?: boolean }
-        if (!payload.authenticated) setAuth("locked")
-      }).finally(() => { verificationRunning = false })
-    }
-    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"]
-    events.forEach((event) => window.addEventListener(event, registerActivity, { passive: true }))
-    window.addEventListener("focus", registerActivity)
-    return () => {
-      events.forEach((event) => window.removeEventListener(event, registerActivity))
-      window.removeEventListener("focus", registerActivity)
-    }
-  }, [auth])
-
-  useEffect(() => {
-    if (auth !== "ready" || !hydrated) return
+    if (!hydrated) return
     const timeout = window.setTimeout(() => {
       setSyncState("syncing")
       void (async () => {
         try {
+          await saveKnowledgeWorkspace(stateRef.current)
+          // Sem token, o backup na nuvem fica desativado e tudo continua local.
+          const token = readBackupToken()
+          if (!token) { setSyncState("local"); return }
           // A nuvem é só backup: manda o estado local exatamente como está,
           // sem buscar nem mesclar o remoto antes. Isso também elimina o
           // custo de um GET a cada edição.
-          await saveKnowledgeWorkspace(stateRef.current)
-          const putResponse = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stateRef.current) })
+          const putResponse = await fetch("/api/campaign-data", { method: "PUT", headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(stateRef.current) })
+          if (putResponse.status === 401) sessionStorage.removeItem(BACKUP_TOKEN_KEY)
           setSyncState(putResponse.ok ? "synced" : "local")
         } catch { setSyncState("local") }
       })()
     }, 850)
     return () => window.clearTimeout(timeout)
-  }, [auth, hydrated, state])
+  }, [hydrated, state, cloudBackupRequest])
 
   useEffect(() => {
     if (!hydrated || !obsidianPreferences.enabled || !obsidianPreferences.automatic) return
@@ -251,32 +204,25 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     }
   }, [hydrated, obsidianPreferences.automatic, obsidianPreferences.enabled, withVaultLock])
 
-  async function authenticate(localPreview = false) {
-    setAuthError("")
-    if (localPreview) {
-      try {
-        const response = await fetch("/api/campaign-auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ localPreview: true }) })
-        if (!response.ok) throw new Error()
-        rememberAuthenticatedActivity()
-        setAuth("ready")
-        await hydrate()
-        return
-      } catch {
-        setAuthError("Não foi possível iniciar o modo local.")
-        return
-      }
-    }
-    try {
-      const response = await fetch("/api/campaign-auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) })
-      if (!response.ok) { setAuthError("Token ou senha incorretos."); return }
-      setToken(""); setPassword(""); rememberAuthenticatedActivity(); setAuth("ready"); await hydrate()
-    } catch { setAuthError("Não foi possível acessar o servidor.") }
+  function requestCloudAction(action: CloudAction) {
+    if (!readBackupToken()) { setPendingCloudAction(action); return }
+    if (action === "backup") setCloudBackupRequest((count) => count + 1)
+    else setCloudImportOpen(true)
+  }
+
+  function submitBackupToken(token: string) {
+    const action = pendingCloudAction
+    sessionStorage.setItem(BACKUP_TOKEN_KEY, token)
+    setPendingCloudAction(null)
+    if (action === "backup") setCloudBackupRequest((count) => count + 1)
+    if (action === "import") setCloudImportOpen(true)
   }
 
   async function importFromCloud(mode: CloudImportMode) {
     setCloudImportOpen(false)
     try {
-      const response = await fetch("/api/campaign-data", { cache: "no-store" })
+      const response = await fetch("/api/campaign-data", { cache: "no-store", headers: { authorization: `Bearer ${readBackupToken()}` } })
+      if (response.status === 401) { sessionStorage.removeItem(BACKUP_TOKEN_KEY); setNotice("Token de backup inválido."); return }
       if (!response.ok) throw new Error()
       const payload = await response.json() as { state: unknown; updatedAt: number | null }
       if (!payload.state) { setNotice("Ainda não existe backup na nuvem."); return }
@@ -561,14 +507,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       .filter((page) => selectedKind !== "chronology" || (eraFilter === "unassigned" ? !resolveEra(page.eventYear, eras, page.eraId) : resolveEra(page.eventYear, eras, page.eraId)?.id === eraFilter)), dateSort)
   }, [categoryFilter, scopedPages, search, selectedKind, statusFilter, tagFilter, dateSort, eraFilter, eras])
 
-  if (auth === "checking") return <SessionCheckingScreen />
-  if (auth === "locked") return <AccessScreen token={token} password={password} error={authError} isLocal={isLocal} onToken={setToken} onPassword={setPassword} onSubmit={() => void authenticate(false)} onLocal={() => void authenticate(true)} />
-
   const kinds = area === "wiki" ? [...WIKI_SECTIONS, { id: "graph", label: "Gráfico" } as const] : [{ id: "campaign-stories", label: "Histórias" } as const, ...CAMPAIGN_PAGE_KINDS, { id: "appearance", label: "Estilo" } as const, { id: "graph", label: "Gráfico" } as const]
   const openStory = area === "wiki" && selectedKind === "story" ? state.pages.find((page) => page.id === openStoryId) ?? null : null
   const campaignStories = selectedCampaign ? state.pages.filter((page) => page.scope === "wiki" && page.kind === "story" && (selectedCampaign.storyIds ?? []).includes(page.id)) : []
   return <main className={`knowledge-shell knowledge-app ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
-    <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} onCloudImport={() => setCloudImportOpen(true)} />
+    <KnowledgeHeader area={area} syncState={syncState} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} />
     <div className={`knowledge-layout ${area === "wiki" ? "wiki-layout" : ""}`}>
       {area === "campaigns" && <aside className="campaign-sidebar"><header><span><BookMarked size={18} /> Campanhas</span><button onClick={addCampaign} aria-label="Criar campanha"><Plus size={17} /></button></header><div>{state.campaigns.map((campaign) => { const pageCount = state.pages.filter((page) => page.campaignId === campaign.id).length; return <button key={campaign.id} className={campaign.id === selectedCampaignId ? "active" : ""} onClick={() => setSelectedCampaignId(campaign.id)}><span>{campaign.title || "Campanha sem nome"}</span><small>{countLabel(pageCount, "registro", "registros")}</small><ChevronRight size={15} /></button> })}</div>{state.campaigns.length === 0 && <p>Crie sua primeira campanha para organizar missões e sessões.</p>}</aside>}
       <section className="knowledge-workspace">
@@ -604,45 +547,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       setState(merged)
       void saveKnowledgeWorkspace(merged)
     }} />}
+    {pendingCloudAction && <BackupTokenDialog onClose={() => setPendingCloudAction(null)} onSubmit={submitBackupToken} />}
     {cloudImportOpen && <CloudImportDialog onClose={() => setCloudImportOpen(false)} onSelect={(mode) => void importFromCloud(mode)} />}
     {storyPreviewId && <StoryPreview story={state.pages.find((page) => page.id === storyPreviewId) ?? null} pages={state.pages} onClose={() => setStoryPreviewId(null)} onOpenPage={(page) => { setStoryPreviewId(null); openPage(page) }} />}
   </main>
 }
 
-function SessionCheckingScreen() {
-  return <main className="knowledge-shell">
-    <LockedTopbar />
-    <div className="loading-screen knowledge-session-loading"><span className="brand-rune">R</span><p>Reabrindo o arquivo do mestre…</p></div>
-  </main>
-}
-
-function AccessScreen({ token, password, error, isLocal, onToken, onPassword, onSubmit, onLocal }: { token: string; password: string; error: string; isLocal: boolean; onToken: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void; onLocal: () => void }) {
-  return <main className="knowledge-shell">
-    <LockedTopbar />
-    <section className="knowledge-access-layout">
-      <div className="knowledge-access-copy">
-        <p className="eyebrow"><ShieldCheck size={15} /> Área privada</p>
-        <h1>Seu mundo, organizado como uma biblioteca viva.</h1>
-        <p>Campanhas, missões, encontros e toda a Wiki de Ordem x Caos ficam sincronizados em um único arquivo do mestre.</p>
-        <div className="knowledge-access-features"><span><BookMarked size={18} /><strong>Campanhas conectadas</strong><small>Missões, eventos, sessões e encontros.</small></span><span><LibraryBig size={18} /><strong>Wiki com vínculos</strong><small>Categorias, backlinks e visualização em gráfico.</small></span></div>
-      </div>
-      <form className="knowledge-access-card" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
-        <span className="knowledge-access-icon"><LockKeyhole size={25} /></span>
-        <div><p className="eyebrow">Acesso do mestre</p><h2>Desbloquear arquivo</h2><p>As credenciais são verificadas no servidor e não ficam salvas neste dispositivo.</p></div>
-        <>
-          <label><span>Token privado</span><div><KeyRound size={17} /><input type="password" value={token} onChange={(event) => onToken(event.target.value)} autoComplete="off" placeholder="Cole o token do Runas DM" /></div></label>
-          <label><span>Senha da campanha</span><div><LockKeyhole size={17} /><input type="password" value={password} onChange={(event) => onPassword(event.target.value)} autoComplete="current-password" placeholder="Digite sua senha" /></div></label>
-          {error && <p className="auth-error"><CircleAlert size={15} /> {error}</p>}
-          <button className="primary-button" type="submit" disabled={!token || !password}>Entrar e sincronizar</button>
-          {isLocal && <button className="secondary-button" type="button" onClick={onLocal}>Abrir modo local de desenvolvimento</button>}
-        </>
-        <small>Protegido também pelo acesso privado do Cloudflare.</small>
-      </form>
-    </section>
-  </main>
-}
-
-function KnowledgeHeader({ area, syncState, onObsidian, onCloudImport }: { area: PortalArea; syncState: SyncState; onObsidian: () => void; onCloudImport: () => void }) {
+function KnowledgeHeader({ area, syncState, onObsidian, onCloudBackup, onCloudImport }: { area: PortalArea; syncState: SyncState; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void }) {
   const sync = syncState === "synced"
     ? { tone: "good" as const, label: "Sincronizado" }
     : syncState === "syncing" || syncState === "loading" ? { tone: "busy" as const, label: "Sincronizando" }
@@ -654,21 +565,13 @@ function KnowledgeHeader({ area, syncState, onObsidian, onCloudImport }: { area:
       <TopbarMenu status={sync}>
         {(close) => <>
           <ThemeToggle variant="menu" />
+          <button className="topbar-menu-item" onClick={() => { close(); onCloudBackup() }}><CloudUpload size={18} /><span>Backup na nuvem</span></button>
           <button className="topbar-menu-item" onClick={() => { close(); onCloudImport() }}><CloudDownload size={18} /><span>Importar da nuvem</span></button>
           <button className="topbar-menu-item" onClick={() => { close(); onObsidian() }}><Settings2 size={18} /><span>Obsidian</span></button>
           <a className="topbar-menu-item" href="https://runas-book.pages.dev/dm" onClick={close}><BookOpen size={18} /><span>Runas Book DM</span></a>
         </>}
       </TopbarMenu>
     </div>
-  </header>
-}
-
-/** Fora da sessão do mestre não existe arquivo para navegar: a barra fica reduzida à marca e ao caminho de volta. */
-function LockedTopbar() {
-  return <header className="topbar knowledge-appbar locked-appbar">
-    <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Área privada</small></span></a>
-    <span aria-hidden="true" />
-    <div className="top-actions"><a className="secondary-button" href="/"><Archive size={16} /><span>Voltar ao Bestiário</span></a></div>
   </header>
 }
 
