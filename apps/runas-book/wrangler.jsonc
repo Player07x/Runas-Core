@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "runas-book",
+  "pages_build_output_dir": "./out",
+  "compatibility_date": "2026-09-02",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runas-dm-backups",
+      "database_id": "afe0dde7-ffcd-4fe7-8cf1-dee50595e74f"
+    }
+  ]
+}

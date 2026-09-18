@@ -44,3 +44,7 @@ Se uma publicação falhar, a versão anterior deve continuar ativa. Nunca publi
 ## Preparação de novos dispositivos
 
 O usuário abre o endereço autorizado, instala o aplicativo pela tela inicial e espera o indicador `Offline pronto`. Depois pode trabalhar sem rede; o botão Backup volta a funcionar quando a conexão retornar.
+
+## Runas Book
+
+O livro publicado fica no D1 `runas-dm-backups` (tabela `book_workspace_chunks`, criada pelo próprio `_worker.js`, JSON comprimido em blocos). `GET /api/book` é público; `PUT /api/book` exige a sessão da Área DM. O `localStorage` do navegador é apenas cache offline: a versão mais recente (`updatedAt`) vence. O binding está em `apps/runas-book/wrangler.jsonc`, por isso o deploy roda dentro de `apps/runas-book`.

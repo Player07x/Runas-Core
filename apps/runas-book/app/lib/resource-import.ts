@@ -1,4 +1,7 @@
+import { ABILITY_LIST_KIND, parseAbilityListFile } from "@runas/core/lib/abilityTransfer"
 import { normalizeAbilities, normalizeInventory, normalizeSpells } from "@runas/core/lib/characterStorage"
+import { INVENTORY_LIST_KIND, parseInventoryListFile, type ImportedInventoryItem } from "@runas/core/lib/inventoryTransfer"
+import { SPELL_LIST_KIND, parseSpellListFile } from "@runas/core/lib/spellTransfer"
 import { CHARACTER_VERSION } from "@runas/core/types/character"
 import type { CharacterAbility, CharacterInventoryItem, CharacterSpell } from "@runas/core/types/character"
 import { makeId, type BookResource, type BookResourceEntity, type BookResourceKind } from "./book-model"
@@ -47,4 +50,47 @@ export function parseResourceImport(jsonText: string): BookResource[] {
   })
   if (resources.length === 0) throw new Error("Nenhum recurso válido encontrado no arquivo.")
   return resources
+}
+
+/** Converte um item da lista do Runas Tools; o encantamento embutido vira uma magia anexada e vinculada ao item. */
+function resourcesFromInventoryItem({ enchantment, bondName, bondAbilityName, skillName, ...item }: ImportedInventoryItem): BookResource[] {
+  void bondName
+  void bondAbilityName
+  void skillName
+  const spell = enchantment ? { id: makeId("spell"), ...enchantment } : null
+  const entity: CharacterInventoryItem = { id: makeId("item"), ...item, enchantmentSpellId: spell?.id ?? "", bondId: "", bondAbilityId: "", skillId: "" }
+  return [
+    { id: makeId("resource"), kind: "item", entity },
+    ...(spell ? [{ id: makeId("resource"), kind: "spell" as const, entity: spell }] : []),
+  ]
+}
+
+/** Lê as listas de habilidades, magias e inventário exportadas pelo Runas Tools, com os mesmos validadores de `@runas/core`. */
+function parseToolsListImport(jsonText: string): BookResource[] {
+  let kind: unknown
+  try {
+    kind = (JSON.parse(jsonText) as { kind?: unknown } | null)?.kind
+  } catch {
+    throw new Error("Arquivo inválido: não é um JSON.")
+  }
+  if (kind === ABILITY_LIST_KIND) return parseAbilityListFile(jsonText).map((ability) => ({ id: makeId("resource"), kind: "ability", entity: { id: makeId("ability"), ...ability } }))
+  if (kind === SPELL_LIST_KIND) return parseSpellListFile(jsonText).map((spell) => ({ id: makeId("resource"), kind: "spell", entity: { id: makeId("spell"), ...spell } }))
+  if (kind === INVENTORY_LIST_KIND) return parseInventoryListFile(jsonText).flatMap(resourcesFromInventoryItem)
+  throw new Error("Este arquivo não é uma lista de habilidades, magias ou itens do Runas.")
+}
+
+/** Aceita as listas do Runas Tools (habilidades, magias, inventário) e os recursos exportados pelo Runas Book. */
+export function parseAnyResourceImport(jsonText: string): BookResource[] {
+  try {
+    return parseResourceImport(jsonText)
+  } catch (bookError) {
+    try {
+      return parseToolsListImport(jsonText)
+    } catch (toolsError) {
+      // Lista do Tools com registro inválido: vale o detalhe do validador. Outro formato: mensagem geral.
+      if (!/não é uma lista/.test((toolsError as Error).message)) throw toolsError
+      if (/JSON/.test((bookError as Error).message)) throw bookError
+      throw new Error("Formato não reconhecido. Use uma lista de habilidades, magias ou inventário do Runas Tools, ou um recurso do Runas Book.")
+    }
+  }
 }
