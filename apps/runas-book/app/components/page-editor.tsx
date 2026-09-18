@@ -1,10 +1,10 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { Check, Plus, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react"
+import { Check, ChevronDown, FileUser, Library, Plus, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react"
 import { parseCharacterFile } from "@runas/core/lib/characterStorage"
 import { createResource, resourceKindLabel, type BookChapter, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
-import { parseResourceImport } from "../lib/resource-import"
+import { parseAnyResourceImport } from "../lib/resource-import"
 import { ResourceEditorDialog } from "./resource-panel"
 import { RichTextEditor } from "./rich-text-editor"
 
@@ -17,19 +17,24 @@ interface Props {
   onDelete: () => void
 }
 
-function tryParse<T>(read: () => T): T | null {
-  try {
-    return read()
-  } catch {
-    return null
-  }
+interface PendingResourceImport {
+  resources: BookResource[]
+  selected: Set<string>
+  errors: string[]
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
 
 export function PageEditor({ entry, chapters, pageTitles, onSave, onCancel, onDelete }: Props) {
   const [draft, setDraft] = useState<BookEntry>(() => ({ ...entry, resources: entry.resources.map((resource) => ({ ...resource })) }))
   const [editingResource, setEditingResource] = useState<BookResource | null>(null)
   const [importMessage, setImportMessage] = useState("")
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [showImportMenu, setShowImportMenu] = useState(false)
+  const [pendingImport, setPendingImport] = useState<PendingResourceImport | null>(null)
+  const characterInputRef = useRef<HTMLInputElement>(null)
+  const resourceInputRef = useRef<HTMLInputElement>(null)
 
   function addResource(kind: BookResourceKind) {
     const resource = createResource(kind, "Novo registro")
@@ -37,35 +42,57 @@ export function PageEditor({ entry, chapters, pageTitles, onSave, onCancel, onDe
     setEditingResource(resource)
   }
 
-  async function importFiles(fileList: FileList | null) {
+  function chooseImport(input: HTMLInputElement | null) {
+    setShowImportMenu(false)
+    input?.click()
+  }
+
+  // Mesmo leitor da ficha do Runas Tools: JSON único, migrado e normalizado por `@runas/core`.
+  async function importCharacter(file: File | undefined) {
+    if (!file) return
+    try {
+      const character = parseCharacterFile(await file.text())
+      setDraft((current) => ({ ...current, kind: "character", entity: character }))
+      setImportMessage(`Ficha "${character.name || "Ficha sem nome"}" importada.`)
+    } catch {
+      setImportMessage("Não foi possível importar: arquivo de ficha inválido.")
+    }
+  }
+
+  // Como no Runas Tools, os registros lidos passam por uma seleção antes de entrar na página.
+  async function readResourceFiles(fileList: FileList | null) {
     const files = Array.from(fileList ?? [])
     if (files.length === 0) return
-    let resourceCount = 0
-    let characterName = ""
-    let ignored = 0
-
+    const resources: BookResource[] = []
+    const errors: string[] = []
     for (const file of files) {
-      const text = await file.text()
-      const resources = tryParse(() => parseResourceImport(text))
-      if (resources) {
-        setDraft((current) => ({ ...current, resources: [...current.resources, ...resources] }))
-        resourceCount += resources.length
-        continue
+      try {
+        resources.push(...parseAnyResourceImport(await file.text()))
+      } catch (error) {
+        errors.push(`${file.name}: ${errorMessage(error, "arquivo não reconhecido.")}`)
       }
-      const character = tryParse(() => parseCharacterFile(text))
-      if (character) {
-        setDraft((current) => ({ ...current, kind: "character", entity: character }))
-        characterName = character.name || "Ficha sem nome"
-        continue
-      }
-      ignored += 1
     }
+    setImportMessage("")
+    setPendingImport({ resources, selected: new Set(resources.map((resource) => resource.id)), errors })
+  }
 
-    const parts: string[] = []
-    if (characterName) parts.push(`ficha "${characterName}" importada`)
-    if (resourceCount > 0) parts.push(`${resourceCount} ${resourceCount === 1 ? "recurso importado" : "recursos importados"}`)
-    if (ignored > 0) parts.push(`${ignored} ${ignored === 1 ? "arquivo ignorado" : "arquivos ignorados"} (formato não reconhecido)`)
-    setImportMessage(parts.length > 0 ? parts.join(" · ") : "Nenhuma ficha ou recurso do Runas foi encontrado nos arquivos selecionados.")
+  function togglePendingResource(id: string) {
+    setPendingImport((current) => {
+      if (!current) return current
+      const selected = new Set(current.selected)
+      if (selected.has(id)) selected.delete(id)
+      else selected.add(id)
+      return { ...current, selected }
+    })
+  }
+
+  function confirmResourceImport() {
+    if (!pendingImport) return
+    const chosen = pendingImport.resources.filter((resource) => pendingImport.selected.has(resource.id))
+    if (chosen.length === 0) return
+    setDraft((current) => ({ ...current, resources: [...current.resources, ...chosen] }))
+    setImportMessage(`${chosen.length} ${chosen.length === 1 ? "recurso importado" : "recursos importados"}.`)
+    setPendingImport(null)
   }
 
   function saveResource(next: BookResource) {
@@ -99,17 +126,37 @@ export function PageEditor({ entry, chapters, pageTitles, onSave, onCancel, onDe
         <button className="outline-action" onClick={() => addResource("item")}><Plus size={15} /> Item</button>
         <button className="outline-action" onClick={() => addResource("ability")}><Sparkles size={15} /> Habilidade</button>
         <button className="outline-action" onClick={() => addResource("spell")}><Wand2 size={15} /> Magia</button>
-        <button className="outline-action" onClick={() => importInputRef.current?.click()}><Upload size={15} /> Importar arquivo</button>
+        <div className="import-menu-anchor">
+          <button className="outline-action" aria-haspopup="menu" aria-expanded={showImportMenu} onClick={() => setShowImportMenu((open) => !open)}><Upload size={15} /> Importar <ChevronDown size={14} /></button>
+          {showImportMenu && <>
+            <button className="import-menu-backdrop" aria-label="Fechar opções de importação" onClick={() => setShowImportMenu(false)} />
+            <div className="import-menu" role="menu">
+              <button role="menuitem" onClick={() => chooseImport(characterInputRef.current)}><FileUser size={16} /><span><strong>Ficha</strong><small>JSON exportado pelo Runas Tools ou Runas DM</small></span></button>
+              <button role="menuitem" onClick={() => chooseImport(resourceInputRef.current)}><Library size={16} /><span><strong>Habilidades, magias ou itens</strong><small>Listas exportadas pelo Runas Tools ou recursos do Runas Book</small></span></button>
+            </div>
+          </>}
+        </div>
       </div>
-      <input ref={importInputRef} type="file" accept="application/json,.json" multiple hidden onChange={(event) => { void importFiles(event.target.files); event.currentTarget.value = "" }} />
+      <input ref={characterInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => { void importCharacter(event.target.files?.[0]); event.currentTarget.value = "" }} />
+      <input ref={resourceInputRef} type="file" accept="application/json,.json" multiple hidden onChange={(event) => { void readResourceFiles(event.target.files); event.currentTarget.value = "" }} />
       {importMessage && <p className="content-source import-message">{importMessage}</p>}
-      <p className="content-source">Aceita uma ficha .json completa (Runas Tools/DM) ou um recurso exportado pelo Runas Book (item, habilidade ou magia).</p>
     </section>
 
     <div className="editor-actions page-editor-actions">
       <button className="danger-action" onClick={onDelete}><Trash2 size={15} /> Excluir página</button>
       <div className="editor-actions-main"><button className="outline-action" onClick={onCancel}><X size={15} /> Cancelar</button><button className="primary-action" onClick={() => onSave(draft)}><Check size={15} /> Salvar página</button></div>
     </div>
+
+    {pendingImport && <div className="modal-backdrop" onMouseDown={() => setPendingImport(null)}>
+      <section className="modal-card editor-modal resource-import-modal" role="dialog" aria-modal="true" aria-labelledby="resource-import-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">Importar</p><h2 id="resource-import-title">Escolha os registros</h2><p>{pendingImport.selected.size} de {pendingImport.resources.length} selecionados.</p></div><button className="icon-link" onClick={() => setPendingImport(null)} aria-label="Fechar importação"><X size={18} /></button></header>
+        {pendingImport.errors.map((error) => <p key={error} className="import-error">{error}</p>)}
+        {pendingImport.resources.length === 0
+          ? <p className="page-copy-empty">Nenhum registro válido nos arquivos escolhidos.</p>
+          : <div className="resource-import-list">{pendingImport.resources.map((resource) => <label key={resource.id} className="resource-import-row"><input type="checkbox" checked={pendingImport.selected.has(resource.id)} onChange={() => togglePendingResource(resource.id)} /><span className={`entry-type type-${resource.kind}`}>{resourceKindLabel(resource.kind)}</span><span>{resource.entity.name}</span></label>)}</div>}
+        <div className="editor-actions"><button className="outline-action" onClick={() => setPendingImport(null)}>Cancelar</button><button className="primary-action" disabled={pendingImport.selected.size === 0} onClick={confirmResourceImport}><Upload size={15} /> Importar {pendingImport.selected.size || ""}</button></div>
+      </section>
+    </div>}
 
     {editingResource && <ResourceEditorDialog resource={editingResource} onSave={saveResource} onDelete={() => deleteResource(editingResource.id)} onClose={() => setEditingResource(null)} />}
   </article>

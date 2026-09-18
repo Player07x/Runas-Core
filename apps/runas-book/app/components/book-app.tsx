@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Trash2, Upload, WandSparkles, X } from "lucide-react"
 import { RuneMark } from "./rune-mark"
 import { allEntries, applyLegacyContent, findEntry, legacyContentRequests, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
@@ -97,6 +97,9 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
   const [exporting, setExporting] = useState<string | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(260)
 
+  const publishedAtRef = useRef(0)
+  const [remoteChecked, setRemoteChecked] = useState(false)
+
   useEffect(() => {
     let saved: BookWorkspace | null = null
     try {
@@ -106,18 +109,53 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     if (saved) setWorkspace(saved)
     setHydrated(true)
 
-    // Páginas salvas sem conteúdo são preenchidas pela fonte do livro, carregada só nesse caso.
-    const requests = saved ? legacyContentRequests(saved) : []
-    if (requests.length === 0) return
     let active = true
-    const cancelIdle = whenIdle(() => {
-      void import("../lib/legacy-content")
-        .then(({ resolveLegacyContent }) => resolveLegacyContent(requests))
-        .then((contents) => { if (active && contents.size > 0) setWorkspace((current) => applyLegacyContent(current, contents)) })
-        .catch(() => { /* sem a fonte, a página segue vazia como uma página nova */ })
-    })
-    return () => { active = false; cancelIdle() }
+    const cancels: Array<() => void> = []
+    // Páginas salvas sem conteúdo são preenchidas pela fonte do livro, carregada só nesse caso.
+    const fillLegacy = (target: BookWorkspace) => {
+      const requests = legacyContentRequests(target)
+      if (requests.length === 0) return
+      cancels.push(whenIdle(() => {
+        void import("../lib/legacy-content")
+          .then(({ resolveLegacyContent }) => resolveLegacyContent(requests))
+          .then((contents) => { if (active && contents.size > 0) setWorkspace((current) => applyLegacyContent(current, contents)) })
+          .catch(() => { /* sem a fonte, a página segue vazia como uma página nova */ })
+      }))
+    }
+    if (saved) fillLegacy(saved)
+
+    // A versão publicada no servidor é a fonte comum de todos os leitores; o armazenamento local é só cache offline.
+    fetch("/api/book", { cache: "no-store" })
+      .then(async (response) => {
+        if (response.status !== 200) return
+        const remote = normalizeWorkspace(await response.json(), seed)
+        if (!active) return
+        publishedAtRef.current = remote.updatedAt
+        if (!saved || remote.updatedAt > saved.updatedAt) {
+          setWorkspace({ ...remote, selectedBookId: saved?.selectedBookId && remote.books.some((item) => item.id === saved?.selectedBookId) ? saved.selectedBookId : remote.selectedBookId })
+          fillLegacy(remote)
+        }
+      })
+      .catch(() => { /* offline: segue com a cópia local */ })
+      .finally(() => { if (active) setRemoteChecked(true) })
+    return () => { active = false; cancels.forEach((cancel) => cancel()) }
   }, [seed])
+
+  // Na Área DM, cada edição é publicada para todos os leitores.
+  useEffect(() => {
+    if (mode !== "dm" || !authenticated || !remoteChecked || workspace.updatedAt <= publishedAtRef.current) return
+    const snapshot = workspace
+    const timer = window.setTimeout(() => {
+      fetch("/api/book", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) })
+        .then((response) => {
+          if (response.ok) { publishedAtRef.current = Math.max(publishedAtRef.current, snapshot.updatedAt); return }
+          if (response.status === 401) { sessionStorage.removeItem(AUTH_KEY); setNotice("Sessão expirada: entre de novo na Área DM para publicar as alterações.") }
+          else setNotice("Não foi possível publicar as alterações no site.")
+        })
+        .catch(() => setNotice("Sem conexão: as alterações ficam neste navegador e serão publicadas na próxima edição online."))
+    }, 1500)
+    return () => window.clearTimeout(timer)
+  }, [mode, authenticated, remoteChecked, workspace])
 
   useEffect(() => {
     const savedWidth = Number(localStorage.getItem("runas-book.sidebar-width"))
