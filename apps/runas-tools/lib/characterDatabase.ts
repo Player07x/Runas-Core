@@ -47,6 +47,8 @@ function characterSections(character: Character): StoredSection[] {
   return [
     { key: "metadata", value: { version: CHARACTER_VERSION, name: character.name } },
     { key: "portrait", value: character.portraitDataUrl ?? null },
+    // Token do RunasVTT (versão 21). Sem esta seção, o token se perderia ao recarregar.
+    { key: "token", value: { imageDataUrl: character.tokenImageDataUrl ?? null, size: character.tokenSize ?? 1 } },
     { key: "info", value: character.info },
     { key: "attributes", value: character.attributes },
     { key: "stats", value: character.stats },
@@ -80,6 +82,8 @@ async function readIndexedCharacter(): Promise<Character | null> {
       version: metadata.version,
       name: metadata.name,
       portraitDataUrl: portraitDataUrl as Character["portraitDataUrl"],
+      tokenImageDataUrl: (sections.get("token") as { imageDataUrl?: string | null } | undefined)?.imageDataUrl ?? undefined,
+      tokenSize: (sections.get("token") as { size?: number } | undefined)?.size,
       info: sections.get("info") as Character["info"],
       attributes: sections.get("attributes") as Character["attributes"],
       stats: sections.get("stats") as Character["stats"],

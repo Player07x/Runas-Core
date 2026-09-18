@@ -6,6 +6,7 @@ import type { CharacterInfo as CharacterInfoType } from "@runas/core/types/chara
 import { raceOptions as defaultRaceOptions } from "@runas/core/data/races"
 import { cn } from "@/lib/utils"
 import { CharacterPortraitEditor } from "./character-portrait-editor"
+import { CharacterTokenEditor } from "./character-token-editor"
 
 interface Props {
   name: string
@@ -14,6 +15,9 @@ interface Props {
   onInfoChange: (key: keyof CharacterInfoType, value: string) => void
   portraitDataUrl?: string
   onPortraitChange: (value: string | undefined) => void
+  tokenImageDataUrl?: string
+  tokenSize?: number
+  onTokenChange: (value: { tokenImageDataUrl?: string; tokenSize: number }) => void
 }
 
 interface FieldProps {
@@ -171,7 +175,7 @@ function Select({
   )
 }
 
-export function CharacterInfo({ name, info, onNameChange, onInfoChange, portraitDataUrl, onPortraitChange }: Props) {
+export function CharacterInfo({ name, info, onNameChange, onInfoChange, portraitDataUrl, onPortraitChange, tokenImageDataUrl, tokenSize = 1, onTokenChange }: Props) {
   const [showBaseFields, setShowBaseFields] = useState(false)
   const [showScaleExplanation, setShowScaleExplanation] = useState(false)
   const raceOptions = defaultRaceOptions.some((option) => option.value === info.race)
@@ -206,7 +210,10 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-[12.5rem_minmax(0,1fr)]">
-        <CharacterPortraitEditor value={portraitDataUrl} onChange={onPortraitChange} />
+        <div className="min-w-0">
+          <CharacterPortraitEditor value={portraitDataUrl} onChange={onPortraitChange} />
+          <CharacterTokenEditor image={tokenImageDataUrl} size={tokenSize} onChange={onTokenChange} />
+        </div>
         <div className="grid min-w-0 gap-y-2">
           <Field label="Nome" value={name} onChange={onNameChange} maxLength={80} required />
 

@@ -79,11 +79,17 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - A hospedagem deve usar Cloudflare Access e token de backup.
 - Os componentes escolhidos possuem camada gratuita compatível com uso particular.
 
+## Token da ficha
+
+- No Runas DM, a imagem da ficha é um token: escolher uma imagem abre o editor de token (recorte, círculo com borda opcional ou imagem livre, fundo transparente e tamanho no mapa). Cartões, Mesa e encontros mostram o token; fichas antigas continuam mostrando o retrato.
+- O Runas Tools mantém o retrato 2:3 e ganha o campo Token ao lado dele, com o mesmo editor e o mesmo formato.
+- A ficha avançada do DM expõe o token e o tamanho em Informações, na mesma posição do Tools.
+
 ## Integração com o RunasVTT
 
 Os sites detectam o RunasVTT pela ponte `window.runasVTT`, que só ele injeta, e só nas origens da suíte (`@runas/vtt-bridge` → `getRunasVtt`). Fora do VTT, nada muda. Dentro dele:
 
-- "Exportar ficha", "Exportar fichas" e "Exportar ZIP (JSON)" (Tools e DM) viram "Enviar ao RunasVTT": cada ficha vira um token na cena aberta. A imagem do token é, por enquanto, o retrato da ficha.
+- "Exportar ficha", "Exportar fichas" e "Exportar ZIP (JSON)" (Tools e DM) viram "Enviar ao RunasVTT": cada ficha vira um token na cena aberta, com a imagem e o tamanho do token da ficha (sem token, o retrato e 1 célula).
 - A Mesa do DM opera sobre os tokens com ficha da cena aberta, não sobre a Mesa local. O token é uma cópia independente: dano não altera o bestiário. "Restaurar" e "Remover" somem do cartão (tokens são removidos no VTT), e "Anexar inimigo" e "Duplicar" criam tokens.
 - O token selecionado no mapa do VTT vira o alvo do dano. O dano só é aplicado com a confirmação explícita de sempre.
 - Testes e danos confirmados (inclusive o dano massivo) vão para o Registro do VTT e sobem como texto sobre o token.

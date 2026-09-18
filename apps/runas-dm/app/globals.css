@@ -912,3 +912,25 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .story-heading-image { width: 150px; max-height: 110px; object-fit: cover; border-radius: 10px; align-self: center; }
 .campaign-stories-panel { display: grid; gap: 18px; }.campaign-stories-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }.campaign-stories-panel h2 { margin: 0 0 6px; }.campaign-stories-panel p { margin: 0; color: var(--muted); }.campaign-story-linker { display: flex; gap: 10px; }.campaign-story-linker select { flex: 1; min-height: 40px; }.campaign-story-list { display: grid; gap: 8px; }.campaign-story-list > button { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; }.campaign-story-list span { display: grid; gap: 4px; }.campaign-story-list small { color: var(--muted); }.story-preview-modal { width: min(760px, 100%); max-height: min(90vh, 900px); overflow: auto; padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); }.story-preview-modal > header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }.story-preview-modal h2 { margin: 0; }.story-preview-body { display: grid; gap: 24px; }.story-preview-body section { border-top: 1px solid var(--line); padding-top: 18px; }.story-preview-body h3 { margin: 0 0 4px; }.wiki-link-preview { position: fixed; z-index: 30; right: 24px; bottom: 24px; width: min(420px, calc(100vw - 48px)); max-height: 45vh; overflow: auto; padding: 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); }.wiki-link-preview > strong { display: block; margin-bottom: 8px; }
 .story-event-date .calendar-ce { color: #f08a24; }.story-event-date .calendar-logi { color: #f2c94c; }
+
+/* Editor de token (RunasVTT) */
+.token-stage.circle > .token-mask { border-radius: 50%; box-shadow: 0 0 0 999px rgb(8 7 7 / 62%); }
+.token-stage > .token-mask::before, .token-stage > .token-mask::after { display: none; }
+.token-shape-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.token-shape-switch button { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
+.token-shape-switch button.active { border-color: var(--cyan-dim); background: color-mix(in srgb, var(--cyan) 12%, var(--panel)); color: var(--cyan); }
+.token-ring { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.token-check { display: flex !important; align-items: center; gap: 7px !important; }
+.token-check input { width: auto !important; }
+.token-ring input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: transparent; cursor: pointer; }
+.portrait-crop-controls select { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); }
+.token-preview { display: grid; justify-items: center; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.token-preview img { width: 96px; height: 96px; border-radius: 12px; background: repeating-conic-gradient(#2a2021 0 25%, #171314 0 50%) 50% / 16px 16px; }
+.advanced-token-field { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto minmax(120px, 160px); align-items: center; gap: 10px; margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel-2) 64%, transparent); }
+.advanced-token-field .mini-rune { width: 40px; height: 40px; }
+.advanced-token-field > div { display: grid; gap: 2px; min-width: 0; }
+.advanced-token-field small { color: var(--muted); font-size: 10px; }
+.advanced-token-field > label.secondary-button { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.advanced-token-size { display: grid; gap: 4px; color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.advanced-token-size select { min-height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+@media (max-width: 640px) { .advanced-token-field { grid-template-columns: 40px minmax(0, 1fr) auto; } .advanced-token-size { grid-column: 1 / -1; } }

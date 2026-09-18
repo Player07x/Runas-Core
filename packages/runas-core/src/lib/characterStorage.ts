@@ -12,6 +12,7 @@ export function createEmptyCharacter(): Character {
   return {
     version: CHARACTER_VERSION,
     name: "",
+    tokenSize: 1,
     info: {
       currentYear: "424",
       calendar: "logi",
@@ -344,6 +345,17 @@ export function normalizeInventory(partialItems: CharacterInventoryItem[] | unde
  * Faz merge da ficha carregada com a estrutura padrão.
  * Garante que campos novos (adicionados em versões futuras) sempre existam.
  */
+/** Tamanhos de token aceitos: 0,5 a 10 células, em passos de 0,5. Fichas anteriores à versão 21 recebem 1. */
+export function normalizeTokenSize(value: unknown): number {
+  const size = typeof value === "number" && Number.isFinite(value) ? Math.round(value * 2) / 2 : 1
+  return Math.min(10, Math.max(0.5, size))
+}
+
+/** O token precisa de transparência: só PNG e WebP são aceitos. */
+export function normalizeTokenImage(value: unknown): string | undefined {
+  return typeof value === "string" && /^data:image\/(png|webp);base64,/.test(value) ? value : undefined
+}
+
 export function normalizeCharacter(partial: Partial<Character> | undefined): Character {
   const base = createEmptyCharacter()
   if (!partial) return base
@@ -463,6 +475,8 @@ export function normalizeCharacter(partial: Partial<Character> | undefined): Cha
     ...partial,
     version: CHARACTER_VERSION,
     portraitDataUrl: typeof partial.portraitDataUrl === "string" && partial.portraitDataUrl.startsWith("data:image/") ? partial.portraitDataUrl : undefined,
+    tokenImageDataUrl: normalizeTokenImage(partial.tokenImageDataUrl),
+    tokenSize: normalizeTokenSize(partial.tokenSize),
     info,
     attributes,
     stats,

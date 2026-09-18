@@ -540,7 +540,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
 
         <div role="tabpanel" className="relative z-10 -mt-px">
           {activeTab === "information" && (
-            <CharacterInfo name={character.name} info={character.info} portraitDataUrl={character.portraitDataUrl} onNameChange={setName} onInfoChange={setInfo} onPortraitChange={(portraitDataUrl) => updateCharacter((prev) => ({ ...prev, portraitDataUrl }))} />
+            <CharacterInfo name={character.name} info={character.info} portraitDataUrl={character.portraitDataUrl} onNameChange={setName} onInfoChange={setInfo} onPortraitChange={(portraitDataUrl) => updateCharacter((prev) => ({ ...prev, portraitDataUrl }))} tokenImageDataUrl={character.tokenImageDataUrl} tokenSize={character.tokenSize} onTokenChange={(token) => updateCharacter((prev) => ({ ...prev, ...token }))} />
           )}
           {activeTab === "statistics" && (
             <CharacterStats

@@ -188,6 +188,13 @@ export interface Character {
   name: string
   /** Retrato otimizado em data URL para funcionar offline e acompanhar backups. */
   portraitDataUrl?: string
+  /**
+   * Imagem do token (PNG ou WebP com transparência, quadrada), usada no
+   * mapa do RunasVTT. Sem ela, o VTT usa o retrato. Desde a versão 21.
+   */
+  tokenImageDataUrl?: string
+  /** Tamanho do token em células da grade (0,5 a 10, em passos de 0,5). Desde a versão 21. */
+  tokenSize?: number
   info: CharacterInfo
   attributes: CharacterAttributes
   stats: CharacterStats
@@ -219,4 +226,4 @@ export interface CharacterSaveFile {
   character: Character
 }
 
-export const CHARACTER_VERSION = 20
+export const CHARACTER_VERSION = 21

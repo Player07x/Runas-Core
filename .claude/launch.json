@@ -4,14 +4,41 @@
     {
       "name": "runas-dm",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@runas/dm"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@runas/dm"
+      ],
       "port": 3000
     },
     {
       "name": "runas-book",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@runas/book", "--", "-p", "3100"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@runas/book",
+        "--",
+        "-p",
+        "3100"
+      ],
       "port": 3100
+    },
+    {
+      "name": "runas-tools",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@runas/tools",
+        "--",
+        "-p",
+        "3200"
+      ],
+      "port": 3200
     }
   ]
 }

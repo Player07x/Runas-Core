@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { BookOpen, ExternalLink, Link2, Minus, Plus, Save, Search, Swords, Trash2, X } from "lucide-react"
-import type { BestiaryEntry } from "../lib/model"
+import { characterImage, type BestiaryEntry } from "../lib/model"
 import {
   CAMPAIGN_PAGE_KINDS,
   CAMPAIGN_STATUSES,
@@ -191,8 +191,8 @@ export function KnowledgeEditor({
                 : draft.encounterCreatures.map((reference) => {
                   const entry = bestiary.find((candidate) => candidate.id === reference.entryId)
                   return <article key={reference.entryId}>
-                    <span className={`encounter-creature-portrait ${entry?.character.portraitDataUrl ? "has-portrait" : ""}`}>
-                      {entry?.character.portraitDataUrl ? <img src={entry.character.portraitDataUrl} alt="" /> : <Swords size={18} />}
+                    <span className={`encounter-creature-portrait ${characterImage(entry?.character) ? "has-portrait" : ""}`}>
+                      {characterImage(entry?.character) ? <img src={characterImage(entry?.character)} alt="" /> : <Swords size={18} />}
                     </span>
                     <span className="encounter-creature-name"><strong>{reference.name}</strong><small>Ficha do bestiário</small></span>
                     <div>

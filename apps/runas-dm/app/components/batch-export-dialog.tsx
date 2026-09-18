@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { CheckSquare, Download, Filter, Search, Send, Square, X } from "lucide-react"
 import { getCharacterElement } from "@runas/core/data/elements"
-import type { BestiaryEntry } from "../lib/model"
+import { characterImage, type BestiaryEntry } from "../lib/model"
 import { exportCharactersZip } from "../lib/export"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 
@@ -50,7 +50,7 @@ export function BatchExportDialog({ entries, onClose, onSendToVtt }: { entries: 
       <div className="batch-export-list">{visible.length === 0 ? <p className="batch-empty">Nenhuma ficha corresponde aos filtros.</p> : visible.map((entry) => {
         const checked = selected.has(entry.id)
         const character = entry.character
-        return <label key={entry.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={() => toggle(entry.id)} /><span className={`mini-rune ${character.portraitDataUrl ? "has-portrait" : ""}`}>{character.portraitDataUrl ? <img src={character.portraitDataUrl} alt="" /> : character.name.slice(0, 1) || "R"}</span><span><strong>{character.name || "Ficha sem nome"}</strong><small>{character.info.race || "Sem raça"} · {getCharacterElement(character.stats.elementId)?.name ?? "Sem elemento"} · {character.info.affinity || "Sem afinidade"}</small></span></label>
+        return <label key={entry.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={() => toggle(entry.id)} /><span className={`mini-rune ${characterImage(character) ? "has-portrait" : ""}`}>{characterImage(character) ? <img src={characterImage(character)} alt="" /> : character.name.slice(0, 1) || "R"}</span><span><strong>{character.name || "Ficha sem nome"}</strong><small>{character.info.race || "Sem raça"} · {getCharacterElement(character.stats.elementId)?.name ?? "Sem elemento"} · {character.info.affinity || "Sem afinidade"}</small></span></label>
       })}</div>
       <footer><span>{onSendToVtt ? "Cada ficha vira um token na cena aberta do RunasVTT." : "Será criado um ZIP com fichas JSON compatíveis com o Runas Tools e o Runas DM."}</span><div><button className="secondary-button" onClick={onClose}>Cancelar</button>{onSendToVtt
         ? <button className="primary-button" disabled={selectedEntries.length === 0} onClick={() => { onSendToVtt(selectedEntries); onClose() }}><Send size={16} /> Enviar {selectedEntries.length || ""} ficha{selectedEntries.length === 1 ? "" : "s"} ao RunasVTT</button>

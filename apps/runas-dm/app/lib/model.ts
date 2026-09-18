@@ -147,3 +147,8 @@ export function essenceYield(character: Character): number {
   const total = Number(character.info.essences.replace(",", "."))
   return Number.isFinite(total) ? Math.max(0, Math.floor(total / 10)) : 0
 }
+
+/** Imagem que representa a ficha na interface: o token (versão 21) ou, na falta dele, o retrato. */
+export function characterImage(character: Pick<Character, "tokenImageDataUrl" | "portraitDataUrl"> | null | undefined): string | undefined {
+  return character?.tokenImageDataUrl ?? character?.portraitDataUrl
+}

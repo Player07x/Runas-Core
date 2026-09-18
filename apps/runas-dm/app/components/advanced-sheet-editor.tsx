@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Edit3, Handshake, Plus, RefreshCw, RotateCcw, Shield, Trash2, X } from "lucide-react"
+import { Edit3, Handshake, Plus, RefreshCw, RotateCcw, Shield, Trash2, Upload, X } from "lucide-react"
 import { attributeGroups } from "@runas/core/data/attributes"
 import { characterElements } from "@runas/core/data/elements"
 import { systemSkills } from "@runas/core/data/skills"
@@ -26,6 +26,7 @@ import type {
 import { AttributeBands } from "./attribute-bands"
 import { RichTextEditor } from "./rich-text-editor"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
+import { TokenEditorDialog } from "./token-editor-dialog"
 
 type AdvancedTab = "information" | "statistics" | "skills" | "bonds" | "abilities" | "inventory" | "spells" | "notes"
 type UpdateCharacter = (mutator: (draft: Character) => void) => void
@@ -86,12 +87,28 @@ export function AdvancedSheetEditor({ character, onChange }: { character: Charac
   </div>
 }
 
+/** Token do RunasVTT: imagem com transparência e tamanho em células (campos da versão 21). */
+function TokenField({ character, update }: { character: Character; update: UpdateCharacter }) {
+  const [file, setFile] = useState<File | null>(null)
+  const sizes = [0.5, 1, 2, 3, 4, 5]
+  const size = character.tokenSize ?? 1
+  return <div className="advanced-token-field">
+    <span className={`mini-rune ${character.tokenImageDataUrl ? "has-portrait" : ""}`}>{character.tokenImageDataUrl ? <img src={character.tokenImageDataUrl} alt="" /> : character.name.slice(0, 1) || "R"}</span>
+    <div><strong>Token</strong><small>{character.tokenImageDataUrl ? "Imagem usada no mapa do RunasVTT." : "Sem token: o RunasVTT usa o retrato."}</small></div>
+    <label className="secondary-button"><Upload size={14} /> {character.tokenImageDataUrl ? "Trocar" : "Escolher"}<input hidden type="file" accept="image/*" onChange={(event) => { const next = event.target.files?.[0]; if (next?.type.startsWith("image/")) setFile(next); event.currentTarget.value = "" }} /></label>
+    {character.tokenImageDataUrl && <button className="icon-button subtle" title="Remover token" aria-label="Remover token" onClick={() => update((draft) => { delete draft.tokenImageDataUrl })}><Trash2 size={14} /></button>}
+    <label className="advanced-token-size"><span>Tamanho no mapa</span><select value={sizes.includes(size) ? size : 1} onChange={(event) => update((draft) => { draft.tokenSize = Number(event.target.value) })}>{sizes.map((cells) => <option key={cells} value={cells}>{cells === 0.5 ? "½ célula" : `${cells}×${cells}`}</option>)}</select></label>
+    {file && <TokenEditorDialog file={file} initialSize={size} onCancel={() => setFile(null)} onConfirm={(tokenImageDataUrl, tokenSize) => { update((draft) => { draft.tokenImageDataUrl = tokenImageDataUrl; draft.tokenSize = tokenSize }); setFile(null) }} />}
+  </div>
+}
+
 function InformationSection({ character, update }: { character: Character; update: UpdateCharacter }) {
   const info = character.info
   return <AdvancedSection title="Informações" description="A mesma organização e os mesmos dados da ficha do Runas Tools.">
     <section className="tools-info-sheet">
       <div className="tools-year-row"><span>Ano atual</span><strong>{info.currentYear || "—"}</strong><Select value={info.calendar} ariaLabel="Calendário" options={[{ value: "logi", label: "Logi" }, { value: "ce", label: "Élfico" }]} onChange={(value) => update((draft) => { draft.info.calendar = value as CharacterInfo["calendar"] })} /></div>
       <Field className="info-name" label="Nome" value={character.name} onChange={(value) => update((draft) => { draft.name = value })} />
+      <TokenField character={character} update={update} />
       <div className="tools-info-grid">
         <Field label="Raça" value={info.race} onChange={(value) => updateInfo(update, "race", value)} />
         <Field label="Espécie" value={info.species} onChange={(value) => updateInfo(update, "species", value)} />

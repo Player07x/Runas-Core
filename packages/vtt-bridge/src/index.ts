@@ -21,8 +21,10 @@ export interface VttCharacter {
   envelope: VttEnvelope
   summary: CharacterResourceSummary
   source: VttCharacterSource
-  /** Imagem do token em data URL; hoje, o retrato da ficha. */
+  /** Imagem do token em data URL: o token da ficha ou, na falta dele, o retrato. */
   tokenImage: string | null
+  /** Tamanho do token em células; campo opcional do protocolo 1. */
+  tokenSize?: number
 }
 
 /** Envelope `{ version, character }` com dados extras do app de origem, ignorados pelo resto da suíte. */
@@ -80,7 +82,8 @@ export function toVttCharacter(character: Character, source: VttCharacterSource,
     envelope: { ...createCharacterSaveFile(character), ...extras },
     summary: summarizeCharacterResources(character),
     source,
-    tokenImage: character.portraitDataUrl?.startsWith("data:image/") ? character.portraitDataUrl : null,
+    tokenImage: [character.tokenImageDataUrl, character.portraitDataUrl].find((image) => image?.startsWith("data:image/")) ?? null,
+    tokenSize: character.tokenSize ?? 1,
   }
 }
 
@@ -100,3 +103,5 @@ export function masteryTableIdFromVttToken(token: Pick<VttToken, "envelope">, fa
 }
 
 export { summarizeCharacterResources }
+
+export { renderTokenImage, tokenCrop, TOKEN_IMAGE_SIZE, TOKEN_SHAPES, type SquareCrop, type TokenImageOptions, type TokenShape } from "./tokenImage"
