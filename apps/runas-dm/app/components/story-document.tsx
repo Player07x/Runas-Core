@@ -7,6 +7,7 @@ import { createKnowledgePage, storyEventsOf, type KnowledgeCategory, type Knowle
 import { formatFictionalYear, resolveEra, toLogiYear, type UniverseEra } from "../lib/chronology"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
+import { KnowledgeImagePicker } from "./knowledge-image-picker"
 import { RichTextView } from "./rich-text-editor"
 import { ChronologyTimeline } from "./chronology-timeline"
 
@@ -95,6 +96,10 @@ export function StoryDocument({
         <input className="story-title-input" value={story.title} onChange={(event) => onChangeStory({ title: event.target.value })} aria-label="Título da história" placeholder="Nome da história" />
         <ExpandableTextarea resizeKey={story.id} value={story.summary} onChange={(event) => onChangeStory({ summary: event.target.value })} placeholder="Do que esta história trata? Este resumo aparece no cartão e no arquivo do vault." />
         <div className="story-view-switch" role="group" aria-label="Exibição da história"><button className={viewMode === "chronology" ? "active" : ""} onClick={() => { setViewMode("chronology"); onChangeStory({ storyViewMode: "chronology" }) }}>Cronologia</button><button className={viewMode === "tale" ? "active" : ""} onClick={() => { setViewMode("tale"); onChangeStory({ storyViewMode: "tale" }) }}>Conto</button></div>
+        <div className="story-image-control">
+          <span>Imagem da história</span>
+          <KnowledgeImagePicker value={story.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => onChangeStory({ backgroundImageDataUrl })} />
+        </div>
       </div>
       {story.backgroundImageDataUrl && <img className="story-heading-image" src={story.backgroundImageDataUrl} alt="" />}
       <button className="icon-button danger-icon" title="Excluir história" aria-label="Excluir história" onClick={onDeleteStory}><Trash2 size={17} /></button>

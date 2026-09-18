@@ -820,6 +820,10 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .story-view-switch { display: inline-flex; width: max-content; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
 .story-view-switch button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 750; }
 .story-view-switch button.active { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.story-image-control { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.story-image-control > span { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.story-image-control .knowledge-image-picker { padding: 0; }
+.story-image-control .knowledge-image-picker img { width: 180px; max-height: 100px; }
 .story-events { display: grid; gap: 14px; }
 .story-empty { min-height: 250px; }
 .story-event { display: grid; gap: 11px; padding: 20px; border: 1px solid var(--line); border-left: 3px solid color-mix(in srgb, var(--violet) 55%, var(--line)); border-radius: 16px; background: var(--panel); }

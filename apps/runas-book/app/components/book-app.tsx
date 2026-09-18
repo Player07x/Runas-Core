@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { BookPlus, Check, ChevronRight, Download, ExternalLink, FileStack, FileText, FileType2, FolderInput, KeyRound, Library, Loader2, LockKeyhole, Menu, Plus, Search, Settings, ShieldCheck, Sparkles, Trash2, Upload, WandSparkles, X } from "lucide-react"
 import { RuneMark } from "./rune-mark"
 import { allEntries, applyLegacyContent, findEntry, legacyContentRequests, normalizeWorkspace, plainTextFromHtml, slugify, type BookChapter, type BookCustomPage, type BookEntry, type BookEntryKind, type BookRecord, type BookResource, type BookWorkspace } from "../lib/book-model"
@@ -96,6 +96,7 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
   const [showCustomPages, setShowCustomPages] = useState(false)
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [exporting, setExporting] = useState<string | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(260)
 
   useEffect(() => {
     let saved: BookWorkspace | null = null
@@ -118,6 +119,11 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     })
     return () => { active = false; cancelIdle() }
   }, [seed])
+
+  useEffect(() => {
+    const savedWidth = Number(localStorage.getItem("runas-book.sidebar-width"))
+    if (Number.isFinite(savedWidth) && savedWidth >= 190 && savedWidth <= 480) setSidebarWidth(savedWidth)
+  }, [])
 
   const reportStorageError = useCallback(() => setNotice("Não foi possível salvar no armazenamento deste navegador."), [])
   useDeferredLocalStorage(STORAGE_KEY, workspace, hydrated, reportStorageError)
@@ -276,6 +282,31 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     }))
   }, [book, setWorkspace])
 
+  const renameChapter = useCallback((chapterId: string, title: string) => {
+    if (!book) return
+    setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, chapters: item.chapters.map((chapterItem) => chapterItem.id === chapterId ? { ...chapterItem, title } : chapterItem) } : item), updatedAt: Date.now() }))
+    setNotice("Tópico renomeado")
+  }, [book])
+
+  function startSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (window.matchMedia("(max-width: 900px)").matches) return
+    event.preventDefault()
+    const layout = event.currentTarget.closest<HTMLElement>(".book-layout")
+    const left = layout?.getBoundingClientRect().left ?? 0
+    const move = (pointerEvent: PointerEvent) => setSidebarWidth(Math.max(190, Math.min(480, pointerEvent.clientX - left)))
+    const stop = (pointerEvent: PointerEvent) => {
+      const width = Math.max(190, Math.min(480, pointerEvent.clientX - left))
+      setSidebarWidth(width)
+      localStorage.setItem("runas-book.sidebar-width", String(width))
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", stop)
+      document.body.classList.remove("resizing-sidebar")
+    }
+    document.body.classList.add("resizing-sidebar")
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", stop)
+  }
+
   const activeChapterId = nav.chapterId
   const removeChapter = useCallback((chapterId: string) => {
     if (!book) return
@@ -316,9 +347,17 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
 
   function saveEntry(nextEntry: BookEntry) {
     if (!book) return
-    setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, chapters: item.chapters.map((chapterItem) => chapterItem.id === nextEntry.chapterId ? { ...chapterItem, entries: chapterItem.entries.map((candidate) => candidate.id === nextEntry.id ? { ...nextEntry, updatedAt: Date.now() } : candidate) } : chapterItem) } : item), updatedAt: Date.now() }))
+    const savedEntry = { ...nextEntry, updatedAt: Date.now() }
+    setWorkspace((current) => ({ ...current, books: current.books.map((item) => {
+      if (item.id !== book.id) return item
+      const sourceChapterId = item.chapters.find((chapterItem) => chapterItem.entries.some((candidate) => candidate.id === nextEntry.id))?.id
+      if (sourceChapterId === nextEntry.chapterId) return { ...item, chapters: item.chapters.map((chapterItem) => chapterItem.id === nextEntry.chapterId ? { ...chapterItem, entries: chapterItem.entries.map((candidate) => candidate.id === nextEntry.id ? savedEntry : candidate) } : chapterItem) }
+      const chapters = item.chapters.map((chapterItem) => ({ ...chapterItem, entries: chapterItem.entries.filter((candidate) => candidate.id !== nextEntry.id) }))
+      return { ...item, chapters: chapters.map((chapterItem) => chapterItem.id === nextEntry.chapterId ? { ...chapterItem, entries: [...chapterItem.entries, savedEntry] } : chapterItem) }
+    }), updatedAt: Date.now() }))
     setPendingNewEntryId(null)
-    setNav((current) => ({ ...current, mode: "page" }))
+    setExpanded((current) => new Set(current).add(nextEntry.chapterId))
+    setNav((current) => ({ ...current, chapterId: nextEntry.chapterId, mode: "page" }))
     setNotice("Página salva")
   }
 
@@ -452,11 +491,11 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
         <a className="icon-link" href="https://runas-tools.pages.dev" title="Runas Tools"><ExternalLink size={18} /></a>
       </div>
     </header>
-    <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={openChapterEditor} onAddEntry={openNewPage} onDeleteChapter={removeChapter} onMoveChapter={moveChapter} />
+    <div className={`book-layout ${sidebarOpen ? "sidebar-open" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}>
+      <BookSidebar book={book} isDm={isDm} expanded={expanded} activeChapterId={nav.chapterId} activeEntryId={nav.entryId} onToggleChapter={toggleChapter} onSelectChapter={openTopic} onSelectEntry={openEntry} onAddChapter={openChapterEditor} onAddEntry={openNewPage} onDeleteChapter={removeChapter} onMoveChapter={moveChapter} onRenameChapter={renameChapter} onResizeStart={startSidebarResize} />
       {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Fechar índice" />}
       <section className="book-content">
-        {nav.mode === "edit" && entry && <PageEditor entry={entry} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
+        {nav.mode === "edit" && entry && <PageEditor entry={entry} chapters={book.chapters} pageTitles={pageTitles} onSave={saveEntry} onCancel={cancelEdit} onDelete={deleteEntry} />}
 
         {nav.mode === "page" && entry && chapter && <PageView book={book} chapter={chapter} entry={entry} isDm={isDm} onOpenBooks={goToBooks} onOpenTopic={openTopic} onOpenEntry={openEntry} onEdit={openEdit} onEditResource={setQuickEditResource} />}
 

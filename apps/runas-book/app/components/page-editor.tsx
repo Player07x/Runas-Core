@@ -3,13 +3,14 @@
 import { useRef, useState } from "react"
 import { Check, Plus, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react"
 import { parseCharacterFile } from "@runas/core/lib/characterStorage"
-import { createResource, resourceKindLabel, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
+import { createResource, resourceKindLabel, type BookChapter, type BookEntry, type BookEntryKind, type BookResource, type BookResourceKind } from "../lib/book-model"
 import { parseResourceImport } from "../lib/resource-import"
 import { ResourceEditorDialog } from "./resource-panel"
 import { RichTextEditor } from "./rich-text-editor"
 
 interface Props {
   entry: BookEntry
+  chapters: BookChapter[]
   pageTitles: string[]
   onSave: (entry: BookEntry) => void
   onCancel: () => void
@@ -24,7 +25,7 @@ function tryParse<T>(read: () => T): T | null {
   }
 }
 
-export function PageEditor({ entry, pageTitles, onSave, onCancel, onDelete }: Props) {
+export function PageEditor({ entry, chapters, pageTitles, onSave, onCancel, onDelete }: Props) {
   const [draft, setDraft] = useState<BookEntry>(() => ({ ...entry, resources: entry.resources.map((resource) => ({ ...resource })) }))
   const [editingResource, setEditingResource] = useState<BookResource | null>(null)
   const [importMessage, setImportMessage] = useState("")
@@ -83,6 +84,7 @@ export function PageEditor({ entry, pageTitles, onSave, onCancel, onDelete }: Pr
       <input className="form-input title-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Título da página" />
       <div className="field-row">
         <label>Tipo<select className="form-input" value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as BookEntryKind })}><option value="rule">Página de regra</option><option value="character">Ficha completa</option></select></label>
+        <label>Tópico<select className="form-input" value={draft.chapterId} onChange={(event) => setDraft({ ...draft, chapterId: event.target.value })}>{[...chapters].sort((left, right) => left.order - right.order).map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select></label>
       </div>
       <label>Resumo<input className="form-input" value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} placeholder="Uma linha para a grade e a busca" /></label>
     </header>
