@@ -5,19 +5,36 @@ function safeEqual(left, right) {
   return result === 0
 }
 
-function authResponse(request, env) {
-  const cookie = request.headers.get("Cookie") || ""
-  return Response.json({ authenticated: /(?:^|;\s*)runas-book-session=1(?:;|$)/.test(cookie) })
+const bookToken = (env) => env.RUNAS_BOOK_TOKEN || env.RUNAS_DM_BACKUP_TOKEN || ""
+
+// A sessão é uma assinatura HMAC derivada do token: só o servidor consegue
+// produzi-la, então o cookie não pode ser forjado. Trocar o token encerra as sessões.
+async function sessionValue(env) {
+  const secret = bookToken(env)
+  if (!secret) return ""
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode("runas-book-session:v1"))
+  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function hasSession(request, env) {
+  const match = /(?:^|;\s*)runas-book-session=([a-f0-9]{64})(?:;|$)/.exec(request.headers.get("Cookie") || "")
+  const expected = await sessionValue(env)
+  return Boolean(match && expected && safeEqual(match[1], expected))
+}
+
+async function authResponse(request, env) {
+  return Response.json({ authenticated: await hasSession(request, env) })
 }
 
 async function loginResponse(request, env) {
   try {
     const body = await request.json()
     const token = typeof body?.token === "string" ? body.token : ""
-    const expectedToken = env.RUNAS_BOOK_TOKEN || env.RUNAS_DM_BACKUP_TOKEN || ""
-    if (!safeEqual(token, expectedToken)) return Response.json({ authenticated: false }, { status: 401 })
+    if (!safeEqual(token, bookToken(env))) return Response.json({ authenticated: false }, { status: 401 })
     return Response.json({ authenticated: true }, {
-      headers: { "Set-Cookie": "runas-book-session=1; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Strict" },
+      headers: { "Set-Cookie": `runas-book-session=${await sessionValue(env)}; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Strict` },
     })
   } catch {
     return Response.json({ authenticated: false }, { status: 400 })
@@ -25,7 +42,6 @@ async function loginResponse(request, env) {
 }
 
 const CHUNK_SIZE = 900_000
-const hasSession = (request) => /(?:^|;\s*)runas-book-session=1(?:;|$)/.test(request.headers.get("Cookie") || "")
 
 async function ensureTable(db) {
   await db.prepare("CREATE TABLE IF NOT EXISTS book_workspace_chunks (idx INTEGER PRIMARY KEY, data BLOB NOT NULL, updated_at INTEGER NOT NULL)").run()
@@ -55,7 +71,7 @@ async function readWorkspace(env) {
 }
 
 async function writeWorkspace(request, env) {
-  if (!hasSession(request)) return Response.json({ error: "unauthorized" }, { status: 401 })
+  if (!(await hasSession(request, env))) return Response.json({ error: "unauthorized" }, { status: 401 })
   if (!env.DB) return Response.json({ error: "unavailable" }, { status: 503 })
   const text = await request.text()
   let workspace
