@@ -5,12 +5,12 @@ import { CHARACTER_VERSION } from "../src/types/character"
 const PNG = "data:image/png;base64,iVBORw0KGgo="
 const WEBP = "data:image/webp;base64,UklGRg=="
 
-describe("token da ficha (versão 21)", () => {
+describe("token da ficha (versão 22)", () => {
   it("migra fichas da versão 20: tamanho 1, sem token, retrato preservado", () => {
     const old = { version: 20, character: { ...createEmptyCharacter(), version: 20, tokenSize: undefined, portraitDataUrl: "data:image/jpeg;base64,AAAA" } }
     const migrated = parseCharacterFile(JSON.stringify(old))
-    expect(CHARACTER_VERSION).toBe(21)
-    expect(migrated.version).toBe(21)
+    expect(CHARACTER_VERSION).toBe(22)
+    expect(migrated.version).toBe(22)
     expect(migrated.tokenSize).toBe(1)
     expect(migrated.tokenImageDataUrl).toBeUndefined()
     expect(migrated.portraitDataUrl).toBe("data:image/jpeg;base64,AAAA")

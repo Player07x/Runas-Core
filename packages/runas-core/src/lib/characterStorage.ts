@@ -1,7 +1,7 @@
 import type { AbilityCostMode, AbilityCostType, Character, CharacterAbility, CharacterBond, CharacterInventoryItem, CharacterNote, CharacterSaveFile, CharacterSkill, CharacterSpell, InventoryItemType, InventoryUsage, SecondaryAttributeKey, SpellMagicType, SpellRangeType } from "../types/character"
 import { CHARACTER_VERSION } from "../types/character"
 import { CORE_SKILL_IDS, createCoreSkills } from "../data/skills"
-import { calculateLoadBase, deriveCharacterInfo, modifierToNumber } from "./characterCalculations"
+import { calculateItemSizeModifier, calculateLoadBase, deriveCharacterInfo, modifierToNumber } from "./characterCalculations"
 import { calculateAttributeTest, calculateSkillModifier, normalizeSkillName } from "./skillCalculations"
 import { sumAbilityModifiers } from "./abilityModifiers"
 import { calculateEquippedArmorDefense, calculateInventoryLoad, normalizeInventoryUsage } from "./inventoryCalculations"
@@ -322,6 +322,8 @@ export function normalizeInventory(partialItems: CharacterInventoryItem[] | unde
       affinity,
       bondPoints: Math.max(0, integer(item.bondPoints)),
       baseWeight: nonNegativeNumber(item.baseWeight),
+      size: nonNegativeNumber(item.size),
+      mt: calculateItemSizeModifier(item.size as number),
       quantity: Math.max(1, integer(item.quantity, 1)),
       applyScaleWeight: Boolean(item.applyScaleWeight),
       damage: typeof item.damage === "string" ? item.damage.trim().slice(0, 160) : "",

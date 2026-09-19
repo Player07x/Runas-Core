@@ -8,6 +8,7 @@ import type {
   InventoryUsage,
 } from "../types/character"
 import { parseImportedSpell, withoutSpellId, type ImportedSpell } from "./spellTransfer"
+import { calculateItemSizeModifier } from "./characterCalculations"
 
 export const INVENTORY_LIST_KIND = "runas-tools-inventory-list"
 export const INVENTORY_LIST_VERSION = 2
@@ -26,7 +27,7 @@ export interface InventoryListFile {
 }
 
 const usages = new Set<InventoryUsage>(["equipped", "stored", "absent"])
-const itemTypes = new Set<InventoryItemType>(["weapon", "armor", "shield", "artifact", "material", "consumable", "tool", "utility", "accessory", "currency", "other"])
+const itemTypes = new Set<InventoryItemType>(["innate", "weapon", "armor", "shield", "artifact", "material", "consumable", "tool", "utility", "accessory", "currency", "other"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -113,6 +114,8 @@ export function parseInventoryListFile(text: string): ImportedInventoryItem[] {
       affinity: Number(value.affinity) as CharacterInventoryItem["affinity"],
       bondPoints: Math.trunc(nonNegativeNumber(value.bondPoints, "pontos de vínculo", name)),
       baseWeight: nonNegativeNumber(value.baseWeight, "peso base", name),
+      size: value.size === undefined ? 0 : nonNegativeNumber(value.size, "tamanho", name),
+      mt: calculateItemSizeModifier(value.size === undefined ? 0 : Number(value.size)),
       quantity,
       applyScaleWeight: value.applyScaleWeight,
       damage: textField(value.damage, 160, "dano", position).trim(),

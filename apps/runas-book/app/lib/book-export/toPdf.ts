@@ -124,7 +124,7 @@ export async function generateBookPdfBlob(book: BookRecord): Promise<Blob> {
       } as unknown as Content)
       content.push(...pageBlocks(pageEntry.content, 2, accent))
       if (pageEntry.kind === "character" && pageEntry.entity) content.push(cardToPdf(characterCardBlock(pageEntry.entity), accent))
-      for (const resource of pageEntry.resources) content.push(cardToPdf(resourceCardBlock(resource), accent))
+      for (const resource of pageEntry.resources) content.push(cardToPdf(resourceCardBlock(resource, pageEntry.resources), accent))
     }
   }
 

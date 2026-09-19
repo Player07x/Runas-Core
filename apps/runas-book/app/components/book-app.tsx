@@ -558,7 +558,7 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
 
     {showNewPage && <div className="modal-backdrop" onMouseDown={() => setShowNewPage(false)}><section className="modal-card" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">{chapter?.title}</p><h2>Nova página</h2></div><button className="icon-link" onClick={() => setShowNewPage(false)}><X size={18} /></button></header><label>Título<input className="form-input" value={newPageTitle} onChange={(event) => setNewPageTitle(event.target.value)} autoFocus /></label><label>Tipo<select className="form-input" value={newPageKind} onChange={(event) => setNewPageKind(event.target.value as BookEntryKind)}><option value="rule">Página de regra</option><option value="character">Ficha completa</option></select></label><button className="primary-action full" onClick={createPage} disabled={!newPageTitle.trim()}><Check size={16} /> Criar e editar</button></section></div>}
 
-    {quickEditResource && <ResourceEditorDialog resource={quickEditResource} onSave={commitResource} onDelete={() => removeQuickResource(quickEditResource.id)} onClose={() => setQuickEditResource(null)} />}
+    {quickEditResource && <ResourceEditorDialog resource={quickEditResource} availableResources={entry?.resources ?? []} onSave={commitResource} onDelete={() => removeQuickResource(quickEditResource.id)} onClose={() => setQuickEditResource(null)} />}
 
     {showBookSettings && <BookSettingsDialog book={book} onSave={saveBookSettings} onClose={() => setShowBookSettings(false)} />}
 

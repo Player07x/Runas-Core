@@ -59,7 +59,7 @@ function sampleSentinel(): Character {
     { id: "ability-1", category: "Racial", name: "Corpo Prismático", description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" },
     { id: "ability-2", category: "Combate", name: "Estilhaçar", description: "Explode fragmentos ao redor.", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" },
   ]
-  character.inventory = [{ id: "item-1", usage: "equipped", name: "Lança de cristal", type: "weapon", affinity: 2, bondPoints: 0, baseWeight: 3, quantity: 1, applyScaleWeight: false, damage: "4D+2 perfurante", rdf: 4, rdm: 2, equippedAsArmor: true, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "sample-1", description: "" }]
+  character.inventory = [{ id: "item-1", usage: "equipped", name: "Lança de cristal", type: "weapon", affinity: 2, bondPoints: 0, baseWeight: 3, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "4D+2 perfurante", rdf: 4, rdm: 2, equippedAsArmor: true, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "sample-1", description: "" }]
   return synchronizeCharacterDerivedValues(character, character)
 }
 
@@ -73,7 +73,7 @@ function sampleAshBeast(): Character {
   character.stats = { ...character.stats, pv: 48, pa: 16, pe: 12, peTemporary: 0, elementId: "fogo", resistances: ["Queimadura", "Corrosivo"], weaknesses: ["Congelante"], naturalRdf: 2, movementBonus: 4 }
   character.skills = [...character.skills, { id: "sample-2", name: "Rastreio", attributeKey: "knowledge", points: 6, modifier: 1, locked: false }]
   character.abilities = [{ id: "ability-3", category: "Racial", name: "Faro de Fumaça", description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" }]
-  character.inventory = [{ id: "item-2", usage: "equipped", name: "Garras em brasa", type: "weapon", affinity: 1, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "3D+3 cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }]
+  character.inventory = [{ id: "item-2", usage: "equipped", name: "Garras em brasa", type: "weapon", affinity: 1, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "3D+3 cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }]
   return synchronizeCharacterDerivedValues(character, character)
 }
 

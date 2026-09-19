@@ -758,14 +758,14 @@ function QuickActions({ actor, targets, preferredTargetId = null, onLog, onUpdat
     } : current)
   }
 
-  function simulateDamage(requestedExpression = damageExpression, requestedMt = mtEnabled) {
+  function simulateDamage(requestedExpression = damageExpression, requestedMt = mtEnabled, requestedMtValue = actor.character.stats.mt) {
     setSimulationEditing(false)
     const parsed = parseDamageExpressions(requestedExpression)
     if (!parsed.length || parsed.some((part) => !part.damageTypeId)) { setResult({ tone: "bad", title: "Dano incompleto", detail: "Use algo como 2D cortante, 3D congelante adicional." }); return }
     const sequence = calculateDamageSequence(parsed.map((part) => {
       const attributeValue = part.attributeKey ? actor.character.attributes[part.attributeKey] : 0
       const conversion = convertDamageBonusesToDice(part.numDice, [attributeValue, part.bonus])
-      return { config: { numDice: part.numDice, damageTypeId: part.damageTypeId!, attributeKey: part.attributeKey ?? "none", otherModifier: part.bonus, mtEnabled: requestedMt, mtValue: actor.character.stats.mt, otherMultiplier: "1", rdf: 0, rdm: 0 }, diceRolls: part.numDice > 0 ? rollDice(conversion.numDice) : [], attributeValue }
+      return { config: { numDice: part.numDice, damageTypeId: part.damageTypeId!, attributeKey: part.attributeKey ?? "none", otherModifier: part.bonus, mtEnabled: requestedMt, mtValue: requestedMtValue, otherMultiplier: "1", rdf: 0, rdm: 0 }, diceRolls: part.numDice > 0 ? rollDice(conversion.numDice) : [], attributeValue }
     }), 0, 0)
     stageDamages(sequence.results.map((calculated) => ({ amount: applyQuickModifier(calculated.total, modifier), damageTypeId: calculated.damageTypeId, damageTypeName: calculated.damageTypeName })), makeDamageSignature(requestedExpression, requestedMt))
   }
@@ -773,9 +773,9 @@ function QuickActions({ actor, targets, preferredTargetId = null, onLog, onUpdat
   function rollItemDamage(item: Character["inventory"][number]) {
     setMode("damage")
     setDamageExpression(item.damage)
-    setMtEnabled(item.applyScaleWeight)
+    setMtEnabled(true)
     setPendingDamage(null)
-    simulateDamage(item.damage, item.applyScaleWeight)
+    simulateDamage(item.damage, true, item.mt || 0)
     requestAnimationFrame(() => calculatorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
   }
 
@@ -1040,7 +1040,7 @@ function LinkedPanel({ title, count, actions, children, className = "", listClas
 function assignById<T extends { id: string }>(items: T[], itemId: string, updates: Partial<T>) { const item = items.find((candidate) => candidate.id === itemId); if (item) Object.assign(item, updates) }
 function createQuickAbility(name: string, category: string): Character["abilities"][number] { return { id: id("ability"), category, name, description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" } }
 function createQuickSpell(): CharacterSpell { return { id: id("spell"), category: "Elemental", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" } }
-function createQuickItem(name: string, usage: Character["inventory"][number]["usage"], type: Character["inventory"][number]["type"]): Character["inventory"][number] { return { id: id("item"), usage, name, type, affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" } }
+function createQuickItem(name: string, usage: Character["inventory"][number]["usage"], type: Character["inventory"][number]["type"]): Character["inventory"][number] { return { id: id("item"), usage, name, type, affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" } }
 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field"><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
 function PercentField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field percent-field"><span>{label}</span><span className="percent-input"><input inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value.replace(/%/g, ""))} /><b>%</b></span></label> }

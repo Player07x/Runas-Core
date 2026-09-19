@@ -124,6 +124,10 @@ export interface CharacterInventoryItem {
   affinity: 0 | 1 | 2 | 3 | 4
   bondPoints: number
   baseWeight: number
+  /** Comprimento do item em centímetros; o MT é derivado deste valor. */
+  size: number
+  /** Modificador de tamanho do item, sempre derivado de `size` com o ajuste de +2. */
+  mt: number
   quantity: number
   applyScaleWeight: boolean
   damage: string
@@ -226,4 +230,4 @@ export interface CharacterSaveFile {
   character: Character
 }
 
-export const CHARACTER_VERSION = 21
+export const CHARACTER_VERSION = 22

@@ -54,11 +54,8 @@ export function parseResourceImport(jsonText: string): BookResource[] {
 
 /** Converte um item da lista do Runas Tools; o encantamento embutido vira uma magia anexada e vinculada ao item. */
 function resourcesFromInventoryItem({ enchantment, bondName, bondAbilityName, skillName, ...item }: ImportedInventoryItem): BookResource[] {
-  void bondName
-  void bondAbilityName
-  void skillName
   const spell = enchantment ? { id: makeId("spell"), ...enchantment } : null
-  const entity: CharacterInventoryItem = { id: makeId("item"), ...item, enchantmentSpellId: spell?.id ?? "", bondId: "", bondAbilityId: "", skillId: "" }
+  const entity: CharacterInventoryItem = { id: makeId("item"), ...item, enchantmentSpellId: spell?.id ?? "", bondId: bondName, bondAbilityId: bondAbilityName, skillId: skillName }
   return [
     { id: makeId("resource"), kind: "item", entity },
     ...(spell ? [{ id: makeId("resource"), kind: "spell" as const, entity: spell }] : []),
