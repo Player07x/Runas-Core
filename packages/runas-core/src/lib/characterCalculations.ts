@@ -126,6 +126,17 @@ export function calculateSizeModifier(sizeValue: string, bonusValue: string): st
   return formatSigned(baseModifier + bonus)
 }
 
+/**
+ * Calcula o MT de um item a partir do seu comprimento em centímetros.
+ * Itens usam a mesma tabela de tamanho das fichas, mas recebem +2 de ajuste
+ * conforme a regra do livro (por exemplo, 80 cm: -2 + 2 = MT +0).
+ */
+export function calculateItemSizeModifier(sizeValue: number | string): number {
+  const raw = typeof sizeValue === "number" ? sizeValue : Number(String(sizeValue).trim().replace(",", "."))
+  if (!Number.isFinite(raw) || raw <= 0) return 0
+  return modifierToNumber(calculateSizeModifier(String(raw / 100), "2"))
+}
+
 export function calculateAffinity(essenceValue: string): { affinity: string; efficiency: string } {
   const essences = Math.max(0, Math.trunc(parseNumber(essenceValue) ?? 0))
   let affinityLevel = 0

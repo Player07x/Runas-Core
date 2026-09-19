@@ -185,7 +185,7 @@ export async function generateBookDocxBlob(book: BookRecord): Promise<Blob> {
       children.push(new Paragraph({ text: pageEntry.title, heading: HeadingLevel.HEADING_2 }))
       children.push(...await blocksToDocx(pageEntry.content, accentHex, 2))
       if (pageEntry.kind === "character" && pageEntry.entity) children.push(cardToDocx(characterCardBlock(pageEntry.entity), accentHex))
-      for (const resource of pageEntry.resources) children.push(cardToDocx(resourceCardBlock(resource), accentHex))
+      for (const resource of pageEntry.resources) children.push(cardToDocx(resourceCardBlock(resource, pageEntry.resources), accentHex))
     }
     children.push(new Paragraph({ children: [new PageBreak()] }))
   }

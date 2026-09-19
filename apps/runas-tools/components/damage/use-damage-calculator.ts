@@ -49,6 +49,7 @@ export function useDamageCalculator() {
   const requestedDamage = searchParams.get("damage") ?? ""
   const requestedRollToken = searchParams.get("roll")
   const requestedApplyMt = searchParams.get("applyMt") === "yes"
+  const requestedMtValue = Number(searchParams.get("mt"))
 
   /** Valor atual do atributo selecionado, lido da ficha (0 se nenhum). */
   const getAttributeValue = useCallback(
@@ -99,7 +100,7 @@ export function useDamageCalculator() {
       const next = configWithParsed(config, part)
       if (requestedApplyMt) {
         next.mtEnabled = true
-        next.mtValue = character.stats.mt || 0
+        next.mtValue = Number.isFinite(requestedMtValue) ? Math.trunc(requestedMtValue) : 0
       }
       return next
     })
@@ -111,7 +112,7 @@ export function useDamageCalculator() {
     }), nextConfigs[0]?.rdf ?? 0, nextConfigs[0]?.rdm ?? 0)
     setResult(sequence.results[0] ?? null)
     setResults(sequence.results)
-  }, [character.attributes, character.stats.mt, config, requestedApplyMt, requestedDamage, requestedRollToken])
+  }, [character.attributes, character.stats.mt, config, requestedApplyMt, requestedDamage, requestedMtValue, requestedRollToken])
 
   const roll = useCallback(() => {
     if (configs.length > 1) {

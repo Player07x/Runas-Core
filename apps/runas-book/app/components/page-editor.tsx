@@ -158,6 +158,6 @@ export function PageEditor({ entry, chapters, pageTitles, onSave, onCancel, onDe
       </section>
     </div>}
 
-    {editingResource && <ResourceEditorDialog resource={editingResource} onSave={saveResource} onDelete={() => deleteResource(editingResource.id)} onClose={() => setEditingResource(null)} />}
+    {editingResource && <ResourceEditorDialog resource={editingResource} availableResources={draft.resources} onSave={saveResource} onDelete={() => deleteResource(editingResource.id)} onClose={() => setEditingResource(null)} />}
   </article>
 }

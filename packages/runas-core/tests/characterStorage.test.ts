@@ -7,7 +7,7 @@ describe("characterStorage compartilhado", () => {
     const character = createEmptyCharacter()
     character.name = "Importável"
     character.skills.push({ id: "skill-custom", name: "Lâminas", attributeKey: "dexterity", points: 10, modifier: 2, locked: false })
-    character.inventory.push({ id: "weapon", usage: "equipped", name: "Espada", type: "weapon", affinity: 1, bondPoints: 4, baseWeight: 2, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "skill-custom", description: "" })
+    character.inventory.push({ id: "weapon", usage: "equipped", name: "Espada", type: "weapon", affinity: 1, bondPoints: 4, baseWeight: 2, size: 80, mt: 99, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "skill-custom", description: "" })
 
     const normalized = normalizeCharacter(character)
 
@@ -26,7 +26,7 @@ describe("characterStorage compartilhado", () => {
 
   it("preserva peso zero e impede item Inato armazenado", () => {
     const character = createEmptyCharacter()
-    character.inventory.push({ id: "innate", usage: "stored", name: "Garras", type: "innate", affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" })
+    character.inventory.push({ id: "innate", usage: "stored", name: "Garras", type: "innate", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" })
     const normalized = normalizeCharacter(character)
     expect(normalized.inventory[0]).toMatchObject({ type: "innate", usage: "equipped", baseWeight: 0 })
   })

@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest"
 import { createEmptyCharacter, normalizeCharacter } from "../src/lib/characterStorage"
 import { calculateEquippedArmorDefense, calculateItemRealWeight } from "../src/lib/inventoryCalculations"
+import { calculateItemSizeModifier } from "../src/lib/characterCalculations"
 import type { CharacterInventoryItem } from "../src/types/character"
 
 function item(id: string, rdf: number, rdm: number, equippedAsArmor = false): CharacterInventoryItem {
-  return { id, usage: "equipped", name: id, type: "armor", affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf, rdm, equippedAsArmor, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
+  return { id, usage: "equipped", name: id, type: "armor", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf, rdm, equippedAsArmor, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
 }
 
 describe("armadura ativa", () => {
+  it("deriva o MT de itens em centímetros com o ajuste de +2", () => {
+    expect(calculateItemSizeModifier(80)).toBe(0)
+    expect(calculateItemSizeModifier(200)).toBe(2)
+    expect(calculateItemSizeModifier(0)).toBe(0)
+  })
+
   it("aplica MT ao cubo no peso verdadeiro do item", () => {
     expect(calculateItemRealWeight({ baseWeight: 2, quantity: 3, applyScaleWeight: true }, "2.0x")).toBe(48)
   })

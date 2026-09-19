@@ -1,4 +1,5 @@
-import type { Character, CharacterAbility, CharacterInventoryItem, CharacterSpell } from "@runas/core/types/character"
+import { CHARACTER_VERSION, type Character, type CharacterAbility, type CharacterInventoryItem, type CharacterSpell } from "@runas/core/types/character"
+import { normalizeAbilities, normalizeInventory, normalizeSpells } from "@runas/core/lib/characterStorage"
 
 export type BookEntryKind = "rule" | "character"
 export type BookResourceKind = "item" | "ability" | "spell"
@@ -128,7 +129,7 @@ export function plainTextFromHtml(html: string): string {
 
 export function createResourceEntity(kind: BookResourceKind, title: string): BookResourceEntity {
   if (kind === "item") {
-    return { id: makeId("item"), usage: "stored", name: title, type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
+    return { id: makeId("item"), usage: "stored", name: title, type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
   }
   if (kind === "spell") {
     return { id: makeId("spell"), category: "Arcana", name: title, description: "", costType: "pe", costMode: "fixed", costValue: 1, costText: "1 PE", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }
@@ -138,6 +139,19 @@ export function createResourceEntity(kind: BookResourceKind, title: string): Boo
 
 export function createResource(kind: BookResourceKind, title: string): BookResource {
   return { id: makeId("resource"), kind, entity: createResourceEntity(kind, title) }
+}
+
+function migrateResource(raw: unknown, fallbackId: string): BookResource | null {
+  if (!raw || typeof raw !== "object") return null
+  const candidate = raw as Partial<BookResource>
+  if (candidate.kind !== "item" && candidate.kind !== "ability" && candidate.kind !== "spell") return null
+  const entity = candidate.kind === "item"
+    ? normalizeInventory([candidate.entity as CharacterInventoryItem], CHARACTER_VERSION)[0]
+    : candidate.kind === "spell"
+      ? normalizeSpells([candidate.entity as CharacterSpell])[0]
+      : normalizeAbilities([candidate.entity as CharacterAbility])[0]
+  if (!entity) return null
+  return { id: typeof candidate.id === "string" && candidate.id ? candidate.id : fallbackId, kind: candidate.kind, entity }
 }
 
 /**
@@ -151,9 +165,9 @@ function migrateEntry(raw: unknown): BookEntry | null {
   const legacyKind = candidate.kind as string | undefined
   const isLegacyResourceKind = legacyKind === "item" || legacyKind === "ability" || legacyKind === "spell"
   const resources: BookResource[] = Array.isArray(candidate.resources)
-    ? candidate.resources as BookResource[]
+    ? candidate.resources.map((resource, index) => migrateResource(resource, `${candidate.id}-resource-${index + 1}`)).filter((value): value is BookResource => value !== null)
     : isLegacyResourceKind && candidate.entity
-      ? [{ id: `${candidate.id}-resource`, kind: legacyKind, entity: candidate.entity as BookResourceEntity }]
+      ? [migrateResource({ id: `${candidate.id}-resource`, kind: legacyKind, entity: candidate.entity }, `${candidate.id}-resource`)].filter((value): value is BookResource => value !== null)
       : []
   const sourceFile = typeof candidate.sourceFile === "string" ? candidate.sourceFile : ""
   const summary = typeof candidate.summary === "string" ? candidate.summary : ""

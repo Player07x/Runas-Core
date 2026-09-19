@@ -21,6 +21,7 @@ import type {
 } from "@runas/core/types/character"
 import { calculateBondQuality, calculateBondTest, formatSigned } from "@runas/core/lib/bondCalculations"
 import { calculateAttributeTest, calculateSkillLevel, calculateSkillModifier, normalizeSkillName } from "@runas/core/lib/skillCalculations"
+import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
 import { getAttributeDef } from "@runas/core/data/attributes"
 import {
   calculateEquippedArmorDefense,
@@ -74,6 +75,8 @@ function createInventoryItem(): CharacterInventoryItem {
     affinity: 0,
     bondPoints: 0,
     baseWeight: 0,
+    size: 0,
+    mt: 0,
     quantity: 1,
     applyScaleWeight: false,
     damage: "",
@@ -122,6 +125,8 @@ function sanitizeItem(item: CharacterInventoryItem, matchingBonds: CharacterBond
     affinity,
     bondPoints: Math.max(0, Math.trunc(item.bondPoints)),
     baseWeight: Math.max(0, Number.isFinite(item.baseWeight) ? item.baseWeight : 0),
+    size: Math.max(0, Number.isFinite(item.size) ? item.size : 0),
+    mt: calculateItemSizeModifier(item.size),
     quantity: Math.max(1, Number.isFinite(item.quantity) ? Math.trunc(item.quantity) : 1),
     damage: item.damage.trim().slice(0, 160),
     rdf: Math.max(0, Math.trunc(item.rdf)),
@@ -274,8 +279,7 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
   function rollDamage(item: CharacterInventoryItem) {
     if (!item.damage.trim()) return
     close()
-    const applyMt = item.applyScaleWeight ? "&applyMt=yes" : ""
-    router.push(`/calculadora-dano?damage=${encodeURIComponent(item.damage)}&roll=${encodeURIComponent(crypto.randomUUID())}${applyMt}`)
+    router.push(`/calculadora-dano?damage=${encodeURIComponent(item.damage)}&roll=${encodeURIComponent(crypto.randomUUID())}&applyMt=yes&mt=${encodeURIComponent(String(item.mt || 0))}`)
   }
 
   function updateShieldPr(itemId: string, value: number | null) {
@@ -385,6 +389,8 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
                   {variant === "runas-blue" && <Select label="Afinidade" value={String(draft.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => setDraft({ ...draft, affinity: Number(value) as CharacterInventoryItem["affinity"] })} />}
                   {variant === "runas-blue" && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Pontos de Vínculo</span><input type="number" min={0} step={1} value={draft.bondPoints} onChange={(event) => setDraft({ ...draft, bondPoints: Math.max(0, Math.trunc(Number(event.target.value) || 0)) })} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring" /><span className="mt-1 block text-xs text-muted-foreground">Raridade: {itemRarity(draft.bondPoints)}</span></label>}
                   <NumberInput label="Peso Base (kg)" value={draft.baseWeight} min={0} step={0.001} onChange={(baseWeight) => setDraft({ ...draft, baseWeight: Math.max(0, baseWeight) })} />
+                  <NumberInput label="Tamanho (cm)" value={draft.size} min={0} step={0.1} onChange={(size) => setDraft({ ...draft, size: Math.max(0, size), mt: calculateItemSizeModifier(size) })} />
+                  <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">MT</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{draft.mt}</output></label>
                   <NumberInput label="Quantidade" value={draft.quantity} min={1} step={1} onChange={(quantity) => setDraft({ ...draft, quantity: Math.max(1, Math.trunc(quantity || 1)) })} />
                   {draft.baseWeight > 0 && <SegmentedToggle label="Aplicar MT ao peso?" value={draft.applyScaleWeight ? "yes" : "no"} onChange={(value) => setDraft({ ...draft, applyScaleWeight: value === "yes" })} options={[{ value: "yes", label: "Sim" }, { value: "no", label: "Não" }]} />}
                   {draft.baseWeight > 0 && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Peso verdadeiro</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{formatWeight(calculateItemRealWeight(draft, info.scaleMultiplier))} kg</output></label>}
@@ -455,7 +461,7 @@ function ItemView({ variant, item, info, skills, bonds, abilities, spells, attri
   const skillTest = skill?.attributeKey ? calculateAttributeTest(attributes, skill.attributeKey) + calculateSkillModifier(skill) : null
   return <div role="dialog" aria-modal="true" aria-labelledby="inventory-view-title" className="max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl overflow-y-auto rounded-[24px] border border-border bg-card p-4 shadow-2xl sm:p-6">
     <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Visualização do item</p><h2 id="inventory-view-title" className="mt-1 text-xl font-bold text-foreground">{item.name}</h2><p className="mt-1 text-sm text-muted-foreground">{inventoryTypeLabel(item.type)} · {inventoryUsageLabel(item.usage)}</p></div><button type="button" onClick={onClose} aria-label="Fechar item" className="inline-flex size-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted"><X className="size-5" /></button></div>
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{variant === "runas-blue" && <><Info label="Afinidade" value={itemAffinityOptions[item.affinity]?.label ?? "Ordinário (0)"} /><Info label="Raridade" value={itemRarity(item.bondPoints)} /></>}<Info label="Quantidade" value={String(item.quantity)} /><Info label="Peso Base (unidade)" value={`${formatWeight(item.baseWeight)} kg`} /><Info label="Peso Total" value={`${formatWeight(calculateItemRealWeight(item, info.scaleMultiplier))} kg`} />{item.damage && <Info label="Dano" value={item.damage} />}{(item.rdf > 0 || item.rdm > 0) && <><Info label="RDF" value={String(item.rdf)} /><Info label="RDM" value={String(item.rdm)} /></>}{(item.prCurrent !== null || item.prMaximum !== null) && <Info label="PR atual/máximo" value={`${item.prCurrent ?? "—"} / ${item.prMaximum ?? "—"}`} />}</div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{variant === "runas-blue" && <><Info label="Afinidade" value={itemAffinityOptions[item.affinity]?.label ?? "Ordinário (0)"} /><Info label="Raridade" value={itemRarity(item.bondPoints)} /></>}<Info label="Tamanho" value={item.size > 0 ? `${item.size} cm` : "—"} /><Info label="MT" value={String(item.mt)} /><Info label="Quantidade" value={String(item.quantity)} /><Info label="Peso Base (unidade)" value={`${formatWeight(item.baseWeight)} kg`} /><Info label="Peso Total" value={`${formatWeight(calculateItemRealWeight(item, info.scaleMultiplier))} kg`} />{item.damage && <Info label="Dano" value={item.damage} />}{(item.rdf > 0 || item.rdm > 0) && <><Info label="RDF" value={String(item.rdf)} /><Info label="RDM" value={String(item.rdm)} /></>}{(item.prCurrent !== null || item.prMaximum !== null) && <Info label="PR atual/máximo" value={`${item.prCurrent ?? "—"} / ${item.prMaximum ?? "—"}`} />}</div>
     {item.description && <div className="mt-4 rounded-xl border border-border bg-background/55 p-4"><span className="text-xs font-medium text-muted-foreground">Descrição</span><p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{item.description}</p></div>}
     <div className="mt-4 grid gap-3 lg:grid-cols-2">
       {spell && <ReferenceCard title="Encantamento" name={spell.name} details={`${spellTypeLabel(spell.magicType)} · ${spellRange(spell)} · ${spell.duration || "Sem duração"} · ${costSummary(spell)} · ${spell.castingSkill || "Sem conjuração"}`} onOpen={() => onReference({ type: "spell", value: spell })} />}

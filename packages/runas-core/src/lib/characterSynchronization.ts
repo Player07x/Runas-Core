@@ -1,7 +1,7 @@
 import { attributeGroups } from "../data/attributes"
 import { getCharacterElement } from "../data/elements"
 import type { Character } from "../types/character"
-import { calculateLoadBase, convertCalendarYear, deriveCharacterInfo, modifierToNumber } from "./characterCalculations"
+import { calculateItemSizeModifier, calculateLoadBase, convertCalendarYear, deriveCharacterInfo, modifierToNumber } from "./characterCalculations"
 import { calculateCharacterStatSnapshot } from "./characterStatCalculations"
 import { calculateEquippedArmorDefense, calculateInventoryLoad, normalizeInventoryUsage } from "./inventoryCalculations"
 
@@ -23,7 +23,7 @@ export function synchronizeCharacterDerivedValues(previous: Character, changed: 
     const usage = normalizeInventoryUsage(item.type, item.usage)
     const equippedAsArmor = usage === "equipped" && item.equippedAsArmor && !equippedArmorFound
     if (equippedAsArmor) equippedArmorFound = true
-    return { ...item, usage, equippedAsArmor }
+    return { ...item, usage, equippedAsArmor, size: Math.max(0, finite(item.size)), mt: calculateItemSizeModifier(item.size) }
   })
 
   for (const group of attributeGroups) {
