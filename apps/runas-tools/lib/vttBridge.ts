@@ -11,6 +11,12 @@ export function isRunasVttAvailable(): boolean {
   return typeof window !== "undefined" && getRunasVtt(window) !== null
 }
 
+/** O Tools servido pela Vista dos Jogadores aceita somente uma ficha por assento. */
+export function isRunasVttSeat(): boolean {
+  if (typeof window === "undefined") return false
+  return getRunasVtt(window)?.scope === "seat"
+}
+
 /** Envia uma ficha para a cena aberta; devolve `false` fora do RunasVTT. */
 export async function sendCharacterToVtt(character: Character): Promise<boolean> {
   if (typeof window === "undefined") return false

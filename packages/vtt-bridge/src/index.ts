@@ -54,6 +54,8 @@ export interface VttLogEntry {
 
 export interface RunasVttBridge {
   protocol: number
+  /** Origem efêmera servida pelo VTT, limitada a um assento, quando presente. */
+  scope?: "integrated" | "seat"
   importCharacters(items: VttCharacter[]): Promise<{ tokenIds: string[] }>
   getTokens(): Promise<VttToken[]>
   onTokensChanged(listener: () => void): () => void
