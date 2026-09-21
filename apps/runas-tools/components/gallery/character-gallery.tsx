@@ -14,7 +14,7 @@ import { exportGalleryZip } from "@/lib/galleryExport"
 import { parseGalleryZip, type GalleryZipCharacter } from "@/lib/galleryImport"
 import type { CharacterGalleryEntry } from "@runas/core/types/character"
 import { GALLERY_MAX_CHARACTERS, GALLERY_MAX_PAGES, GALLERY_PAGE_SIZE } from "@/lib/galleryLimits"
-import { isRunasVttAvailable, sendCharacterToVtt, sendCharactersToVtt, vttErrorMessage } from "@/lib/vttBridge"
+import { isRunasVttAvailable, isRunasVttSeat, sendCharacterToVtt, sendCharactersToVtt, vttErrorMessage } from "@/lib/vttBridge"
 
 export function CharacterGallery() {
   const {
@@ -40,6 +40,7 @@ export function CharacterGallery() {
   const [currentPage, setCurrentPage] = useState(1)
   const [searchQuery, setSearchQuery] = useState("")
   const [inVtt, setInVtt] = useState(false)
+  const [inVttSeat, setInVttSeat] = useState(false)
   const previewEntry = useMemo(() => galleryEntries.find((entry) => entry.id === previewId) ?? null, [galleryEntries, previewId])
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")
@@ -53,7 +54,7 @@ export function CharacterGallery() {
 
   useEffect(() => { if (currentPage > pageCount) setCurrentPage(pageCount) }, [currentPage, pageCount])
   useEffect(() => { setCurrentPage(1) }, [searchQuery])
-  useEffect(() => { setInVtt(isRunasVttAvailable()) }, [])
+  useEffect(() => { setInVtt(isRunasVttAvailable()); setInVttSeat(isRunasVttSeat()) }, [])
 
   function createCharacter() {
     if (!createGalleryCharacter()) {
@@ -185,7 +186,7 @@ export function CharacterGallery() {
         </div>
       </div>
       {message && <p role="status" className="mt-3 rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground">{message}</p>}
-      {galleryEntries.length > 0 && <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => void exportGalleryJson()}>{inVtt ? <Send /> : <FileArchive />} {inVtt ? "Enviar fichas ao RunasVTT" : "Exportar ZIP (JSON)"}</Button><Button type="button" variant="outline" onClick={() => exportGalleryZip(galleryEntries, "md")}><Download /> Exportar ZIP (MD)</Button></div>}
+      {galleryEntries.length > 0 && <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">{!inVttSeat && <Button type="button" variant="outline" onClick={() => void exportGalleryJson()}>{inVtt ? <Send /> : <FileArchive />} {inVtt ? "Enviar fichas ao RunasVTT" : "Exportar ZIP (JSON)"}</Button>}<Button type="button" variant="outline" onClick={() => exportGalleryZip(galleryEntries, "md")}><Download /> Exportar ZIP (MD)</Button></div>}
     </section>
 
     <label className="relative mt-5 block"><span className="sr-only">Buscar personagem pelo nome</span><Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar personagem pelo nome" className="h-12 w-full rounded-2xl border border-input bg-card pl-11 pr-4 text-sm shadow-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/25" /></label>

@@ -7,6 +7,8 @@ import { synchronizeCharacterDerivedValues } from "@runas/core/lib/characterSync
 import { createEmptyCharacter } from "@/lib/characterStorage"
 import { loadCharacterDatabase, loadCharacterGalleryDatabase, saveCharacterDatabase, saveCharacterGalleryDatabase } from "@/lib/characterDatabase"
 import { GALLERY_MAX_CHARACTERS } from "@/lib/galleryLimits"
+import { characterFromVttToken, getRunasVtt, toVttCharacter } from "@runas/vtt-bridge"
+import { isRunasVttSeat } from "@/lib/vttBridge"
 
 type SaveStatus = "idle" | "saving" | "saved"
 
@@ -42,6 +44,10 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
   const [activeGalleryId, setActiveGalleryId] = useState<string | null>(null)
   const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const galleryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const remoteUpdate = useRef(false)
+  const characterRef = useRef(character)
+
+  useEffect(() => { characterRef.current = character }, [character])
 
   // Hidrata a ficha do IndexedDB e migra automaticamente o formato legado.
   useEffect(() => {
@@ -75,7 +81,31 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Autosave com debounce: agrupa edições rápidas em uma única transação.
+  // Uma sessão de jogador também recebe alterações feitas pelo mestre. O
+  // envelope continua sendo reconstruído pelo Runas Core; o VTT só transporta.
+  useEffect(() => {
+    if (!isReady || !isRunasVttSeat() || typeof window === "undefined") return
+    const bridge = getRunasVtt(window)
+    if (!bridge) return
+    let active = true
+    const pull = async () => {
+      try {
+        const token = (await bridge.getTokens())[0]
+        if (!active || !token) return
+        const incoming = characterFromVttToken(token)
+        if (JSON.stringify(incoming) !== JSON.stringify(characterRef.current)) {
+          remoteUpdate.current = true
+          setCharacter(incoming)
+        }
+      } catch { /* reconexão ou ficha ainda não anexada */ }
+    }
+    const unsubscribe = bridge.onTokensChanged(() => { void pull() })
+    void pull()
+    return () => { active = false; unsubscribe() }
+  }, [isReady])
+
+  // Autosave com debounce: agrupa edições rápidas em uma única transação e,
+  // quando o Tools veio de um assento, envia a mesma versão ao VTT.
   useEffect(() => {
     if (!isReady) return
     setSaveStatus("saving")
@@ -84,7 +114,22 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
       void saveCharacterDatabase(character).then(() => setSaveStatus("saved"))
     }, 300)
     savedTimeout.current = saveTimeout
-    return () => clearTimeout(saveTimeout)
+    let vttTimeout: ReturnType<typeof setTimeout> | null = null
+    if (remoteUpdate.current) {
+      remoteUpdate.current = false
+    } else if (isRunasVttSeat() && typeof window !== "undefined") {
+      vttTimeout = setTimeout(async () => {
+        try {
+          const bridge = getRunasVtt(window)
+          const token = bridge ? (await bridge.getTokens())[0] : null
+          if (bridge && token) {
+            const value = toVttCharacter(characterRef.current, "tools")
+            await bridge.updateTokenCharacter(token.id, value.envelope, value.summary)
+          }
+        } catch { /* a conflict will be surfaced by the next bridge refresh */ }
+      }, 400)
+    }
+    return () => { clearTimeout(saveTimeout); if (vttTimeout) clearTimeout(vttTimeout) }
   }, [character, isReady])
 
   useEffect(() => {
