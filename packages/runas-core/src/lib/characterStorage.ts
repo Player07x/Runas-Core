@@ -1,4 +1,5 @@
-import type { AbilityCostMode, AbilityCostType, Character, CharacterAbility, CharacterBond, CharacterInventoryItem, CharacterNote, CharacterSaveFile, CharacterSkill, CharacterSpell, InventoryItemType, InventoryUsage, SecondaryAttributeKey, SpellMagicType, SpellRangeType } from "../types/character"
+import type { AbilityCostMode, AbilityCostType, Character, CharacterAbility, CharacterBond, CharacterElementSkill, CharacterInventoryItem, CharacterNote, CharacterSaveFile, CharacterSkill, CharacterSpell, InventoryItemType, InventoryUsage, SecondaryAttributeKey, SpellMagicType, SpellRangeType } from "../types/character"
+import { characterElements } from "../data/elements"
 import { CHARACTER_VERSION } from "../types/character"
 import { CORE_SKILL_IDS, createCoreSkills } from "../data/skills"
 import { calculateItemSizeModifier, calculateLoadBase, deriveCharacterInfo, modifierToNumber } from "./characterCalculations"
@@ -94,6 +95,7 @@ export function createEmptyCharacter(): Character {
     skills: createCoreSkills(),
     bonds: [],
     abilities: [],
+    elements: [],
     spells: [],
     inventory: [],
     notes: [],
@@ -228,6 +230,30 @@ export function normalizeAbilities(partialAbilities: CharacterAbility[] | undefi
   })
 }
 
+/**
+ * Elementos da seção de Magias (versão 23). Um elemento tem só nome e nível:
+ * sem nome ele não existe, e o nível nunca é negativo.
+ */
+export function normalizeElements(partialElements: CharacterElementSkill[] | undefined): CharacterElementSkill[] {
+  const source = Array.isArray(partialElements) ? partialElements : []
+  const usedIds = new Set<string>()
+
+  return source.flatMap((element, index) => {
+    if (!element || typeof element !== "object") return []
+    const elementId = typeof element.elementId === "string" && characterElements.some((candidate) => candidate.id === element.elementId)
+      ? element.elementId
+      : ""
+    const name = elementId
+      ? characterElements.find((candidate) => candidate.id === elementId)!.name
+      : typeof element.name === "string" ? element.name.trim().slice(0, 40) : ""
+    if (!name) return []
+    let id = typeof element.id === "string" && element.id.trim() ? element.id.trim() : `element-${index + 1}`
+    while (usedIds.has(id)) id = `${id}-${index + 1}`
+    usedIds.add(id)
+    return [{ id, elementId, name, level: Math.max(0, integer(element.level)) }]
+  })
+}
+
 const spellMagicTypes = new Set<SpellMagicType>(["aura", "quick", "spell", "ritual", "enchantment"])
 const spellRangeTypes = new Set<SpellRangeType>(["touch", "personal", "projectile", "targets", "area"])
 
@@ -289,6 +315,21 @@ function normalizeNotes(partialNotes: CharacterNote[] | undefined): CharacterNot
   })
 }
 
+/** Campos de ligação únicos das fichas anteriores à versão 23. */
+interface LegacyInventoryLinks { enchantmentSpellId?: unknown; bondAbilityId?: unknown }
+
+/** Lista de ids sem repetição, aceitando o campo único das fichas antigas. */
+function normalizeIdList(value: unknown, legacy?: unknown): string[] {
+  const source = Array.isArray(value) ? value : typeof legacy === "string" && legacy.trim() ? [legacy] : []
+  const ids: string[] = []
+  for (const entry of source) {
+    if (typeof entry !== "string") continue
+    const id = entry.trim().slice(0, 100)
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
+
 const inventoryUsages = new Set<InventoryUsage>(["equipped", "stored", "absent"])
 const inventoryItemTypes = new Set<InventoryItemType>([
   "innate", "weapon", "armor", "shield", "artifact", "material", "consumable", "tool", "utility", "accessory", "currency", "other",
@@ -334,9 +375,11 @@ export function normalizeInventory(partialItems: CharacterInventoryItem[] | unde
       prCurrent: item.prCurrent === null || item.prCurrent === undefined
         ? null
         : Math.min(item.prMaximum === null || item.prMaximum === undefined ? Number.POSITIVE_INFINITY : Math.max(0, integer(item.prMaximum)), Math.max(0, integer(item.prCurrent))),
-      enchantmentSpellId: typeof item.enchantmentSpellId === "string" ? item.enchantmentSpellId.slice(0, 100) : "",
+      // Versão 23: o encantamento e a habilidade de vínculo únicos viraram listas
+      // que aceitam qualquer magia e qualquer habilidade da ficha.
+      abilityIds: normalizeIdList(item.abilityIds, (item as LegacyInventoryLinks).bondAbilityId),
+      spellIds: normalizeIdList(item.spellIds, (item as LegacyInventoryLinks).enchantmentSpellId),
       bondId: typeof item.bondId === "string" ? item.bondId.slice(0, 100) : "",
-      bondAbilityId: typeof item.bondAbilityId === "string" ? item.bondAbilityId.slice(0, 100) : "",
       skillId: typeof item.skillId === "string" ? item.skillId.slice(0, 100) : "",
       description: typeof item.description === "string" ? item.description.slice(0, 5000) : "",
     }]
@@ -452,6 +495,7 @@ export function normalizeCharacter(partial: Partial<Character> | undefined): Cha
   const skills = normalizeSkills(partial.skills)
   const bonds = normalizeBonds(partial.bonds)
   const abilities = normalizeAbilities(partial.abilities)
+  const elements = normalizeElements(partial.elements)
   const spells = normalizeSpells(partial.spells)
   const inventory = normalizeInventory(partial.inventory, partial.version ?? 1)
   const notes = normalizeNotes(partial.notes)
@@ -485,6 +529,7 @@ export function normalizeCharacter(partial: Partial<Character> | undefined): Cha
     skills,
     bonds,
     abilities,
+    elements,
     spells,
     inventory,
     notes,

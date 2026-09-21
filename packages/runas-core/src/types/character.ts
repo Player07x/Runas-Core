@@ -66,6 +66,20 @@ export interface CharacterBond {
   modifier: number
 }
 
+/**
+ * Elemento conhecido pelo personagem, na seção de Magias. É um recorte curto
+ * da perícia: não tem pontos nem modificadores, só nível. O teste é
+ * `Místico + Poder + nível`, e o sistema aceita um elemento onde aceita uma
+ * perícia. `elementId` aponta para `characterElements`; vazio significa um
+ * elemento digitado à mão, identificado só pelo nome.
+ */
+export interface CharacterElementSkill {
+  id: string
+  elementId: string
+  name: string
+  level: number
+}
+
 export type AbilityCostType = "none" | "other" | "pv" | "pa" | "pe" | "paExtra" | "peTemporary"
 export type AbilityCostMode = "fixed" | "relative"
 
@@ -126,7 +140,7 @@ export interface CharacterInventoryItem {
   baseWeight: number
   /** Comprimento do item em centímetros; o MT é derivado deste valor. */
   size: number
-  /** Modificador de tamanho do item, sempre derivado de `size` com o ajuste de +2. */
+  /** Modificador de tamanho do item, sempre derivado de `size` pela tabela de tamanho, sem ajuste. */
   mt: number
   quantity: number
   applyScaleWeight: boolean
@@ -137,9 +151,11 @@ export interface CharacterInventoryItem {
   equippedAsArmor: boolean
   prCurrent: number | null
   prMaximum: number | null
-  enchantmentSpellId: string
+  /** Habilidades da ficha anexadas ao item, de qualquer categoria. Substitui `bondAbilityId` desde a versão 23. */
+  abilityIds: string[]
+  /** Magias da ficha anexadas ao item, de qualquer tipo — não só encantamentos. Substitui `enchantmentSpellId` desde a versão 23. */
+  spellIds: string[]
   bondId: string
-  bondAbilityId: string
   skillId: string
   description: string
 }
@@ -205,6 +221,8 @@ export interface Character {
   skills: CharacterSkill[]
   bonds: CharacterBond[]
   abilities: CharacterAbility[]
+  /** Elementos conhecidos, exibidos no topo de Magias. Desde a versão 23. */
+  elements: CharacterElementSkill[]
   spells: CharacterSpell[]
   inventory: CharacterInventoryItem[]
   notes: CharacterNote[]
@@ -230,4 +248,4 @@ export interface CharacterSaveFile {
   character: Character
 }
 
-export const CHARACTER_VERSION = 22
+export const CHARACTER_VERSION = 23

@@ -11,7 +11,7 @@ import { cronosFameScopes } from "@runas/cronos-core/data/fame"
 import { cronosRaceOptions } from "@runas/cronos-core/data/races"
 import { calculateAttributeMaximum, calculateCronosStats, calculateFameProgress } from "@runas/cronos-core/lib/calculations"
 import { parseCronosCharacterFile } from "@runas/cronos-core/lib/characterStorage"
-import type { CronosAttributeKey, CronosCharacter, CronosFame, CronosInventoryItem, CronosSkill, CronosSpell } from "@runas/cronos-core/types/character"
+import type { CronosAbility, CronosAttributeKey, CronosCharacter, CronosFame, CronosInventoryItem, CronosSkill, CronosSpell } from "@runas/cronos-core/types/character"
 import { CRONOS_CHARACTER_VERSION } from "@runas/cronos-core/types/character"
 import type { AbilityCostType, CharacterAbility, CharacterAttributes, CharacterInfo, CharacterInventoryItem, CharacterNote, CharacterSkill, CharacterSpell, CharacterStats, SecondaryAttributeKey } from "@runas/core/types/character"
 import { createEmptyCharacter } from "@runas/core/lib/characterStorage"
@@ -200,23 +200,42 @@ export function CronosCharacterSheet({ activeTab, onActiveTabChange }: Props) {
     })
   }
 
+  /** Cria o registro pedido pelo painel de anexos do item e devolve o `id`. */
+  function createAbilityForItem(ability: ImportedAbility): string {
+    const id = randomId("ability")
+    updateCharacter((previous) => ({ ...previous, abilities: [...previous.abilities, { id, ...ability } as CronosAbility] }))
+    return id
+  }
+
+  function createSpellForItem(spell: ImportedSpell): string {
+    const id = randomId("spell")
+    updateCharacter((previous) => ({ ...previous, spells: [...previous.spells, { id, ...spell } as CronosSpell] }))
+    return id
+  }
+
   function importInventoryItems(importedItems: ImportedInventoryItem[]) {
     updateCharacter((previous) => {
       let equippedArmorExists = previous.inventory.some((item) => item.usage === "equipped" && item.equippedAsArmor)
       const spells = [...previous.spells]
+      const abilities = [...previous.abilities]
       const findByName = <T extends { id: string; name: string }>(values: T[], name: string): string => values.find((value) => normalizeSkillName(value.name) === normalizeSkillName(name))?.id ?? ""
       const imported = importedItems.map((item, index): CronosInventoryItem => {
         const equippedAsArmor = item.usage === "equipped" && item.equippedAsArmor && !equippedArmorExists
         if (equippedAsArmor) equippedArmorExists = true
-        let enchantmentSpellId = ""
-        if (item.enchantment) {
-          const existing = spells.find((spell) => spell.magicType === "enchantment" && normalizeSkillName(spell.name) === normalizeSkillName(item.enchantment?.name ?? ""))
-          if (existing) enchantmentSpellId = existing.id
-          else {
-            enchantmentSpellId = randomId(`spell-import-${index}`)
-            spells.push({ id: enchantmentSpellId, ...item.enchantment } as CronosSpell)
-          }
-        }
+        const spellIds = item.spells.map((entry, spellIndex) => {
+          const existing = spells.find((spell) => normalizeSkillName(spell.name) === normalizeSkillName(entry.name))
+          if (existing) return existing.id
+          const id = randomId(`spell-import-${index}-${spellIndex}`)
+          spells.push({ id, ...entry } as CronosSpell)
+          return id
+        })
+        const abilityIds = item.abilities.map((entry, abilityIndex) => {
+          const existing = abilities.find((ability) => normalizeSkillName(ability.name) === normalizeSkillName(entry.name))
+          if (existing) return existing.id
+          const id = randomId(`ability-import-${index}-${abilityIndex}`)
+          abilities.push({ id, ...entry } as CronosAbility)
+          return id
+        })
         return {
           id: randomId(`item-import-${index}`),
           usage: item.usage,
@@ -225,6 +244,8 @@ export function CronosCharacterSheet({ activeTab, onActiveTabChange }: Props) {
           affinity: 0,
           bondPoints: 0,
           baseWeight: item.baseWeight,
+          size: item.size,
+          mt: item.mt,
           quantity: item.quantity,
           applyScaleWeight: item.applyScaleWeight,
           damage: item.damage,
@@ -233,15 +254,15 @@ export function CronosCharacterSheet({ activeTab, onActiveTabChange }: Props) {
           equippedAsArmor,
           prCurrent: item.prCurrent,
           prMaximum: item.prMaximum,
-          enchantmentSpellId,
+          abilityIds,
+          spellIds,
           bondId: "",
-          bondAbilityId: findByName(previous.abilities, item.bondAbilityName),
           skillId: findByName(previous.skills, item.skillName),
           description: item.description,
         }
       })
       const inventory = [...previous.inventory, ...imported]
-      return { ...previous, spells, inventory, stats: { ...previous.stats, currentLoad: calculateInventoryLoad(inventory as CharacterInventoryItem[], previous.info.scaleMultiplier) } }
+      return { ...previous, spells, abilities, inventory, stats: { ...previous.stats, currentLoad: calculateInventoryLoad(inventory as CharacterInventoryItem[], previous.info.scaleMultiplier) } }
     })
   }
 
@@ -373,8 +394,8 @@ export function CronosCharacterSheet({ activeTab, onActiveTabChange }: Props) {
       {activeTab === "skills" && <CronosSkills character={character} updateCharacter={updateCharacter} />}
       {activeTab === "bonds" && <CronosFameSection character={character} updateCharacter={updateCharacter} />}
       {activeTab === "abilities" && <CharacterAbilities characterName={character.name} abilities={character.abilities as CharacterAbility[]} stats={blueContext.stats} onAddAbility={(ability) => updateCharacter((previous) => ({ ...previous, abilities: [...previous.abilities, ability] }))} onImportAbilities={importAbilities} onAbilityChange={(id, updates) => updateCharacter((previous) => ({ ...previous, abilities: previous.abilities.map((ability) => ability.id === id ? { ...ability, ...updates } : ability) }))} onRemoveAbility={(id) => updateCharacter((previous) => ({ ...previous, abilities: previous.abilities.filter((ability) => ability.id !== id) }))} onApplyCost={applyCost} />}
-      {activeTab === "inventory" && <CharacterInventory variant="cronos" characterName={character.name} items={character.inventory as CharacterInventoryItem[]} info={blueContext.info} attributes={blueContext.attributes} stats={blueContext.stats} skills={blueContext.skills} bonds={[]} abilities={character.abilities as CharacterAbility[]} spells={character.spells as CharacterSpell[]} onItemsChange={(items) => updateCharacter((previous) => ({ ...previous, inventory: items, stats: { ...previous.stats, currentLoad: calculateInventoryLoad(items, previous.info.scaleMultiplier) } }))} onImportItems={importInventoryItems} onLoadBonusChange={(loadBonus) => updateCharacter((previous) => ({ ...previous, stats: { ...previous.stats, loadBonus } }))} />}
-      {activeTab === "spells" && <CharacterSpells variant="cronos" characterName={character.name} spells={character.spells as CharacterSpell[]} skills={blueContext.skills} stats={blueContext.stats} onAddSpell={(spell) => updateCharacter((previous) => ({ ...previous, spells: [...previous.spells, spell] }))} onImportSpells={importSpells} onSpellChange={(id, updates) => updateCharacter((previous) => ({ ...previous, spells: previous.spells.map((spell) => spell.id === id ? { ...spell, ...updates } : spell) }))} onRemoveSpell={(id) => updateCharacter((previous) => ({ ...previous, spells: previous.spells.filter((spell) => spell.id !== id) }))} onApplyCost={applyCost} />}
+      {activeTab === "inventory" && <CharacterInventory variant="cronos" characterName={character.name} items={character.inventory as CharacterInventoryItem[]} info={blueContext.info} attributes={blueContext.attributes} stats={blueContext.stats} skills={blueContext.skills} bonds={[]} abilities={character.abilities as CharacterAbility[]} elements={[]} spells={character.spells as CharacterSpell[]} onCreateAbility={createAbilityForItem} onCreateSpell={createSpellForItem} onItemsChange={(items) => updateCharacter((previous) => ({ ...previous, inventory: items, stats: { ...previous.stats, currentLoad: calculateInventoryLoad(items, previous.info.scaleMultiplier) } }))} onImportItems={importInventoryItems} onLoadBonusChange={(loadBonus) => updateCharacter((previous) => ({ ...previous, stats: { ...previous.stats, loadBonus } }))} />}
+      {activeTab === "spells" && <CharacterSpells variant="cronos" characterName={character.name} spells={character.spells as CharacterSpell[]} skills={blueContext.skills} attributes={blueContext.attributes} elements={[]} onElementsChange={() => undefined} stats={blueContext.stats} onAddSpell={(spell) => updateCharacter((previous) => ({ ...previous, spells: [...previous.spells, spell] }))} onImportSpells={importSpells} onSpellChange={(id, updates) => updateCharacter((previous) => ({ ...previous, spells: previous.spells.map((spell) => spell.id === id ? { ...spell, ...updates } : spell) }))} onRemoveSpell={(id) => updateCharacter((previous) => ({ ...previous, spells: previous.spells.filter((spell) => spell.id !== id) }))} onApplyCost={applyCost} />}
       {activeTab === "notes" && <CharacterNotes notes={character.notes as CharacterNote[]} onAddNote={(note) => updateCharacter((previous) => ({ ...previous, notes: [...previous.notes, note] }))} onNoteChange={(id, updates) => updateCharacter((previous) => ({ ...previous, notes: previous.notes.map((note) => note.id === id ? { ...note, ...updates } : note) }))} onRemoveNote={(id) => updateCharacter((previous) => ({ ...previous, notes: previous.notes.filter((note) => note.id !== id) }))} />}
     </div>
   )

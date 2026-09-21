@@ -56,6 +56,12 @@ export interface BookRecord {
   chapters: BookChapter[]
   /** Páginas livres do DM (texto, imagem, tabela) inseridas entre o sumário e os capítulos na exportação. */
   customPages: BookCustomPage[]
+  /**
+   * Cor da box de todos os recursos de uma categoria, escolhida pelo DM.
+   * A chave é a categoria normalizada (`resourceCategoryKey`), então "Terra",
+   * "terra" e "TERRA" compartilham a mesma cor.
+   */
+  categoryColors?: Record<string, string>
 }
 
 export interface BookWorkspace {
@@ -129,7 +135,7 @@ export function plainTextFromHtml(html: string): string {
 
 export function createResourceEntity(kind: BookResourceKind, title: string): BookResourceEntity {
   if (kind === "item") {
-    return { id: makeId("item"), usage: "stored", name: title, type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
+    return { id: makeId("item"), usage: "stored", name: title, type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" }
   }
   if (kind === "spell") {
     return { id: makeId("spell"), category: "Arcana", name: title, description: "", costType: "pe", costMode: "fixed", costValue: 1, costText: "1 PE", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }

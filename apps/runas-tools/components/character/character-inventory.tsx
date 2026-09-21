@@ -11,6 +11,7 @@ import type {
   CharacterAbility,
   CharacterAttributes,
   CharacterBond,
+  CharacterElementSkill,
   CharacterInfo,
   CharacterInventoryItem,
   CharacterSkill,
@@ -22,6 +23,8 @@ import type {
 import { calculateBondQuality, calculateBondTest, formatSigned } from "@runas/core/lib/bondCalculations"
 import { calculateAttributeTest, calculateSkillLevel, calculateSkillModifier, normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
+import { calculateItemDamageBonus, composeItemDamageExpression } from "@runas/core/lib/itemDamage"
+import { listCharacterTestSources } from "@runas/core/lib/characterTestSources"
 import { getAttributeDef } from "@runas/core/data/attributes"
 import {
   calculateEquippedArmorDefense,
@@ -40,6 +43,9 @@ import {
 import { useCharacterPanel } from "./character-panel"
 import { calculateCharacterStatSnapshot } from "@runas/core/lib/characterStatCalculations"
 import { exportInventoryList, parseInventoryListFile, type ImportedInventoryItem } from "@/lib/inventoryTransfer"
+import type { ImportedAbility } from "@runas/core/lib/abilityTransfer"
+import type { ImportedSpell } from "@runas/core/lib/spellTransfer"
+import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
 
 interface Props {
   variant?: "runas-blue" | "cronos"
@@ -51,10 +57,14 @@ interface Props {
   skills: CharacterSkill[]
   bonds: CharacterBond[]
   abilities: CharacterAbility[]
+  elements: CharacterElementSkill[]
   spells: CharacterSpell[]
   onItemsChange: (items: CharacterInventoryItem[]) => void
   onImportItems: (items: ImportedInventoryItem[]) => void
   onLoadBonusChange: (value: number) => void
+  /** Cria o registro na ficha e devolve o `id` para o item anexar. */
+  onCreateAbility: (ability: ImportedAbility) => string
+  onCreateSpell: (spell: ImportedSpell) => string
 }
 
 type ReferencePreview =
@@ -85,12 +95,19 @@ function createInventoryItem(): CharacterInventoryItem {
     equippedAsArmor: false,
     prCurrent: null,
     prMaximum: null,
-    enchantmentSpellId: "",
+    abilityIds: [],
+    spellIds: [],
     bondId: "",
-    bondAbilityId: "",
     skillId: "",
     description: "",
   }
+}
+
+const EDITOR_MODE_KEY = "runas-tools:item-editor-mode"
+
+function readEditorMode(): "simple" | "advanced" {
+  if (typeof window === "undefined") return "simple"
+  try { return window.localStorage.getItem(EDITOR_MODE_KEY) === "advanced" ? "advanced" : "simple" } catch { return "simple" }
 }
 
 function plainText(value: string): string {
@@ -112,7 +129,7 @@ function costSummary(source: Pick<CharacterAbility, "costType" | "costMode" | "c
   return source.costMode === "relative" ? `${source.costType} · Relativo` : `${source.costValue} ${source.costType}`
 }
 
-function sanitizeItem(item: CharacterInventoryItem, matchingBonds: CharacterBond[], enchantmentSpells: CharacterSpell[]): CharacterInventoryItem {
+function sanitizeItem(item: CharacterInventoryItem, matchingBonds: CharacterBond[], abilities: CharacterAbility[], spells: CharacterSpell[]): CharacterInventoryItem {
   const affinity = Math.max(0, Math.min(4, Math.trunc(item.affinity))) as CharacterInventoryItem["affinity"]
   const prMaximum = item.prMaximum === null ? null : Math.max(0, Math.trunc(item.prMaximum))
   const prCurrent = item.prCurrent === null
@@ -134,13 +151,14 @@ function sanitizeItem(item: CharacterInventoryItem, matchingBonds: CharacterBond
     equippedAsArmor: item.usage === "equipped" && Boolean(item.equippedAsArmor),
     prCurrent,
     prMaximum,
-    enchantmentSpellId: enchantmentSpells.some((spell) => spell.id === item.enchantmentSpellId) ? item.enchantmentSpellId : "",
+    abilityIds: item.abilityIds.filter((id) => abilities.some((ability) => ability.id === id)),
+    spellIds: item.spellIds.filter((id) => spells.some((spell) => spell.id === id)),
     bondId: matchingBonds.some((bond) => bond.id === item.bondId) ? item.bondId : "",
     description: item.description.slice(0, 5000),
   }
 }
 
-export function CharacterInventory({ variant = "runas-blue", characterName, items, info, attributes, stats, skills, bonds, abilities, spells, onItemsChange, onImportItems, onLoadBonusChange }: Props) {
+export function CharacterInventory({ variant = "runas-blue", characterName, items, info, attributes, stats, skills, bonds, abilities, elements, spells, onItemsChange, onImportItems, onLoadBonusChange, onCreateAbility, onCreateSpell }: Props) {
   const router = useRouter()
   const { close } = useCharacterPanel()
   const [draft, setDraft] = useState<CharacterInventoryItem | null>(null)
@@ -153,6 +171,9 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
   const [importFilename, setImportFilename] = useState("")
   const [importError, setImportError] = useState<string | null>(null)
+  // O modo escolhido acompanha o usuário entre itens e sessões: quem cria fichas
+  // rápidas não quer reabrir o formulário completo a cada item.
+  const [editorMode, setEditorMode] = useState<"simple" | "advanced">(readEditorMode)
 
   const currentLoad = calculateInventoryLoad(items, info.scaleMultiplier)
   const statSnapshot = useMemo(() => calculateCharacterStatSnapshot(attributes, info, { ...stats, currentLoad }, skills, abilities), [abilities, attributes, currentLoad, info, skills, stats])
@@ -165,6 +186,19 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
   const matchingBonds = useMemo(() => draft
     ? bonds.filter((bond) => normalizeSkillName(bond.name) === normalizeSkillName(draft.name))
     : [], [bonds, draft])
+  const testSources = useMemo(() => listCharacterTestSources({ attributes, skills, elements }), [attributes, skills, elements])
+  const advanced = editorMode === "advanced"
+  // No modo simples, cada campo de combate aparece só para o tipo que o usa.
+  const showDamage = advanced || draft?.type === "weapon"
+  const showSkill = advanced || draft?.type === "weapon"
+  const showDefense = advanced || draft?.type === "armor" || draft?.type === "shield"
+  const showPr = advanced || draft?.type === "shield"
+  const draftBonus = calculateItemDamageBonus(draft ?? { affinity: 0, bondPoints: 0, mt: 0, applyScaleWeight: false }, info.sizeModifier)
+
+  function changeEditorMode(mode: "simple" | "advanced") {
+    setEditorMode(mode)
+    try { window.localStorage.setItem(EDITOR_MODE_KEY, mode) } catch { /* preferência opcional */ }
+  }
 
   function openItem(item: CharacterInventoryItem, mode: "view" | "edit" = "view") {
     setDraft({ ...item })
@@ -239,7 +273,7 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
   function saveDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft) return
-    applyItem(sanitizeItem(draft, matchingBonds, enchantmentSpells))
+    applyItem(sanitizeItem(draft, matchingBonds, abilities, spells))
   }
 
   function changeUsage(item: CharacterInventoryItem, usage: InventoryUsage) {
@@ -276,10 +310,16 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
     router.push(`/calculadora-testes?bond=${encodeURIComponent(bond.id)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
   }
 
+  /**
+   * O bônus do item entra na própria expressão (`2D+2` com bônus 10 vira
+   * `2D+12`). O MT não multiplica mais o dano: com `Usar MT?` ativo ele já
+   * está somado ao bônus pela diferença para o MT do personagem.
+   */
   function rollDamage(item: CharacterInventoryItem) {
     if (!item.damage.trim()) return
     close()
-    router.push(`/calculadora-dano?damage=${encodeURIComponent(item.damage)}&roll=${encodeURIComponent(crypto.randomUUID())}&applyMt=yes&mt=${encodeURIComponent(String(item.mt || 0))}`)
+    const expression = composeItemDamageExpression(item.damage, calculateItemDamageBonus(item, info.sizeModifier).total)
+    router.push(`/calculadora-dano?damage=${encodeURIComponent(expression)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
   }
 
   function updateShieldPr(itemId: string, value: number | null) {
@@ -367,7 +407,7 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
               <input ref={importFileRef} type="file" accept="application/json,.json" onChange={loadInventoryFile} className="hidden" />
               <button type="button" onClick={() => importFileRef.current?.click()} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[18px] border border-dashed border-input bg-background/65 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-primary/55 hover:text-foreground"><Upload className="size-4" /> {importFilename ? "Escolher outro arquivo" : "Escolher arquivo de inventário"}</button>
               {importFilename && <p className="mt-2 truncate text-xs text-muted-foreground">Arquivo: <strong>{importFilename}</strong></p>}
-              {importedItems.length > 0 && <div className="mt-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-foreground">{selectedItems.size} de {importedItems.length} selecionados</p><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setSelectedItems(new Set(importedItems.map((_, index) => index)))} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10">Selecionar todos</button><button type="button" onClick={() => setSelectedItems(new Set())} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Limpar seleção</button></div></div><div className="mt-3 space-y-2">{importedItems.map((item, index) => { const selected = selectedItems.has(index); return <label key={`${item.name}-${index}`} className={`flex cursor-pointer items-center gap-3 rounded-[18px] border p-3 transition ${selected ? "border-primary/45 bg-primary/5" : "border-border bg-background/45"}`}><input type="checkbox" checked={selected} onChange={() => toggleImportedItem(index)} aria-label={`Selecionar ${item.name}`} className="size-5 shrink-0 accent-primary" /><span className="min-w-0 flex-1"><strong className="block truncate text-sm text-foreground">{item.name}</strong><span className="block truncate text-xs text-muted-foreground">{inventoryTypeLabel(item.type)} · {inventoryUsageLabel(item.usage)} · Qtd. {item.quantity} · {formatWeight(item.baseWeight)} kg cada{item.damage ? ` · ${item.damage}` : ""}{item.enchantment ? ` · Encantamento: ${item.enchantment.name}` : ""}</span></span></label> })}</div></div>}
+              {importedItems.length > 0 && <div className="mt-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-foreground">{selectedItems.size} de {importedItems.length} selecionados</p><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setSelectedItems(new Set(importedItems.map((_, index) => index)))} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10">Selecionar todos</button><button type="button" onClick={() => setSelectedItems(new Set())} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Limpar seleção</button></div></div><div className="mt-3 space-y-2">{importedItems.map((item, index) => { const selected = selectedItems.has(index); return <label key={`${item.name}-${index}`} className={`flex cursor-pointer items-center gap-3 rounded-[18px] border p-3 transition ${selected ? "border-primary/45 bg-primary/5" : "border-border bg-background/45"}`}><input type="checkbox" checked={selected} onChange={() => toggleImportedItem(index)} aria-label={`Selecionar ${item.name}`} className="size-5 shrink-0 accent-primary" /><span className="min-w-0 flex-1"><strong className="block truncate text-sm text-foreground">{item.name}</strong><span className="block truncate text-xs text-muted-foreground">{inventoryTypeLabel(item.type)} · {inventoryUsageLabel(item.usage)} · Qtd. {item.quantity} · {formatWeight(item.baseWeight)} kg cada{item.damage ? ` · ${item.damage}` : ""}{item.spells.length > 0 ? ` · ${item.spells.map((spell) => spell.name).join(", ")}` : ""}{item.abilities.length > 0 ? ` · ${item.abilities.map((ability) => ability.name).join(", ")}` : ""}</span></span></label> })}</div></div>}
               {importError && <div role="alert" className="mt-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{importError}</div>}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-border p-4 sm:flex-row sm:justify-end sm:px-6"><Button type="button" variant="outline" onClick={() => setShowImport(false)}>Cancelar</Button><Button type="submit" disabled={selectedItems.size === 0}><Upload /> Importar {selectedItems.size || "selecionados"}</Button></div>
@@ -381,38 +421,41 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
           {dialogMode === "view"
             ? <ItemView variant={variant} item={draft} info={info} skills={skills} bonds={bonds} abilities={abilities} spells={spells} attributes={attributes} stats={stats} onClose={() => setDraft(null)} onEdit={() => setDialogMode("edit")} onDelete={() => removeItem(draft)} onReference={setReferencePreview} onRollSkill={rollSkill} onRollBond={rollBond} onRollDamage={rollDamage} />
             : <form onSubmit={saveDraft} role="dialog" aria-modal="true" aria-labelledby="inventory-editor-title" className="max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-border bg-card p-4 shadow-2xl sm:p-6">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modo edição</p><h2 id="inventory-editor-title" className="mt-1 text-lg font-bold text-foreground">{draftIsNew ? "Novo item" : draft.name}</h2></div><button type="button" onClick={() => setDraft(null)} aria-label="Fechar item" className="inline-flex size-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted"><X className="size-5" /></button></div>
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modo edição</p><h2 id="inventory-editor-title" className="mt-1 text-lg font-bold text-foreground">{draftIsNew ? "Novo item" : draft.name}</h2></div><div className="flex items-center gap-2"><div className="flex rounded-xl border border-border bg-muted/40 p-0.5" role="group" aria-label="Modo de criação do item">{([["simple", "Simples"], ["advanced", "Avançado"]] as const).map(([value, label]) => <button key={value} type="button" onClick={() => changeEditorMode(value)} aria-pressed={editorMode === value} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${editorMode === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>{label}</button>)}</div><button type="button" onClick={() => setDraft(null)} aria-label="Fechar item" className="inline-flex size-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted"><X className="size-5" /></button></div></div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <label className="sm:col-span-2"><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Nome</span><input required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" /></label>
                   <Select label="Uso" value={draft.usage} options={draft.type === "innate" ? inventoryUsageOptions.filter((option) => option.value !== "stored") : inventoryUsageOptions} onChange={(value) => setDraft({ ...draft, usage: value as InventoryUsage })} />
                   <Select label="Tipo" value={draft.type} options={inventoryTypeOptions} onChange={(value) => { const type = value as InventoryItemType; setDraft({ ...draft, type, usage: normalizeInventoryUsage(type, draft.usage) }) }} />
-                  {variant === "runas-blue" && <Select label="Afinidade" value={String(draft.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => setDraft({ ...draft, affinity: Number(value) as CharacterInventoryItem["affinity"] })} />}
-                  {variant === "runas-blue" && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Pontos de Vínculo</span><input type="number" min={0} step={1} value={draft.bondPoints} onChange={(event) => setDraft({ ...draft, bondPoints: Math.max(0, Math.trunc(Number(event.target.value) || 0)) })} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring" /><span className="mt-1 block text-xs text-muted-foreground">Raridade: {itemRarity(draft.bondPoints)}</span></label>}
+                  {advanced && variant === "runas-blue" && <Select label="Afinidade" value={String(draft.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => setDraft({ ...draft, affinity: Number(value) as CharacterInventoryItem["affinity"] })} />}
+                  {advanced && variant === "runas-blue" && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Pontos de Vínculo</span><input type="number" min={0} step={1} value={draft.bondPoints} onChange={(event) => setDraft({ ...draft, bondPoints: Math.max(0, Math.trunc(Number(event.target.value) || 0)) })} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring" /><span className="mt-1 block text-xs text-muted-foreground">Raridade: {itemRarity(draft.bondPoints)}</span></label>}
                   <NumberInput label="Peso Base (kg)" value={draft.baseWeight} min={0} step={0.001} onChange={(baseWeight) => setDraft({ ...draft, baseWeight: Math.max(0, baseWeight) })} />
                   <NumberInput label="Tamanho (cm)" value={draft.size} min={0} step={0.1} onChange={(size) => setDraft({ ...draft, size: Math.max(0, size), mt: calculateItemSizeModifier(size) })} />
-                  <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">MT</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{draft.mt}</output></label>
+                  <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">MT</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{formatSigned(draft.mt)}</output></label>
                   <NumberInput label="Quantidade" value={draft.quantity} min={1} step={1} onChange={(quantity) => setDraft({ ...draft, quantity: Math.max(1, Math.trunc(quantity || 1)) })} />
-                  {draft.baseWeight > 0 && <SegmentedToggle label="Aplicar MT ao peso?" value={draft.applyScaleWeight ? "yes" : "no"} onChange={(value) => setDraft({ ...draft, applyScaleWeight: value === "yes" })} options={[{ value: "yes", label: "Sim" }, { value: "no", label: "Não" }]} />}
+                  <SegmentedToggle label="Usar MT?" value={draft.applyScaleWeight ? "yes" : "no"} onChange={(value) => setDraft({ ...draft, applyScaleWeight: value === "yes" })} options={[{ value: "yes", label: "Sim" }, { value: "no", label: "Não" }]} />
                   {draft.baseWeight > 0 && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Peso verdadeiro</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{formatWeight(calculateItemRealWeight(draft, info.scaleMultiplier))} kg</output></label>}
-                  <label className="sm:col-span-2"><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Dano (opcional)</span><input maxLength={160} value={draft.damage} onChange={(event) => setDraft({ ...draft, damage: event.target.value })} placeholder="3D+2 queimadura (+poder)" className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring" /><span className="mt-1 block text-xs text-muted-foreground">Use o mesmo formato da Entrada rápida da Calculadora de Dano.</span></label>
-                  <fieldset className="rounded-xl border border-border/80 bg-muted/15 p-3">
-                    <legend className="px-1 text-sm font-medium text-muted-foreground">RDF/RDM (opcional)</legend>
+                  {showDamage && <label className="sm:col-span-2"><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Dano</span><input maxLength={160} value={draft.damage} onChange={(event) => setDraft({ ...draft, damage: event.target.value })} placeholder="3D+2 queimadura (+poder)" className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none focus:border-ring" /><span className="mt-1 block text-xs text-muted-foreground">Use o mesmo formato da Entrada rápida da Calculadora de Dano.</span></label>}
+                  {showDamage && <label><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Bônus</span><output className="flex h-11 items-center rounded-xl border border-input bg-muted/65 px-3 text-sm font-semibold text-muted-foreground">{formatSigned(draftBonus.total)}</output><span className="mt-1 block text-xs text-muted-foreground">Afinidade {formatSigned(draftBonus.affinity)} · Vínculo {formatSigned(draftBonus.bond)}{draft.applyScaleWeight ? ` \u00b7 MT ${formatSigned(draftBonus.mt)}` : ""}. A calculadora recebe {composeItemDamageExpression(draft.damage, draftBonus.total) || "\u2014"}.</span></label>}
+                  {showDefense && <fieldset className="rounded-xl border border-border/80 bg-muted/15 p-3">
+                    <legend className="px-1 text-sm font-medium text-muted-foreground">RDF/RDM</legend>
                     <div className="grid grid-cols-2 gap-2">
                       <NumberInput label="RDF" value={draft.rdf} min={0} onChange={(rdf) => setDraft({ ...draft, rdf: Math.max(0, Math.trunc(rdf)) })} />
                       <NumberInput label="RDM" value={draft.rdm} min={0} onChange={(rdm) => setDraft({ ...draft, rdm: Math.max(0, Math.trunc(rdm)) })} />
                     </div>
-                  </fieldset>
-                  <fieldset className="rounded-xl border border-border/80 bg-muted/15 p-3">
-                    <legend className="px-1 text-sm font-medium text-muted-foreground">PR (opcional)</legend>
+                  </fieldset>}
+                  {showPr && <fieldset className="rounded-xl border border-border/80 bg-muted/15 p-3">
+                    <legend className="px-1 text-sm font-medium text-muted-foreground">PR</legend>
                     <div className="grid grid-cols-2 gap-2">
                       <OptionalNumberInput label="Atual" value={draft.prCurrent} max={draft.prMaximum ?? undefined} onChange={(prCurrent) => setDraft({ ...draft, prCurrent })} />
                       <OptionalNumberInput label="Máximo" value={draft.prMaximum} onChange={(prMaximum) => setDraft({ ...draft, prMaximum, prCurrent: draft.prCurrent === null || prMaximum === null ? draft.prCurrent : Math.min(draft.prCurrent, prMaximum) })} />
                     </div>
-                  </fieldset>
-                  <Select label="Encantamento (opcional)" value={draft.enchantmentSpellId} options={[{ value: "", label: enchantmentSpells.length ? "Nenhum" : "Nenhum encantamento cadastrado" }, ...enchantmentSpells.map((spell) => ({ value: spell.id, label: spell.name }))]} onChange={(value) => setDraft({ ...draft, enchantmentSpellId: value })} />
-                  {variant === "runas-blue" && <Select label="Vínculo (opcional)" value={draft.bondId} options={[{ value: "", label: matchingBonds.length ? "Nenhum" : "Nenhum vínculo com este nome" }, ...matchingBonds.map((bond) => ({ value: bond.id, label: bond.name }))]} onChange={(value) => setDraft({ ...draft, bondId: value })} />}
-                  <Select label={variant === "cronos" ? "Habilidade (opcional)" : "Habilidade de Vínculo (opcional)"} value={draft.bondAbilityId} options={[{ value: "", label: "Nenhuma" }, ...selectableAbilities.map((ability) => ({ value: ability.id, label: ability.name }))]} onChange={(value) => setDraft({ ...draft, bondAbilityId: value })} />
-                  <Select label="Perícia (opcional)" value={draft.skillId} options={[{ value: "", label: "Nenhuma" }, ...skills.map((skill) => ({ value: skill.id, label: skill.name }))]} onChange={(value) => setDraft({ ...draft, skillId: value })} />
+                  </fieldset>}
+                  <div className="grid gap-4 sm:col-span-2 lg:col-span-3 lg:grid-cols-2">
+                    <ItemAttachments kind="ability" attached={draft.abilityIds.flatMap((id) => { const ability = abilities.find((candidate) => candidate.id === id); return ability ? [abilityAttachment(ability)] : [] })} available={selectableAbilities.map(abilityAttachment)} onAttach={(id) => setDraft((current) => !current || current.abilityIds.includes(id) ? current : { ...current, abilityIds: [...current.abilityIds, id] })} onDetach={(id) => setDraft((current) => current && { ...current, abilityIds: current.abilityIds.filter((entry) => entry !== id) })} onCreateAbility={onCreateAbility} />
+                    <ItemAttachments kind="spell" attached={draft.spellIds.flatMap((id) => { const spell = spells.find((candidate) => candidate.id === id); return spell ? [spellAttachment(spell)] : [] })} available={spells.map(spellAttachment)} onAttach={(id) => setDraft((current) => !current || current.spellIds.includes(id) ? current : { ...current, spellIds: [...current.spellIds, id] })} onDetach={(id) => setDraft((current) => current && { ...current, spellIds: current.spellIds.filter((entry) => entry !== id) })} onCreateSpell={onCreateSpell} />
+                  </div>
+                  {advanced && variant === "runas-blue" && <Select label="Vínculo (opcional)" value={draft.bondId} options={[{ value: "", label: matchingBonds.length ? "Nenhum" : "Nenhum vínculo com este nome" }, ...matchingBonds.map((bond) => ({ value: bond.id, label: bond.name }))]} onChange={(value) => setDraft({ ...draft, bondId: value })} />}
+                  {showSkill && <Select label="Perícia" value={draft.skillId} options={[{ value: "", label: "Nenhuma" }, ...testSources.map((source) => ({ value: source.id, label: source.kind === "skill" ? source.name : `${source.name} \u00b7 Elemento` }))]} onChange={(value) => setDraft({ ...draft, skillId: value })} />}
                 </div>
                 <label className="mt-4 block"><span className="mb-1.5 block text-sm font-medium text-muted-foreground">Descrição</span><textarea rows={6} maxLength={5000} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="w-full resize-y rounded-xl border border-input bg-background p-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" /></label>
                 <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between"><Button type="button" variant="destructive" onClick={() => !draftIsNew && removeItem(draft)} disabled={draftIsNew}><Trash2 /> Remover</Button><div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={() => setDialogMode("view")}><Eye /> Exibir</Button><Button type="submit"><Save /> Salvar item</Button></div></div>
@@ -454,9 +497,9 @@ interface ItemViewProps {
 }
 
 function ItemView({ variant, item, info, skills, bonds, abilities, spells, attributes, stats, onClose, onEdit, onDelete, onReference, onRollSkill, onRollBond, onRollDamage }: ItemViewProps) {
-  const spell = spells.find((candidate) => candidate.id === item.enchantmentSpellId)
+  const attachedSpells = item.spellIds.flatMap((id) => spells.filter((candidate) => candidate.id === id))
   const bond = bonds.find((candidate) => candidate.id === item.bondId)
-  const ability = abilities.find((candidate) => candidate.id === item.bondAbilityId)
+  const attachedAbilities = item.abilityIds.flatMap((id) => abilities.filter((candidate) => candidate.id === id))
   const skill = skills.find((candidate) => candidate.id === item.skillId)
   const skillTest = skill?.attributeKey ? calculateAttributeTest(attributes, skill.attributeKey) + calculateSkillModifier(skill) : null
   return <div role="dialog" aria-modal="true" aria-labelledby="inventory-view-title" className="max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl overflow-y-auto rounded-[24px] border border-border bg-card p-4 shadow-2xl sm:p-6">
@@ -464,9 +507,9 @@ function ItemView({ variant, item, info, skills, bonds, abilities, spells, attri
     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{variant === "runas-blue" && <><Info label="Afinidade" value={itemAffinityOptions[item.affinity]?.label ?? "Ordinário (0)"} /><Info label="Raridade" value={itemRarity(item.bondPoints)} /></>}<Info label="Tamanho" value={item.size > 0 ? `${item.size} cm` : "—"} /><Info label="MT" value={String(item.mt)} /><Info label="Quantidade" value={String(item.quantity)} /><Info label="Peso Base (unidade)" value={`${formatWeight(item.baseWeight)} kg`} /><Info label="Peso Total" value={`${formatWeight(calculateItemRealWeight(item, info.scaleMultiplier))} kg`} />{item.damage && <Info label="Dano" value={item.damage} />}{(item.rdf > 0 || item.rdm > 0) && <><Info label="RDF" value={String(item.rdf)} /><Info label="RDM" value={String(item.rdm)} /></>}{(item.prCurrent !== null || item.prMaximum !== null) && <Info label="PR atual/máximo" value={`${item.prCurrent ?? "—"} / ${item.prMaximum ?? "—"}`} />}</div>
     {item.description && <div className="mt-4 rounded-xl border border-border bg-background/55 p-4"><span className="text-xs font-medium text-muted-foreground">Descrição</span><p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{item.description}</p></div>}
     <div className="mt-4 grid gap-3 lg:grid-cols-2">
-      {spell && <ReferenceCard title="Encantamento" name={spell.name} details={`${spellTypeLabel(spell.magicType)} · ${spellRange(spell)} · ${spell.duration || "Sem duração"} · ${costSummary(spell)} · ${spell.castingSkill || "Sem conjuração"}`} onOpen={() => onReference({ type: "spell", value: spell })} />}
+      {attachedSpells.map((spell) => <ReferenceCard key={spell.id} title={spell.magicType === "enchantment" ? "Encantamento" : "Magia"} name={spell.name} details={plainText(spell.description) || `${spellTypeLabel(spell.magicType)} · ${spellRange(spell)}`} onOpen={() => onReference({ type: "spell", value: spell })} />)}
       {variant === "runas-blue" && bond && <ReferenceCard title="Vínculo" name={bond.name} details={`Teste ${calculateBondTest(attributes, stats, bond)} · ${calculateBondQuality(bond.points).name}`} onOpen={() => onReference({ type: "bond", value: bond })} action={<Button type="button" size="sm" onClick={() => onRollBond(bond.id)}><Dices /> Rolar Impressão</Button>} />}
-      {ability && <ReferenceCard title={variant === "cronos" ? "Habilidade" : "Habilidade de Vínculo"} name={ability.name} details={`${plainText(ability.description) || "Sem descrição"} · Custo: ${costSummary(ability)}`} onOpen={() => onReference({ type: "ability", value: ability })} />}
+      {attachedAbilities.map((ability) => <ReferenceCard key={ability.id} title="Habilidade" name={ability.name} details={plainText(ability.description) || `Custo: ${costSummary(ability)}`} onOpen={() => onReference({ type: "ability", value: ability })} />)}
       {skill && <ReferenceCard title="Perícia" name={skill.name} details={`Teste ${skillTest ?? "—"} · Nível ${calculateSkillLevel(skill.points)} · ${skill.attributeKey ? getAttributeDef(skill.attributeKey)?.name ?? "Sem atributo" : "Sem atributo"} · Mod. ${formatSigned(skill.modifier)}`} onOpen={() => onReference({ type: "skill", value: skill })} action={<Button type="button" size="sm" onClick={() => onRollSkill(skill.id)} disabled={!skill.attributeKey}><Dices /> Rolar teste</Button>} />}
     </div>
     <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between"><Button type="button" variant="destructive" onClick={onDelete}><Trash2 /> Remover</Button><div className="flex flex-col gap-2 sm:flex-row">{(item.type === "weapon" || item.type === "shield") && <Button type="button" variant="secondary" onClick={() => onRollDamage(item)} disabled={!item.damage}><Swords /> Rolar dano</Button>}<Button type="button" onClick={onEdit}><Pencil /> Editar</Button></div></div>

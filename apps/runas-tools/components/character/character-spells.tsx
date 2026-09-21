@@ -5,10 +5,12 @@ import { createPortal } from "react-dom"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { Bolt, ChevronDown, Download, Eye, EyeOff, ListFilter, Plus, Save, Sparkles, Trash2, Upload, X } from "lucide-react"
-import type { AbilityCostType, CharacterSkill, CharacterSpell, CharacterStats, SpellMagicType, SpellRangeType } from "@runas/core/types/character"
+import type { AbilityCostType, CharacterAttributes, CharacterElementSkill, CharacterSkill, CharacterSpell, CharacterStats, SpellMagicType, SpellRangeType } from "@runas/core/types/character"
+import { findCharacterTestSource } from "@runas/core/lib/characterTestSources"
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { exportSpellList, parseSpellListFile, type ImportedSpell } from "@/lib/spellTransfer"
 import { useCharacterPanel } from "@/components/character/character-panel"
+import { CharacterElements } from "@/components/character/character-elements"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -20,6 +22,9 @@ interface Props {
   characterName: string
   spells: CharacterSpell[]
   skills: CharacterSkill[]
+  attributes: CharacterAttributes
+  elements: CharacterElementSkill[]
+  onElementsChange: (elements: CharacterElementSkill[]) => void
   stats: CharacterStats
   onAddSpell: (spell: CharacterSpell) => void
   onImportSpells: (spells: ImportedSpell[]) => void
@@ -135,7 +140,7 @@ function loadFilters(): { hiddenCategories: Set<string>; showFilters: boolean } 
   }
 }
 
-export function CharacterSpells({ variant = "runas-blue", characterName, spells, skills, stats, onAddSpell, onImportSpells, onSpellChange, onRemoveSpell, onApplyCost }: Props) {
+export function CharacterSpells({ variant = "runas-blue", characterName, spells, skills, attributes, elements, onElementsChange, stats, onAddSpell, onImportSpells, onSpellChange, onRemoveSpell, onApplyCost }: Props) {
   const router = useRouter()
   const { close } = useCharacterPanel()
   const [initialFilters] = useState(loadFilters)
@@ -210,19 +215,25 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
   }
 
   function castSpell(spell: CharacterSpell) {
-    const skill = findCastingSkill(spell)
-    if (!skill) {
-      setActionError(`A perícia “${spell.castingSkill}” não foi encontrada na ficha.`)
+    // A conjuração aceita uma perícia, um elemento ou uma fusão.
+    const source = findCharacterTestSource({ attributes, skills, elements }, spell.castingSkill)
+    if (!source) {
+      setActionError(`“${spell.castingSkill}” não foi encontrado entre as perícias e os elementos da ficha.`)
       return
     }
-    if (!skill.attributeKey) {
-      setActionError(`A perícia “${skill.name}” precisa ter um atributo antes da conjuração.`)
+    if (!source.attributeKey) {
+      setActionError(`A perícia “${source.name}” precisa ter um atributo antes da conjuração.`)
       return
     }
     setActionError(null)
+    rollTestSource(source.id)
+  }
+
+  /** Leva o teste da perícia, do elemento ou da fusão para a calculadora. */
+  function rollTestSource(sourceId: string) {
     close()
-    const rollToken = crypto.randomUUID()
-    router.push(`/calculadora-testes?skill=${encodeURIComponent(skill.id)}&roll=${encodeURIComponent(rollToken)}`)
+    const parameter = sourceId.startsWith("fusion:") || elements.some((element) => element.id === sourceId) ? "element" : "skill"
+    router.push(`/calculadora-testes?${parameter}=${encodeURIComponent(sourceId)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
   }
 
   function completeAction(spell: CharacterSpell, amount: number, shouldCast: boolean) {
@@ -299,7 +310,9 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
   return (
     <section aria-label="Magias do personagem" className="rounded-b-[22px] rounded-t-none border border-border bg-card p-2 shadow-sm sm:rounded-b-[27px] sm:p-7">
       <datalist id="spell-category-suggestions">{categories.filter((category) => category.key !== "__without_category__").map((category) => <option key={category.key} value={category.label} />)}</datalist>
-      <datalist id="spell-skill-suggestions">{skills.map((skill) => <option key={skill.id} value={skill.name} />)}</datalist>
+      <datalist id="spell-skill-suggestions">{skills.map((skill) => <option key={skill.id} value={skill.name} />)}{elements.map((element) => <option key={element.id} value={element.name} />)}</datalist>
+
+      <CharacterElements attributes={attributes} elements={elements} onChange={onElementsChange} onRoll={rollTestSource} />
 
       <div className="flex flex-col gap-3 border-b border-border px-0.5 pb-3 sm:flex-row sm:items-center sm:justify-end sm:px-0">
         <button type="button" onClick={() => exportSpellList(spells, characterName)} disabled={spells.length === 0} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-40"><Download className="size-4" /> Exportar todas</button>

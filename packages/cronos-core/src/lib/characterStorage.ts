@@ -1,6 +1,19 @@
 import { cronosAttributeMaximumsForCharacter } from "./normalization"
 import { calculateSynchronization, deriveCronosScaleInfo } from "./calculations"
+import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
 import { CRONOS_ATTRIBUTE_KEYS, CRONOS_CHARACTER_VERSION, type CronosAttributeKey, type CronosCharacter, type CronosCharacterSaveFile, type CronosSkill } from "../types/character"
+
+/** Lista de ids sem repetição, aceitando o campo único das fichas anteriores. */
+function idList(value: unknown, legacy?: unknown): string[] {
+  const source = Array.isArray(value) ? value : typeof legacy === "string" && legacy.trim() ? [legacy] : []
+  const ids: string[] = []
+  for (const entry of source) {
+    if (typeof entry !== "string") continue
+    const id = entry.trim()
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
 
 function createCoreSkills(): CronosSkill[] {
   return [
@@ -150,9 +163,12 @@ export function normalizeCronosCharacter(partial: Partial<CronosCharacter> | und
       equippedAsArmor: "equippedAsArmor" in item ? item.equippedAsArmor : false,
       prCurrent: "prCurrent" in item ? item.prCurrent : null,
       prMaximum: "prMaximum" in item ? item.prMaximum : null,
-      enchantmentSpellId: "enchantmentSpellId" in item ? item.enchantmentSpellId : "",
+      size: "size" in item ? item.size : 0,
+      mt: calculateItemSizeModifier("size" in item ? item.size : 0),
+      // Versão 3: encantamento e habilidade únicos viraram listas.
+      abilityIds: idList(item.abilityIds, legacy.bondAbilityId ?? legacy.abilityId),
+      spellIds: idList(item.spellIds, legacy.enchantmentSpellId),
       bondId: "bondId" in item ? item.bondId : "",
-      bondAbilityId: item.bondAbilityId ?? (legacy.abilityId == null ? "" : String(legacy.abilityId)),
       skillId: item.skillId ?? "",
     }}) : [],
     notes: Array.isArray(partial.notes) ? partial.notes : [],

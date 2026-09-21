@@ -128,13 +128,13 @@ export function calculateSizeModifier(sizeValue: string, bonusValue: string): st
 
 /**
  * Calcula o MT de um item a partir do seu comprimento em centímetros.
- * Itens usam a mesma tabela de tamanho das fichas, mas recebem +2 de ajuste
- * conforme a regra do livro (por exemplo, 80 cm: -2 + 2 = MT +0).
+ * Itens usam exatamente a mesma tabela de tamanho das fichas, sem ajuste:
+ * uma espada de 80 cm tem MT -2, como uma criatura de 80 cm.
  */
 export function calculateItemSizeModifier(sizeValue: number | string): number {
   const raw = typeof sizeValue === "number" ? sizeValue : Number(String(sizeValue).trim().replace(",", "."))
   if (!Number.isFinite(raw) || raw <= 0) return 0
-  return modifierToNumber(calculateSizeModifier(String(raw / 100), "2"))
+  return modifierToNumber(calculateSizeModifier(String(raw / 100), "0"))
 }
 
 export function calculateAffinity(essenceValue: string): { affinity: string; efficiency: string } {
@@ -170,14 +170,29 @@ export function calculateAlignment(karmaValue: string): string {
   return "Neutro (0)"
 }
 
+/** Raridade por pontos de vínculo: nome e nível, do menor para o maior. */
+const RARITY_LEVELS = [
+  { minimumPoints: 0, name: "Comum", level: 0 },
+  { minimumPoints: 10, name: "Incomum", level: 1 },
+  { minimumPoints: 20, name: "Raro", level: 2 },
+  { minimumPoints: 40, name: "Épico", level: 3 },
+  { minimumPoints: 80, name: "Místico", level: 4 },
+  { minimumPoints: 160, name: "Lendário", level: 5 },
+] as const
+
+/** Nível da raridade (Comum 0, Incomum 1, Raro 2… Lendário 5), usado no bônus de dano dos itens. */
+export function calculateLegacyRarityLevel(pointsValue: number | string): number {
+  const raw = typeof pointsValue === "number" ? pointsValue : (parseNumber(pointsValue) ?? 0)
+  const points = Math.max(0, Math.trunc(Number.isFinite(raw) ? raw : 0))
+  let level = 0
+  for (const rarity of RARITY_LEVELS) if (points >= rarity.minimumPoints) level = rarity.level
+  return level
+}
+
 export function calculateLegacyRarity(pointsValue: string): string {
-  const points = Math.max(0, Math.trunc(parseNumber(pointsValue) ?? 0))
-  if (points >= 160) return "Lendário (+5)"
-  if (points >= 80) return "Místico (+4)"
-  if (points >= 40) return "Épico (+3)"
-  if (points >= 20) return "Raro (+2)"
-  if (points >= 10) return "Incomum (+1)"
-  return "Comum (+0)"
+  const level = calculateLegacyRarityLevel(pointsValue)
+  const rarity = RARITY_LEVELS.find((candidate) => candidate.level === level) ?? RARITY_LEVELS[0]
+  return `${rarity.name} (+${rarity.level})`
 }
 
 export function convertCalendarYear(yearValue: string, from: CharacterCalendar, to: CharacterCalendar): string {

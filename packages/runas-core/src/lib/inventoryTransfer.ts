@@ -8,15 +8,21 @@ import type {
   InventoryUsage,
 } from "../types/character"
 import { parseImportedSpell, withoutSpellId, type ImportedSpell } from "./spellTransfer"
+import { parseImportedAbility, type ImportedAbility } from "./abilityTransfer"
 import { calculateItemSizeModifier } from "./characterCalculations"
 
 export const INVENTORY_LIST_KIND = "runas-tools-inventory-list"
-export const INVENTORY_LIST_VERSION = 2
+export const INVENTORY_LIST_VERSION = 3
 
-export type ImportedInventoryItem = Omit<CharacterInventoryItem, "id" | "enchantmentSpellId" | "bondId" | "bondAbilityId" | "skillId"> & {
-  enchantment: ImportedSpell | null
+/**
+ * Item fora da ficha de origem. Os `id` não valem em outra ficha, então o
+ * vínculo e a perícia viajam pelo nome e as habilidades e magias anexadas vão
+ * embutidas. Desde a versão 3 são listas, e a magia pode ser de qualquer tipo.
+ */
+export type ImportedInventoryItem = Omit<CharacterInventoryItem, "id" | "abilityIds" | "spellIds" | "bondId" | "skillId"> & {
+  spells: ImportedSpell[]
+  abilities: ImportedAbility[]
   bondName: string
-  bondAbilityName: string
   skillName: string
 }
 
@@ -47,14 +53,19 @@ export function buildInventoryListFile(
   return {
     kind: INVENTORY_LIST_KIND,
     version: INVENTORY_LIST_VERSION,
-    items: items.map(({ id, enchantmentSpellId, bondId, bondAbilityId, skillId, ...item }) => {
+    items: items.map(({ id, abilityIds, spellIds, bondId, skillId, ...item }) => {
       void id
-      const enchantment = spells.find((spell) => spell.id === enchantmentSpellId && spell.magicType === "enchantment")
       return {
         ...item,
-        enchantment: enchantment ? withoutSpellId(enchantment) : null,
+        spells: spellIds.flatMap((spellId) => {
+          const spell = spells.find((candidate) => candidate.id === spellId)
+          return spell ? [withoutSpellId(spell)] : []
+        }),
+        abilities: abilityIds.flatMap((abilityId) => {
+          const ability = abilities.find((candidate) => candidate.id === abilityId)
+          return ability ? [{ category: ability.category, name: ability.name, description: ability.description, permanentModifiers: ability.permanentModifiers, costType: ability.costType, costMode: ability.costMode, costValue: ability.costValue, costText: ability.costText }] : []
+        }),
         bondName: bonds.find((bond) => bond.id === bondId)?.name ?? "",
-        bondAbilityName: abilities.find((ability) => ability.id === bondAbilityId)?.name ?? "",
         skillName: skills.find((skill) => skill.id === skillId)?.name ?? "",
       }
     }),
@@ -84,7 +95,7 @@ export function parseInventoryListFile(text: string): ImportedInventoryItem[] {
   } catch {
     throw new Error("O arquivo não contém um JSON válido.")
   }
-  if (!isRecord(parsed) || parsed.kind !== INVENTORY_LIST_KIND || (parsed.version !== 1 && parsed.version !== INVENTORY_LIST_VERSION) || !Array.isArray(parsed.items)) {
+  if (!isRecord(parsed) || parsed.kind !== INVENTORY_LIST_KIND || ![1, 2, INVENTORY_LIST_VERSION].includes(parsed.version as number) || !Array.isArray(parsed.items)) {
     throw new Error("Este não é um arquivo de inventário exportado pelo Runas Tools.")
   }
   if (parsed.items.length === 0) throw new Error("A lista importada não contém itens.")
@@ -104,8 +115,11 @@ export function parseInventoryListFile(text: string): ImportedInventoryItem[] {
     const parsedPrCurrent = optionalInteger(value.prCurrent, "PR atual", name)
     const prCurrent = parsedPrCurrent === null ? null : Math.min(prMaximum ?? Number.POSITIVE_INFINITY, parsedPrCurrent)
 
-    const enchantment = value.enchantment === null ? null : parseImportedSpell(value.enchantment, position)
-    if (enchantment && enchantment.magicType !== "enchantment") throw new Error(`A magia vinculada ao item “${name}” não é um encantamento.`)
+    // Versões 1 e 2 traziam um encantamento e uma habilidade de vínculo únicos.
+    const spells = Array.isArray(value.spells)
+      ? value.spells.map((spell) => parseImportedSpell(spell, position))
+      : value.enchantment === null || value.enchantment === undefined ? [] : [parseImportedSpell(value.enchantment, position)]
+    const abilities = Array.isArray(value.abilities) ? value.abilities.map((ability) => parseImportedAbility(ability, position)) : []
 
     return {
       usage: value.usage as InventoryUsage,
@@ -124,9 +138,9 @@ export function parseInventoryListFile(text: string): ImportedInventoryItem[] {
       equippedAsArmor: value.usage === "equipped" && value.equippedAsArmor === true,
       prCurrent,
       prMaximum,
-      enchantment,
+      spells,
+      abilities,
       bondName: textField(value.bondName, 80, "vínculo", position).trim(),
-      bondAbilityName: textField(value.bondAbilityName, 80, "habilidade de vínculo", position).trim(),
       skillName: textField(value.skillName, 80, "perícia", position).trim(),
       description: textField(value.description, 5000, "descrição", position),
     }

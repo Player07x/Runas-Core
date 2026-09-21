@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import dynamic from "next/dynamic"
 import type { CharacterTab } from "./character-sheet"
 import { useRuleset } from "@/components/rulesets/ruleset-provider"
+import { LazyBoundary } from "@/components/ui/lazy-boundary"
 
 const CharacterPanelOverlay = dynamic(
   () => import("./character-panel-overlay").then((module) => module.CharacterPanelOverlay),
@@ -65,7 +66,7 @@ export function CharacterPanelProvider({ children }: { children: React.ReactNode
   return (
     <PanelContext.Provider value={{ isOpen, open, close, toggle, activeTab, setActiveTab }}>
       {children}
-      {hasOpened && <CharacterPanelOverlay isOpen={isOpen} close={close} activeTab={activeTab} setActiveTab={setActiveTab} />}
+      {hasOpened && <LazyBoundary label="a ficha"><CharacterPanelOverlay isOpen={isOpen} close={close} activeTab={activeTab} setActiveTab={setActiveTab} /></LazyBoundary>}
     </PanelContext.Provider>
   )
 }

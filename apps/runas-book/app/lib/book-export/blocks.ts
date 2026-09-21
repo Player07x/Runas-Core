@@ -17,7 +17,7 @@ export type Block =
   | { type: "image"; src: string; align: "left" | "center" | "right"; widthPercent: number }
   | { type: "table"; rows: TextRun[][][] }
   | { type: "hr" }
-  | { type: "card"; kind: "character" | "item" | "ability" | "spell"; title: string; fields: { label: string; value: string }[]; description?: string; portraitDataUrl?: string }
+  | { type: "card"; kind: "character" | "item" | "ability" | "spell"; title: string; fields: { label: string; value: string }[]; description?: string; portraitDataUrl?: string; /** Cor da categoria escolhida pelo DM; sem ela, vale a cor do livro. */ accent?: string }
 
 function alignFromStyle(value: string): Align | undefined {
   return value === "left" || value === "center" || value === "right" || value === "justify" ? value : undefined

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CHARACTER_VERSION } from "../src/types/character"
+import { CHARACTER_VERSION, type Character } from "../src/types/character"
 import { createEmptyCharacter, normalizeAbilities, normalizeCharacter, normalizeInventory, normalizeSpells, parseCharacterFile } from "../src/lib/characterStorage"
 
 describe("characterStorage compartilhado", () => {
@@ -7,7 +7,7 @@ describe("characterStorage compartilhado", () => {
     const character = createEmptyCharacter()
     character.name = "Importável"
     character.skills.push({ id: "skill-custom", name: "Lâminas", attributeKey: "dexterity", points: 10, modifier: 2, locked: false })
-    character.inventory.push({ id: "weapon", usage: "equipped", name: "Espada", type: "weapon", affinity: 1, bondPoints: 4, baseWeight: 2, size: 80, mt: 99, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "skill-custom", description: "" })
+    character.inventory.push({ id: "weapon", usage: "equipped", name: "Espada", type: "weapon", affinity: 1, bondPoints: 4, baseWeight: 2, size: 80, mt: 99, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "skill-custom", description: "" })
 
     const normalized = normalizeCharacter(character)
 
@@ -26,7 +26,7 @@ describe("characterStorage compartilhado", () => {
 
   it("preserva peso zero e impede item Inato armazenado", () => {
     const character = createEmptyCharacter()
-    character.inventory.push({ id: "innate", usage: "stored", name: "Garras", type: "innate", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" })
+    character.inventory.push({ id: "innate", usage: "stored", name: "Garras", type: "innate", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" })
     const normalized = normalizeCharacter(character)
     expect(normalized.inventory[0]).toMatchObject({ type: "innate", usage: "equipped", baseWeight: 0 })
   })
@@ -39,5 +39,19 @@ describe("characterStorage compartilhado", () => {
     expect(item).toMatchObject({ name: "Adaga", type: "other", usage: "stored", quantity: 1 })
     expect(ability).toMatchObject({ name: "Golpe Rápido", costType: "pa", costValue: 2 })
     expect(spell).toMatchObject({ name: "Bola de Fogo", magicType: "spell", rangeType: "area" })
+  })
+})
+
+describe("migração da versão 23", () => {
+  it("converte o encantamento e a habilidade de vínculo únicos em listas", () => {
+    const legacy = { ...createEmptyCharacter(), version: 22 }
+    legacy.inventory = [{ id: "item-1", usage: "equipped", name: "Espada", type: "weapon", affinity: 0, bondPoints: 0, baseWeight: 1, size: 80, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, bondId: "", skillId: "", description: "", enchantmentSpellId: "spell-1", bondAbilityId: "ability-1" } as unknown as Character["inventory"][number]]
+    const migrated = normalizeCharacter(legacy)
+    expect(migrated.inventory[0]).toMatchObject({ spellIds: ["spell-1"], abilityIds: ["ability-1"] })
+    expect(migrated.inventory[0]).not.toHaveProperty("enchantmentSpellId")
+  })
+
+  it("cria a coleção de elementos vazia em fichas anteriores", () => {
+    expect(normalizeCharacter({ ...createEmptyCharacter(), version: 22, elements: undefined }).elements).toEqual([])
   })
 })

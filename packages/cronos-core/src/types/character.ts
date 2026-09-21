@@ -1,4 +1,4 @@
-export const CRONOS_CHARACTER_VERSION = 2
+export const CRONOS_CHARACTER_VERSION = 3
 
 export const CRONOS_ATTRIBUTE_KEYS = ["strength", "dexterity", "mind", "will", "spirit"] as const
 export type CronosAttributeKey = (typeof CRONOS_ATTRIBUTE_KEYS)[number]
@@ -107,6 +107,9 @@ export interface CronosInventoryItem {
   affinity: 0 | 1 | 2 | 3 | 4
   bondPoints: number
   baseWeight: number
+  /** Comprimento em centímetros; o MT vem dele, como no Livro Azul. */
+  size: number
+  mt: number
   quantity: number
   applyScaleWeight: boolean
   damage: string
@@ -115,9 +118,10 @@ export interface CronosInventoryItem {
   equippedAsArmor: boolean
   prCurrent: number | null
   prMaximum: number | null
-  enchantmentSpellId: string
+  /** Habilidades e magias anexadas ao item, desde a versão 3. */
+  abilityIds: string[]
+  spellIds: string[]
   bondId: string
-  bondAbilityId: string
   skillId: string
   description: string
 }

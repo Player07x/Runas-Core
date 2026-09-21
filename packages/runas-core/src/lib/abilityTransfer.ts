@@ -55,31 +55,32 @@ export function parseAbilityListFile(text: string): ImportedAbility[] {
   }
   if (parsed.abilities.length === 0) throw new Error("A lista importada não contém habilidades.")
 
-  return parsed.abilities.map((value, index) => {
-    const position = index + 1
-    if (!isRecord(value)) throw new Error(`A habilidade ${position} possui um formato inválido.`)
+  return parsed.abilities.map((value, index) => parseImportedAbility(value, index + 1))
+}
 
-    const name = textField(value.name, 80, "um nome", position).trim()
-    if (!name) throw new Error(`A habilidade ${position} não possui nome.`)
-    const costType = value.costType as AbilityCostType
-    if (!costTypes.has(costType)) throw new Error(`A habilidade “${name}” possui um tipo de custo inválido.`)
-    if (value.costMode !== "relative" && value.costMode !== "fixed") {
-      throw new Error(`A habilidade “${name}” possui uma aplicação de custo inválida.`)
-    }
-    const costMode: AbilityCostMode = value.costMode
-    if (!Number.isInteger(value.costValue) || Number(value.costValue) < 0) {
-      throw new Error(`A habilidade “${name}” possui um valor de custo inválido.`)
-    }
+export function parseImportedAbility(value: unknown, position = 1): ImportedAbility {
+  if (!isRecord(value)) throw new Error(`A habilidade ${position} possui um formato inválido.`)
 
-    return {
-      category: textField(value.category, 40, "uma categoria", position).trim(),
-      name,
-      description: textField(value.description, 5000, "uma descrição", position),
-      permanentModifiers: textField(value.permanentModifiers, 500, "modificadores permanentes", position),
-      costType,
-      costMode,
-      costValue: Number(value.costValue),
-      costText: textField(value.costText, 50, "uma descrição de custo", position),
-    }
-  })
+  const name = textField(value.name, 80, "um nome", position).trim()
+  if (!name) throw new Error(`A habilidade ${position} não possui nome.`)
+  const costType = value.costType as AbilityCostType
+  if (!costTypes.has(costType)) throw new Error(`A habilidade “${name}” possui um tipo de custo inválido.`)
+  if (value.costMode !== "relative" && value.costMode !== "fixed") {
+    throw new Error(`A habilidade “${name}” possui uma aplicação de custo inválida.`)
+  }
+  const costMode: AbilityCostMode = value.costMode
+  if (!Number.isInteger(value.costValue) || Number(value.costValue) < 0) {
+    throw new Error(`A habilidade “${name}” possui um valor de custo inválido.`)
+  }
+
+  return {
+    category: textField(value.category, 40, "uma categoria", position).trim(),
+    name,
+    description: textField(value.description, 5000, "uma descrição", position),
+    permanentModifiers: textField(value.permanentModifiers, 500, "modificadores permanentes", position),
+    costType,
+    costMode,
+    costValue: Number(value.costValue),
+    costText: textField(value.costText, 50, "uma descrição de custo", position),
+  }
 }

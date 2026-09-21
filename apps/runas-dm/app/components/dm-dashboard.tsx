@@ -15,6 +15,12 @@ import { parseDamageExpressions } from "@runas/core/lib/damageParser"
 import { simulateDamageApplications } from "@runas/core/lib/damageApplication"
 import { calculateMasteryImprovementPoints, calculateSpentMasteryImprovementPoints, clampMasteryImprovementQuantity, masteryImprovementOptions } from "@runas/core/lib/masteryImprovements"
 import { calculateEquippedArmorDefense, inventoryTypeOptions, inventoryUsageOptions } from "@runas/core/lib/inventoryCalculations"
+import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
+import { formatSigned } from "@runas/core/lib/bondCalculations"
+import { calculateItemDamageBonus, composeItemDamageExpression } from "@runas/core/lib/itemDamage"
+import { listCharacterTestSources } from "@runas/core/lib/characterTestSources"
+import type { ImportedAbility } from "@runas/core/lib/abilityTransfer"
+import type { ImportedSpell } from "@runas/core/lib/spellTransfer"
 import { synchronizeCharacterDerivedValues } from "@runas/core/lib/characterSynchronization"
 import { applyQuickModifier } from "@runas/core/lib/quickModifier"
 import { applyDeterminationToRoll, applyDeterminationUsesToRoll, calculateAttributeTest, calculateSkillLevel, compareSkillRolls, findExactSystemSkill, normalizeSkillName, rollSkillTest } from "@runas/core/lib/skillCalculations"
@@ -28,6 +34,7 @@ import { parseRunasImport } from "../lib/import"
 import { parseGalleryZip } from "@runas/core/lib/galleryImport"
 import { loadLocalState, saveLocalState } from "../lib/storage"
 import { AdvancedSheetEditor } from "./advanced-sheet-editor"
+import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
 import { AttributeBands } from "./attribute-bands"
 import { PwaInstallCard } from "./pwa-install-card"
 import { ThemeToggle } from "./theme-toggle"
@@ -770,12 +777,18 @@ function QuickActions({ actor, targets, preferredTargetId = null, onLog, onUpdat
     stageDamages(sequence.results.map((calculated) => ({ amount: applyQuickModifier(calculated.total, modifier), damageTypeId: calculated.damageTypeId, damageTypeName: calculated.damageTypeName })), makeDamageSignature(requestedExpression, requestedMt))
   }
 
+  /**
+   * O bônus do item entra na própria expressão; o MT não multiplica mais o
+   * dano, porque com `Usar MT?` ativo ele já virou bônus pela diferença para
+   * o MT do personagem.
+   */
   function rollItemDamage(item: Character["inventory"][number]) {
+    const expression = composeItemDamageExpression(item.damage, calculateItemDamageBonus(item, actor.character.info.sizeModifier).total)
     setMode("damage")
-    setDamageExpression(item.damage)
-    setMtEnabled(true)
+    setDamageExpression(expression)
+    setMtEnabled(false)
     setPendingDamage(null)
-    simulateDamage(item.damage, true, item.mt || 0)
+    simulateDamage(expression, false, 0)
     requestAnimationFrame(() => calculatorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
   }
 
@@ -1030,7 +1043,41 @@ function SimpleSpellDetails({ spell, mutate }: { spell: CharacterSpell; mutate: 
 }
 
 function SimpleItemDetails({ item, character, mutate }: { item: Character["inventory"][number]; character: Character; mutate: CharacterMutator }) {
-  return <div className="simple-record-details simple-item-details"><Field label="Nome" value={item.name} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { name: value }))} /><label className="field"><span>Tipo</span><select value={item.type} onChange={(event) => mutate((draft) => assignById(draft.inventory, item.id, { type: event.target.value as typeof item.type }))}>{inventoryTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><Field label="Dano" value={item.damage} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { damage: value }))} /><label className="field"><span>Perícia vinculada</span><select value={item.skillId} onChange={(event) => mutate((draft) => assignById(draft.inventory, item.id, { skillId: event.target.value }))}><option value="">Nenhuma</option>{character.skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}</select></label><NumberField label="Peso base" value={item.baseWeight} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { baseWeight: value }))} /><NumberField label="RDF" value={item.rdf} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { rdf: value }))} /><NumberField label="RDM" value={item.rdm} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { rdm: value }))} /><RichTextEditor label="Descrição" value={item.description} onChange={(description) => mutate((draft) => assignById(draft.inventory, item.id, { description }))} className="wide" /></div>
+  // Mesmo recorte da criação simples do Tools: dano e perícia em armas, PR em
+  // escudos, RDF/RDM em armaduras e escudos. O resto vive na ficha avançada.
+  const isWeapon = item.type === "weapon"
+  const hasDefense = item.type === "armor" || item.type === "shield"
+  const bonus = calculateItemDamageBonus(item, character.info.sizeModifier)
+  const testSources = listCharacterTestSources(character)
+  const attach = (field: "abilityIds" | "spellIds", id: string) => mutate((draft) => { const entry = draft.inventory.find((candidate) => candidate.id === item.id); if (entry && !entry[field].includes(id)) entry[field].push(id) })
+  const detach = (field: "abilityIds" | "spellIds", id: string) => mutate((draft) => { const entry = draft.inventory.find((candidate) => candidate.id === item.id); if (entry) entry[field] = entry[field].filter((candidate) => candidate !== id) })
+  function createRecord(kind: "ability" | "spell", record: ImportedAbility | ImportedSpell): string {
+    const recordId = `${kind}-${crypto.randomUUID()}`
+    mutate((draft) => {
+      if (kind === "ability") draft.abilities.push({ id: recordId, ...(record as ImportedAbility) })
+      else draft.spells.push({ id: recordId, ...(record as ImportedSpell) })
+    })
+    return recordId
+  }
+  return <div className="simple-record-details simple-item-details">
+    <Field label="Nome" value={item.name} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { name: value }))} />
+    <label className="field"><span>Tipo</span><select value={item.type} onChange={(event) => mutate((draft) => assignById(draft.inventory, item.id, { type: event.target.value as typeof item.type }))}>{inventoryTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+    <NumberField label="Peso base" value={item.baseWeight} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { baseWeight: value }))} />
+    <NumberField label="Tamanho (cm)" value={item.size} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { size: Math.max(0, value), mt: calculateItemSizeModifier(Math.max(0, value)) }))} />
+    <NumberField label="Quantidade" value={item.quantity} min={1} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { quantity: Math.max(1, value) }))} />
+    {isWeapon && <Field label="Dano" value={item.damage} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { damage: value }))} />}
+    {isWeapon && <label className="field"><span>Bônus</span><output>{formatSigned(bonus.total)} → {composeItemDamageExpression(item.damage, bonus.total) || "—"}</output></label>}
+    {isWeapon && <label className="field"><span>Perícia vinculada</span><select value={item.skillId} onChange={(event) => mutate((draft) => assignById(draft.inventory, item.id, { skillId: event.target.value }))}><option value="">Nenhuma</option>{testSources.map((source) => <option key={source.id} value={source.id}>{source.kind === "skill" ? source.name : `${source.name} · Elemento`}</option>)}</select></label>}
+    {hasDefense && <NumberField label="RDF" value={item.rdf} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { rdf: value }))} />}
+    {hasDefense && <NumberField label="RDM" value={item.rdm} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { rdm: value }))} />}
+    {item.type === "shield" && <NumberField label="PR atual" value={item.prCurrent ?? 0} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { prCurrent: value }))} />}
+    {item.type === "shield" && <NumberField label="PR máximo" value={item.prMaximum ?? 0} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { prMaximum: value }))} />}
+    <div className="item-attachments-grid">
+      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((id) => character.abilities.filter((ability) => ability.id === id).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(id) => attach("abilityIds", id)} onDetach={(id) => detach("abilityIds", id)} onCreate={(record) => createRecord("ability", record)} />
+      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((id) => character.spells.filter((spell) => spell.id === id).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(id) => attach("spellIds", id)} onDetach={(id) => detach("spellIds", id)} onCreate={(record) => createRecord("spell", record)} />
+    </div>
+    <RichTextEditor label="Descrição" value={item.description} onChange={(description) => mutate((draft) => assignById(draft.inventory, item.id, { description }))} className="wide" />
+  </div>
 }
 
 function LinkedPanel({ title, count, actions, children, className = "", listClassName = "linked-list" }: { title: string; count: number; actions: React.ReactNode; children: React.ReactNode; className?: string; listClassName?: string }) {
@@ -1040,7 +1087,7 @@ function LinkedPanel({ title, count, actions, children, className = "", listClas
 function assignById<T extends { id: string }>(items: T[], itemId: string, updates: Partial<T>) { const item = items.find((candidate) => candidate.id === itemId); if (item) Object.assign(item, updates) }
 function createQuickAbility(name: string, category: string): Character["abilities"][number] { return { id: id("ability"), category, name, description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" } }
 function createQuickSpell(): CharacterSpell { return { id: id("spell"), category: "Elemental", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" } }
-function createQuickItem(name: string, usage: Character["inventory"][number]["usage"], type: Character["inventory"][number]["type"]): Character["inventory"][number] { return { id: id("item"), usage, name, type, affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" } }
+function createQuickItem(name: string, usage: Character["inventory"][number]["usage"], type: Character["inventory"][number]["type"]): Character["inventory"][number] { return { id: id("item"), usage, name, type, affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" } }
 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field"><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
 function PercentField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field percent-field"><span>{label}</span><span className="percent-input"><input inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value.replace(/%/g, ""))} /><b>%</b></span></label> }

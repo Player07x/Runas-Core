@@ -339,6 +339,19 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
     updateCharacter((prev) => ({ ...prev, spells: [...prev.spells, spell] }))
   }
 
+  /** Cria o registro pedido pelo painel de anexos do item e devolve o `id`. */
+  function createAbilityForItem(ability: ImportedAbility): string {
+    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ability-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    addAbility({ id, ...ability })
+    return id
+  }
+
+  function createSpellForItem(spell: ImportedSpell): string {
+    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `spell-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    addSpell({ id, ...spell })
+    return id
+  }
+
   function importSpells(importedSpells: ImportedSpell[]) {
     updateCharacter((prev) => {
       const spells = [...prev.spells]
@@ -407,6 +420,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
     updateCharacter((prev) => {
       let equippedArmorExists = prev.inventory.some((item) => item.usage === "equipped" && item.equippedAsArmor)
       const spells = [...prev.spells]
+      const abilities = [...prev.abilities]
       const imported = importedItems.map((item, index): CharacterInventoryItem => {
         const usage = item.usage
         const equippedAsArmor = usage === "equipped" && item.equippedAsArmor && !equippedArmorExists
@@ -414,15 +428,22 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
         const findByName = <T extends { id: string; name: string }>(values: T[], name: string): string => (
           values.find((value) => normalizeSkillName(value.name) === normalizeSkillName(name))?.id ?? ""
         )
-        let enchantmentSpellId = ""
-        if (item.enchantment) {
-          const existing = spells.find((spell) => spell.magicType === "enchantment" && normalizeSkillName(spell.name) === normalizeSkillName(item.enchantment?.name ?? ""))
-          if (existing) enchantmentSpellId = existing.id
-          else {
-            enchantmentSpellId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `spell-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
-            spells.push({ id: enchantmentSpellId, ...item.enchantment })
-          }
-        }
+        // Magias e habilidades do item chegam embutidas: reaproveita o registro
+        // homônimo da ficha e só cria o que ainda não existe.
+        const spellIds = item.spells.map((imported, spellIndex) => {
+          const existing = spells.find((spell) => normalizeSkillName(spell.name) === normalizeSkillName(imported.name))
+          if (existing) return existing.id
+          const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `spell-import-${Date.now()}-${index}-${spellIndex}-${Math.random().toString(36).slice(2, 7)}`
+          spells.push({ id, ...imported })
+          return id
+        })
+        const abilityIds = item.abilities.map((imported, abilityIndex) => {
+          const existing = abilities.find((ability) => normalizeSkillName(ability.name) === normalizeSkillName(imported.name))
+          if (existing) return existing.id
+          const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ability-import-${Date.now()}-${index}-${abilityIndex}-${Math.random().toString(36).slice(2, 7)}`
+          abilities.push({ id, ...imported })
+          return id
+        })
         return {
           id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `item-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
           usage,
@@ -441,16 +462,16 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
           equippedAsArmor,
           prCurrent: item.prCurrent,
           prMaximum: item.prMaximum,
-          enchantmentSpellId,
+          abilityIds,
+          spellIds,
           bondId: findByName(prev.bonds, item.bondName),
-          bondAbilityId: findByName(prev.abilities, item.bondAbilityName),
           skillId: findByName(prev.skills, item.skillName),
           description: item.description,
         }
       })
       const inventory = [...prev.inventory, ...imported]
       const defense = calculateEquippedArmorDefense(inventory)
-      return { ...prev, spells, inventory, stats: { ...prev.stats, currentLoad: calculateInventoryLoad(inventory, prev.info.scaleMultiplier), armorRdf: defense.rdf, armorRdm: defense.rdm } }
+      return { ...prev, spells, abilities, inventory, stats: { ...prev.stats, currentLoad: calculateInventoryLoad(inventory, prev.info.scaleMultiplier), armorRdf: defense.rdf, armorRdm: defense.rdm } }
     })
   }
 
@@ -593,6 +614,9 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
               characterName={character.name}
               spells={character.spells}
               skills={character.skills}
+              attributes={character.attributes}
+              elements={character.elements}
+              onElementsChange={(elements) => updateCharacter((prev) => ({ ...prev, elements }))}
               stats={character.stats}
               onAddSpell={addSpell}
               onImportSpells={importSpells}
@@ -612,9 +636,12 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
               bonds={character.bonds}
               abilities={character.abilities}
               spells={character.spells}
+              elements={character.elements}
               onItemsChange={setInventory}
               onImportItems={importInventoryItems}
               onLoadBonusChange={(loadBonus) => setStats({ loadBonus })}
+              onCreateAbility={createAbilityForItem}
+              onCreateSpell={createSpellForItem}
             />
           )}
           {activeTab === "notes" && (

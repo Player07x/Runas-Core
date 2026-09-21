@@ -12,6 +12,10 @@ Depois do primeiro acesso online e da conclusão do cache, cálculos, fichas, te
 ## Responsabilidades de armazenamento
 
 - Cache Storage guarda somente o shell, JavaScript, CSS, fontes e ícones.
+- No Runas Tools, **todo** o JavaScript e CSS do build entra no cache durante o `install`, e não só o que o usuário já abriu. A lista é gerada por `apps/runas-tools/scripts/inject-sw-precache.mjs` a partir de `out/_next/static` e injetada no `sw.js` publicado. A ficha e as calculadoras são carregadas por `next/dynamic`: sem esses arquivos em cache, o primeiro acesso offline de quem nunca abriu a ficha derruba o aplicativo inteiro na página de erro do Next.
+- `/_next/static/` é servido pelo cache antes da rede: o nome do arquivo carrega o hash do conteúdo, então ele nunca muda.
+- O service worker nunca resolve `respondWith` com `undefined`. Sem resposta e sem cache, ele devolve `504`, que a interface trata; `respondWith(undefined)` lança e transforma um recurso ausente em falha da página inteira.
+- Toda parte carregada sob demanda fica dentro de um limite de erro (`LazyBoundary`), com opção de tentar de novo. Uma falha de `import()` não pode derrubar o que já estava aberto.
 - IndexedDB guarda fichas e configurações locais.
 - D1 é backup remoto opcional e não participa da inicialização nem dos cálculos.
 - `/api/backup`, autenticação e rotas `/cdn-cgi/` nunca entram no cache.

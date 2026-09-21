@@ -6,6 +6,7 @@ import { CHARACTER_VERSION } from "@runas/core/types/character"
 import { allEntries, buildPageIndex, kindLabel, normalizeLinkTarget, slugify, type BookChapter, type BookEntry, type BookRecord, type BookResource } from "../lib/book-model"
 import { sanitizeRichTextCached, wikiTitlesFromRichText } from "../lib/rich-text"
 import { exportPageResources, exportResource, ResourceCard } from "./resource-panel"
+import { resourceColor } from "../lib/resource-fields"
 
 const wikiTitlesByEntry = new WeakMap<BookEntry, string[]>()
 
@@ -39,6 +40,7 @@ interface Props {
 }
 
 export function PageView({ book, chapter, entry, isDm, onOpenBooks, onOpenTopic, onOpenEntry, onEdit, onEditResource }: Props) {
+  const categoryColors = book.categoryColors
   const pageIndex = useMemo(() => buildPageIndex(book), [book])
   const contentRef = useRef<HTMLDivElement>(null)
   const safeContent = useMemo(() => sanitizeRichTextCached(entry.content), [entry.content])
@@ -100,7 +102,7 @@ export function PageView({ book, chapter, entry, isDm, onOpenBooks, onOpenTopic,
 
     {entry.resources.length > 0 && <section className="resource-section">
       <h2>Recursos desta página</h2>
-      <div className="resource-grid">{entry.resources.map((resource) => <ResourceCard key={resource.id} resource={resource} resources={entry.resources} onExport={() => exportResource(resource, slugify)} onEdit={isDm ? () => onEditResource(resource) : undefined} editable={isDm} />)}</div>
+      <div className="resource-grid">{entry.resources.map((resource) => <ResourceCard key={resource.id} resource={resource} resources={entry.resources} color={resourceColor(resource, categoryColors)} onExport={() => exportResource(resource, slugify)} onEdit={isDm ? () => onEditResource(resource) : undefined} editable={isDm} />)}</div>
       <button className="primary-action" onClick={() => exportPageResources(entry.title, entry.resources, slugify)}><Download size={16} /> Exportar todos os recursos da página</button>
     </section>}
 

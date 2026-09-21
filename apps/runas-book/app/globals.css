@@ -334,3 +334,13 @@ kbd { padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; color
   .top-actions .icon-link:last-child { display: none; }
   .auth-card { padding: 24px; }
 }
+
+/* Cor por categoria: o DM escolhe e todas as boxes daquela categoria a usam. */
+.resource-card.tinted { border-color: color-mix(in srgb, var(--resource-accent) 55%, var(--line)); background: linear-gradient(150deg, color-mix(in srgb, var(--resource-accent) 18%, transparent), color-mix(in srgb, var(--resource-accent) 6%, transparent)); }
+.resource-card.tinted > header .entry-type { border-color: color-mix(in srgb, var(--resource-accent) 60%, var(--line)); background: color-mix(in srgb, var(--resource-accent) 28%, transparent); }
+.book-settings-categories { display: grid; gap: 8px; }
+.book-settings-category-list { display: grid; gap: 6px; }
+.book-settings-category { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.book-settings-category > span { width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 999px; }
+.book-settings-category strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.book-settings-category input[type="color"] { width: 44px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }

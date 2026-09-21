@@ -513,6 +513,55 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .record-modal-body { min-height: 0; overflow-y: auto; padding: 22px 24px; }
 .record-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }.record-form-grid .span-2 { grid-column: span 2; }.record-form-grid .text-area-field { grid-column: 1 / -1; }.record-form-grid textarea { min-height: 220px; }
 .check-field { display: flex; min-height: 43px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); font-size: 12px; }
+/* Magias: elementos conhecidos e as fusões derivadas deles. */
+.elements-block { display: grid; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
+.elements-block > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.elements-block h4 { margin: 0; font-size: 13px; }
+.elements-block header p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.elements-empty { margin: 0; color: var(--muted); font-size: 11px; }
+.elements-picker { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+.elements-picker > button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
+.elements-picker > button:hover { border-color: var(--cyan); }
+.elements-picker > button span { width: 8px; height: 8px; border-radius: 999px; }
+.elements-picker > button small { color: var(--muted); font-weight: 400; font-size: 10px; }
+.elements-custom { display: flex; flex-basis: 100%; gap: 6px; }
+.elements-custom input { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--text); font-size: 12px; }
+.elements-rows { display: grid; gap: 6px; }
+.elements-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 110px auto; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+.elements-fusions { display: grid; gap: 6px; }
+.elements-fusions > span { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.elements-fusions > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.elements-fusions > div > span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 12px; font-weight: 600; }
+.elements-fusions i { width: 8px; height: 8px; border-radius: 999px; }
+.elements-fusions small { color: var(--muted); font-weight: 400; font-size: 10px; }
+.elements-fusions b { color: var(--cyan); font-variant-numeric: tabular-nums; }
+@media (width <= 640px) { .elements-row { grid-template-columns: minmax(0, 1fr) auto; } }
+/* Item: alternância entre a criação simples e a avançada. */
+.record-form-modes { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); }
+.record-form-modes button { flex: 1; min-height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.record-form-modes button.active { background: var(--panel); color: var(--text); }
+/* Item: habilidades e magias anexadas, exibidas como nome e texto. */
+.item-attachments-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.item-attachments { display: grid; gap: 8px; align-content: start; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel-2); }
+.item-attachments header h4 { margin: 0; font-size: 12px; }
+.item-attachments-empty { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.item-attachment { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.item-attachment strong { display: block; font-size: 13px; }
+.item-attachment small { color: var(--muted); font-size: 10px; }
+.item-attachment p { grid-column: 1 / -1; margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.item-attachment-panel { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.item-attachment-tabs { display: flex; align-items: center; gap: 4px; }
+.item-attachment-tabs button { min-height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+.item-attachment-tabs button.active { background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan); }
+.item-attachment-tabs .icon-button { margin-left: auto; }
+.item-attachment-options { display: grid; gap: 2px; max-height: 210px; overflow-y: auto; }
+.item-attachment-options button { display: grid; gap: 2px; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.item-attachment-options button:hover { background: var(--panel-2); }
+.item-attachment-options small { color: var(--muted); font-size: 10px; }
+.item-attachment-create { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.item-attachment-create .span-2, .item-attachment-create > button, .item-attachment-create > p { grid-column: 1 / -1; }
+.item-attachment-create textarea { min-height: 96px; }
+.item-attachment-error { margin: 0; padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--red) 55%, var(--line)); border-radius: 8px; color: var(--red); font-size: 11px; }
 .record-modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .danger-button { display: inline-flex; min-height: 42px; align-items: center; gap: 7px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--red) 35%, var(--line)); border-radius: 11px; background: color-mix(in srgb, var(--red) 8%, transparent); color: var(--red); cursor: pointer; font-weight: 700; }
 .item-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }.info-block { margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 15px; }.info-block span { color: var(--muted); font-size: 11px; text-transform: uppercase; }.info-block p { margin: 10px 0 0; font-size: 14px; line-height: 1.6; }

@@ -22,6 +22,7 @@ import {
 } from "@runas/core/lib/skillCalculations"
 import { cn } from "@/lib/utils"
 import { calculateBondQuality } from "@runas/core/lib/bondCalculations"
+import { findCharacterTestSource } from "@runas/core/lib/characterTestSources"
 import { useCharacter } from "@/components/character/character-provider"
 import { SkillIntegerInput } from "./skill-integer-input"
 
@@ -221,6 +222,8 @@ export function SkillTestCalculator() {
   )
   const requestedSkillId = searchParams.get("skill")
   const requestedBondId = searchParams.get("bond")
+  // Elemento ou fusão da seção de Magias: vale como perícia no teste.
+  const requestedElementId = searchParams.get("element")
   const requestedRollToken = searchParams.get("roll")
 
   function clearRolls() {
@@ -269,8 +272,17 @@ export function SkillTestCalculator() {
   }
 
   useEffect(() => {
-    if (!isReady || (!requestedSkillId && !requestedBondId) || !requestedRollToken || handledRollToken.current === requestedRollToken) return
+    if (!isReady || (!requestedSkillId && !requestedBondId && !requestedElementId) || !requestedRollToken || handledRollToken.current === requestedRollToken) return
     handledRollToken.current = requestedRollToken
+    if (requestedElementId) {
+      const source = findCharacterTestSource(character, requestedElementId)
+      if (!source?.attributeKey) return
+      const nextConfig: SkillTestConfig = { attributeKey: source.attributeKey, skillName: source.name, skillModifier: source.modifier, masterModifier: 0, otherModifiers: 0, specialDieId: "none" }
+      setConfig(nextConfig)
+      setParserMessage(`Teste de ${source.name} preenchido e rolado a partir da ficha.`)
+      performRoll(nextConfig, [], null)
+      return
+    }
     if (requestedBondId) {
       const bond = bonds.find((item) => item.id === requestedBondId)
       if (!bond) return
@@ -288,7 +300,7 @@ export function SkillTestCalculator() {
     performRoll(nextConfig, [], null)
     // performRoll usa o snapshot atual; o token abaixo é a fonte de disparo e impede repetições.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bonds, isReady, requestedBondId, requestedRollToken, requestedSkillId, skills, stats])
+  }, [bonds, character, isReady, requestedBondId, requestedElementId, requestedRollToken, requestedSkillId, skills, stats])
 
   function updateStats(updates: Partial<typeof stats>) {
     updateCharacter((previous) => ({ ...previous, stats: { ...previous.stats, ...updates } }))

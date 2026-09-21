@@ -52,13 +52,15 @@ export function parseResourceImport(jsonText: string): BookResource[] {
   return resources
 }
 
-/** Converte um item da lista do Runas Tools; o encantamento embutido vira uma magia anexada e vinculada ao item. */
-function resourcesFromInventoryItem({ enchantment, bondName, bondAbilityName, skillName, ...item }: ImportedInventoryItem): BookResource[] {
-  const spell = enchantment ? { id: makeId("spell"), ...enchantment } : null
-  const entity: CharacterInventoryItem = { id: makeId("item"), ...item, enchantmentSpellId: spell?.id ?? "", bondId: bondName, bondAbilityId: bondAbilityName, skillId: skillName }
+/** Converte um item da lista do Runas Tools; as magias e habilidades embutidas viram recursos próprios, anexados ao item. */
+function resourcesFromInventoryItem({ spells, abilities, bondName, skillName, ...item }: ImportedInventoryItem): BookResource[] {
+  const spellRecords = spells.map((spell) => ({ id: makeId("spell"), ...spell }))
+  const abilityRecords = abilities.map((ability) => ({ id: makeId("ability"), ...ability }))
+  const entity: CharacterInventoryItem = { id: makeId("item"), ...item, abilityIds: abilityRecords.map((record) => record.id), spellIds: spellRecords.map((record) => record.id), bondId: bondName, skillId: skillName }
   return [
     { id: makeId("resource"), kind: "item", entity },
-    ...(spell ? [{ id: makeId("resource"), kind: "spell" as const, entity: spell }] : []),
+    ...spellRecords.map((entry) => ({ id: makeId("resource"), kind: "spell" as const, entity: entry })),
+    ...abilityRecords.map((entry) => ({ id: makeId("resource"), kind: "ability" as const, entity: entry })),
   ]
 }
 

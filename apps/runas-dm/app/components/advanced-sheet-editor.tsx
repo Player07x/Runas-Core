@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Edit3, Handshake, Plus, RefreshCw, RotateCcw, Shield, Trash2, Upload, X } from "lucide-react"
 import { attributeGroups } from "@runas/core/data/attributes"
 import { characterElements } from "@runas/core/data/elements"
+import { availableElementFusions, calculateElementTest, selectableElements } from "@runas/core/lib/elementSkills"
 import { systemSkills } from "@runas/core/data/skills"
 import { calculateBondQuality, calculateBondTest, formatSigned } from "@runas/core/lib/bondCalculations"
 import { calculateCharacterStatSnapshot } from "@runas/core/lib/characterStatCalculations"
@@ -13,6 +14,10 @@ import {
   inventoryTypeLabel, inventoryTypeOptions, inventoryUsageLabel, inventoryUsageOptions, itemAffinityOptions,
 } from "@runas/core/lib/inventoryCalculations"
 import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
+import { calculateItemDamageBonus, composeItemDamageExpression } from "@runas/core/lib/itemDamage"
+import { findCharacterTestSource, listCharacterTestSources } from "@runas/core/lib/characterTestSources"
+import type { ImportedAbility } from "@runas/core/lib/abilityTransfer"
+import type { ImportedSpell } from "@runas/core/lib/spellTransfer"
 import {
   calculateMasteryImprovementPoints,
   calculateSpentMasteryImprovementPoints,
@@ -25,6 +30,7 @@ import type {
   CharacterNote, CharacterSpell, SecondaryAttributeKey,
 } from "@runas/core/types/character"
 import { AttributeBands } from "./attribute-bands"
+import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
 import { RichTextEditor } from "./rich-text-editor"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { TokenEditorDialog } from "./token-editor-dialog"
@@ -55,6 +61,12 @@ const rangeTypes = [
 ]
 
 function uid(prefix: string) { return `${prefix}-${crypto.randomUUID()}` }
+const ITEM_EDITOR_MODE_KEY = "runas-dm:item-editor-mode"
+/** O modo escolhido acompanha o mestre entre itens e sessões. */
+function readItemEditorMode(): "simple" | "advanced" {
+  if (typeof window === "undefined") return "simple"
+  try { return window.localStorage.getItem(ITEM_EDITOR_MODE_KEY) === "advanced" ? "advanced" : "simple" } catch { return "simple" }
+}
 function find<T extends { id: string }>(items: T[], id: string): T { const item = items.find((candidate) => candidate.id === id); if (!item) throw new Error("Registro não encontrado"); return item }
 function splitList(value: string) { return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean) }
 function plainText(value: string) { return value.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim() }
@@ -82,7 +94,7 @@ export function AdvancedSheetEditor({ character, onChange }: { character: Charac
       {activeTab === "bonds" && <BondsSection character={character} update={update} />}
       {activeTab === "abilities" && <AbilitiesSection items={character.abilities} update={update} />}
       {activeTab === "inventory" && <InventorySection character={character} update={update} />}
-      {activeTab === "spells" && <SpellsSection items={character.spells} update={update} />}
+      {activeTab === "spells" && <SpellsSection character={character} items={character.spells} update={update} />}
       {activeTab === "notes" && <NotesSection items={character.notes} update={update} />}
     </div>
   </div>
@@ -231,10 +243,54 @@ function AbilitiesSection({ items, update }: { items: CharacterAbility[]; update
   </AdvancedSection>
 }
 
-function SpellsSection({ items, update }: { items: CharacterSpell[]; update: UpdateCharacter }) {
+/**
+ * Elementos, no topo de Magias, com a mesma organização do Runas Tools: nome,
+ * nível e o teste (Místico + Poder + nível). As fusões aparecem sozinhas a
+ * partir dos elementos de nível maior que zero. Sem botão de rolar, como toda
+ * a ficha avançada do DM.
+ */
+function ElementsBlock({ character, update }: { character: Character; update: UpdateCharacter }) {
+  const [adding, setAdding] = useState(false)
+  const [custom, setCustom] = useState("")
+  const elements = character.elements
+  const used = new Set(elements.map((element) => element.elementId).filter(Boolean))
+  const fusions = availableElementFusions(elements)
+  const add = (elementId: string, name: string) => { update((draft) => { draft.elements.push({ id: uid("element"), elementId, name, level: 1 }) }); setAdding(false); setCustom("") }
+
+  return <section className="elements-block">
+    <header>
+      <div><h4>Elementos</h4><p>Teste: Místico + Poder + nível. Valem como perícia em itens e magias.</p></div>
+      <button className="secondary-button" onClick={() => setAdding((value) => !value)}><Plus size={14} /> Adicionar elemento</button>
+    </header>
+    {adding && <div className="elements-picker">
+      {selectableElements.filter((element) => !used.has(element.id)).map((element) => (
+        <button key={element.id} onClick={() => add(element.id, element.name)}><span aria-hidden="true" style={{ background: element.color }} />{element.name}<small>{element.kind}</small></button>
+      ))}
+      <div className="elements-custom">
+        <input value={custom} maxLength={40} placeholder="Ou digite um elemento" onChange={(event) => setCustom(event.target.value)} />
+        <button className="primary-button" disabled={!custom.trim()} onClick={() => add("", custom.trim())}><Plus size={14} /> Adicionar</button>
+      </div>
+    </div>}
+    {elements.length === 0
+      ? <p className="elements-empty">Nenhum elemento. Adicione um para liberar as fusões.</p>
+      : <div className="elements-rows">{elements.map((element) => <div className="elements-row" key={element.id}>
+          <strong>{element.name}</strong>
+          <InlineNumber label="Nível" value={element.level} onChange={(value) => update((draft) => { find(draft.elements, element.id).level = Math.max(0, value) })} />
+          <OutputCell label="Teste" value={calculateElementTest(character.attributes, element.level)} />
+          <RowRemove label={`Remover ${element.name}`} onClick={() => update((draft) => { draft.elements = draft.elements.filter((candidate) => candidate.id !== element.id) })} />
+        </div>)}</div>}
+    {fusions.length > 0 && <div className="elements-fusions">
+      <span>Fusões disponíveis</span>
+      <div>{fusions.map((fusion) => <span key={fusion.element.id} title={fusion.components.join(" + ")}><i aria-hidden="true" style={{ background: fusion.element.color }} />{fusion.element.name}<small>Nível {fusion.level}</small><b>{calculateElementTest(character.attributes, fusion.level)}</b></span>)}</div>
+    </div>}
+  </section>
+}
+
+function SpellsSection({ character, items, update }: { character: Character; items: CharacterSpell[]; update: UpdateCharacter }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = items.find((item) => item.id === selectedId) ?? null
   return <AdvancedSection title="Magias" description="Lista compacta como no Runas Tools; clique apenas para editar uma magia." action={() => { const nextId = uid("spell"); update((draft) => { draft.spells.push({ id: nextId, category: "", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }) }); setSelectedId(nextId) }}>
+    <ElementsBlock character={character} update={update} />
     <div className="summary-table spell-summary"><TableHeader labels={["Nome", "Tipo", "Alcance", "Duração", "Custo"]} />{items.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><strong>{item.name}</strong><span>{magicTypes.find((option) => option.value === item.magicType)?.label}</span><span>{[item.rangeText, rangeTypes.find((option) => option.value === item.rangeType)?.label].filter(Boolean).join(", ")}</span><span>{item.duration || "—"}</span><span>{costLabel(item)}</span></button>)}</div>
     {selected && <RecordModal title="Editar magia" onClose={() => setSelectedId(null)}><SpellForm item={selected} update={update} /><ModalActions onRemove={() => { update((draft) => { draft.spells = draft.spells.filter((candidate) => candidate.id !== selected.id) }); setSelectedId(null) }} onClose={() => setSelectedId(null)} /></RecordModal>}
   </AdvancedSection>
@@ -274,11 +330,97 @@ function AbilityForm({ item, update }: { item: CharacterAbility; update: UpdateC
 
 function SpellForm({ item, update }: { item: CharacterSpell; update: UpdateCharacter }) { return <div className="record-form-grid"><Field label="Categoria" value={item.category} onChange={(value) => update((draft) => { find(draft.spells, item.id).category = value })} /><Field className="span-2" label="Nome" value={item.name} onChange={(value) => update((draft) => { find(draft.spells, item.id).name = value })} /><SelectField label="Tipo de magia" value={item.magicType} options={magicTypes} onChange={(value) => update((draft) => { find(draft.spells, item.id).magicType = value as CharacterSpell["magicType"] })} /><SelectField label="Tipo de alcance" value={item.rangeType} options={rangeTypes} onChange={(value) => update((draft) => { find(draft.spells, item.id).rangeType = value as CharacterSpell["rangeType"] })} /><Field label="Alcance" value={item.rangeText} onChange={(value) => update((draft) => { find(draft.spells, item.id).rangeText = value })} /><Field label="Área" value={item.area} onChange={(value) => update((draft) => { find(draft.spells, item.id).area = value })} /><Field label="Duração" value={item.duration} onChange={(value) => update((draft) => { find(draft.spells, item.id).duration = value })} /><Field label="Teste de conjuração" value={item.castingSkill} onChange={(value) => update((draft) => { find(draft.spells, item.id).castingSkill = value })} /><TextArea label="Descrição" value={item.description} onChange={(value) => update((draft) => { find(draft.spells, item.id).description = value })} /><SelectField label="Recurso de custo" value={item.costType} options={costResourceOptions} onChange={(value) => update((draft) => { find(draft.spells, item.id).costType = value as CharacterSpell["costType"] })} /><SelectField label="Aplicação" value={item.costMode} options={[{ value: "fixed", label: "Fixo" }, { value: "relative", label: "Relativo" }]} onChange={(value) => update((draft) => { find(draft.spells, item.id).costMode = value as CharacterSpell["costMode"] })} /><NumberField label="Valor" value={item.costValue} onChange={(value) => update((draft) => { find(draft.spells, item.id).costValue = value })} /><Field label="Custo em texto" value={item.costText} onChange={(value) => update((draft) => { find(draft.spells, item.id).costText = value })} /></div> }
 
-function InventoryDetails({ item, character }: { item: CharacterInventoryItem; character: Character }) { const enchantment = character.spells.find((spell) => spell.id === item.enchantmentSpellId); const bondAbility = character.abilities.find((ability) => ability.id === item.bondAbilityId); const skill = character.skills.find((candidate) => candidate.id === item.skillId); return <div className="item-detail-view"><div className="item-metrics"><InfoMetric label="Uso" value={inventoryUsageLabel(item.usage)} /><InfoMetric label="Tipo" value={inventoryTypeLabel(item.type)} /><InfoMetric label="Afinidade" value={itemAffinityOptions.find((option) => option.value === item.affinity)?.label ?? item.affinity} /><InfoMetric label="Pontos de vínculo" value={item.bondPoints} /><InfoMetric label="Tamanho" value={item.size > 0 ? `${item.size} cm` : "—"} /><InfoMetric label="MT" value={item.mt} /><InfoMetric label="Quantidade" value={item.quantity} /><InfoMetric label="Peso base" value={`${formatWeight(item.baseWeight)} kg`} /><InfoMetric label="Peso real" value={`${formatWeight(calculateItemRealWeight(item, character.info.scaleMultiplier))} kg`} /><InfoMetric label="PR" value={item.prCurrent !== null || item.prMaximum !== null ? `${item.prCurrent ?? "—"} / ${item.prMaximum ?? "—"}` : "—"} /></div><InfoBlock label="Dano" value={item.damage || "—"} /><InfoBlock label="RDF/RDM" value={`RDF ${item.rdf} · RDM ${item.rdm}`} /><InfoBlock label="Encantamento" value={enchantment?.name || "Nenhum"} /><InfoBlock label="Vínculo" value={item.bondId || "Nenhum"} /><InfoBlock label="Habilidade de vínculo" value={bondAbility?.name || "Nenhuma"} /><InfoBlock label="Perícia" value={skill?.name || item.skillId || "Nenhuma"} /><InfoBlock label="Descrição" value={plainText(item.description) || "Sem descrição"} /></div> }
+function InventoryDetails({ item, character }: { item: CharacterInventoryItem; character: Character }) {
+  const spells = item.spellIds.flatMap((id) => character.spells.filter((spell) => spell.id === id))
+  const abilities = item.abilityIds.flatMap((id) => character.abilities.filter((ability) => ability.id === id))
+  const skill = findCharacterTestSource(character, item.skillId)
+  const bonus = calculateItemDamageBonus(item, character.info.sizeModifier)
+  return <div className="item-detail-view">
+    <div className="item-metrics">
+      <InfoMetric label="Uso" value={inventoryUsageLabel(item.usage)} />
+      <InfoMetric label="Tipo" value={inventoryTypeLabel(item.type)} />
+      <InfoMetric label="Afinidade" value={itemAffinityOptions.find((option) => option.value === item.affinity)?.label ?? item.affinity} />
+      <InfoMetric label="Pontos de vínculo" value={item.bondPoints} />
+      <InfoMetric label="Tamanho" value={item.size > 0 ? `${item.size} cm` : "—"} />
+      <InfoMetric label="MT" value={formatSigned(item.mt)} />
+      <InfoMetric label="Quantidade" value={item.quantity} />
+      <InfoMetric label="Peso base" value={`${formatWeight(item.baseWeight)} kg`} />
+      <InfoMetric label="Peso real" value={`${formatWeight(calculateItemRealWeight(item, character.info.scaleMultiplier))} kg`} />
+      <InfoMetric label="PR" value={item.prCurrent !== null || item.prMaximum !== null ? `${item.prCurrent ?? "—"} / ${item.prMaximum ?? "—"}` : "—"} />
+    </div>
+    <InfoBlock label="Dano" value={item.damage ? `${item.damage} · Bônus ${formatSigned(bonus.total)} → ${composeItemDamageExpression(item.damage, bonus.total)}` : "—"} />
+    <InfoBlock label="RDF/RDM" value={`RDF ${item.rdf} · RDM ${item.rdm}`} />
+    {spells.map((spell) => <InfoBlock key={spell.id} label={spell.magicType === "enchantment" ? "Encantamento" : "Magia"} value={`${spell.name} — ${plainText(spell.description) || "Sem texto"}`} />)}
+    {abilities.map((ability) => <InfoBlock key={ability.id} label="Habilidade" value={`${ability.name} — ${plainText(ability.description) || "Sem texto"}`} />)}
+    <InfoBlock label="Vínculo" value={item.bondId || "Nenhum"} />
+    <InfoBlock label="Perícia" value={skill?.name || "Nenhuma"} />
+    <InfoBlock label="Descrição" value={plainText(item.description) || "Sem descrição"} />
+  </div>
+}
 
-function InventoryForm({ item, character, update }: { item: CharacterInventoryItem; character: Character; update: UpdateCharacter }) { const enchantmentOptions = character.spells.filter((spell) => spell.magicType === "enchantment").map((spell) => ({ value: spell.id, label: spell.name })); const bondAbilityOptions = character.abilities.filter((ability) => ability.category.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR") === "vinculo").map((ability) => ({ value: ability.id, label: ability.name })); return <div className="record-form-grid"><Field className="span-2" label="Nome" value={item.name} onChange={(value) => update((draft) => { find(draft.inventory, item.id).name = value })} /><SelectField label="Uso" value={item.usage} options={inventoryUsageOptions} onChange={(value) => update((draft) => { find(draft.inventory, item.id).usage = value as CharacterInventoryItem["usage"] })} /><SelectField label="Tipo" value={item.type} options={inventoryTypeOptions} onChange={(value) => update((draft) => { find(draft.inventory, item.id).type = value as CharacterInventoryItem["type"] })} /><SelectField label="Afinidade" value={String(item.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => update((draft) => { find(draft.inventory, item.id).affinity = Number(value) as CharacterInventoryItem["affinity"] })} /><NumberField label="Pontos de vínculo" value={item.bondPoints} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondPoints = value })} /><NumberField label="Tamanho (cm)" value={item.size} min={0} onChange={(value) => update((draft) => { const entry = find(draft.inventory, item.id); entry.size = Math.max(0, value); entry.mt = calculateItemSizeModifier(entry.size) })} /><InfoMetric label="MT" value={item.mt} /><NumberField label="Quantidade" value={item.quantity} min={1} onChange={(value) => update((draft) => { find(draft.inventory, item.id).quantity = Math.max(1, value) })} /><NumberField label="Peso base" value={item.baseWeight} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).baseWeight = value })} /><CheckField label="Aplicar escala ao peso" checked={item.applyScaleWeight} onChange={(value) => update((draft) => { find(draft.inventory, item.id).applyScaleWeight = value })} /><InfoMetric label="Peso total" value={`${formatWeight(calculateItemRealWeight(item, character.info.scaleMultiplier))} kg`} /><Field label="Dano" value={item.damage} onChange={(value) => update((draft) => { find(draft.inventory, item.id).damage = value })} /><NumberField label="RDF" value={item.rdf} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).rdf = value })} /><NumberField label="RDM" value={item.rdm} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).rdm = value })} /><NullableNumber label="PR atual" value={item.prCurrent} onChange={(value) => update((draft) => { find(draft.inventory, item.id).prCurrent = value })} /><NullableNumber label="PR máximo" value={item.prMaximum} onChange={(value) => update((draft) => { find(draft.inventory, item.id).prMaximum = value })} /><SelectField label="Perícia vinculada" value={item.skillId} options={[{ value: "", label: "Nenhuma" }, ...character.skills.map((skill) => ({ value: skill.id, label: skill.name }))]} onChange={(value) => update((draft) => { find(draft.inventory, item.id).skillId = value })} /><SelectField label="Magia de encantamento" value={item.enchantmentSpellId} options={[{ value: "", label: "Nenhuma" }, ...enchantmentOptions]} onChange={(value) => update((draft) => { find(draft.inventory, item.id).enchantmentSpellId = value })} /><Field label="Vínculo" value={item.bondId} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondId = value })} /><SelectField label="Habilidade de vínculo" value={item.bondAbilityId} options={[{ value: "", label: "Nenhuma" }, ...bondAbilityOptions]} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondAbilityId = value })} /><TextArea label="Descrição" value={item.description} onChange={(value) => update((draft) => { find(draft.inventory, item.id).description = value })} /></div> }
+/**
+ * Criação de item em dois modos. O simples mostra só o essencial e revela
+ * dano/perícia em armas, PR e RDF/RDM em escudos e RDF/RDM em armaduras. O
+ * avançado continua expondo todos os campos do modelo compartilhado.
+ */
+function InventoryForm({ item, character, update }: { item: CharacterInventoryItem; character: Character; update: UpdateCharacter }) {
+  const [mode, setMode] = useState<"simple" | "advanced">(readItemEditorMode)
+  const advanced = mode === "advanced"
+  const showDamage = advanced || item.type === "weapon"
+  const showSkill = advanced || item.type === "weapon"
+  const showDefense = advanced || item.type === "armor" || item.type === "shield"
+  const showPr = advanced || item.type === "shield"
+  const bonus = calculateItemDamageBonus(item, character.info.sizeModifier)
+  const testSources = listCharacterTestSources(character)
 
-function emptyItem(id: string): CharacterInventoryItem { return { id, usage: "stored", name: "Novo item", type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" } }
+  function changeMode(next: "simple" | "advanced") {
+    setMode(next)
+    try { window.localStorage.setItem(ITEM_EDITOR_MODE_KEY, next) } catch { /* preferência opcional */ }
+  }
+
+  function createRecord(kind: "ability" | "spell", record: ImportedAbility | ImportedSpell): string {
+    const recordId = uid(kind)
+    update((draft) => {
+      if (kind === "ability") draft.abilities.push({ id: recordId, ...(record as ImportedAbility) })
+      else draft.spells.push({ id: recordId, ...(record as ImportedSpell) })
+    })
+    return recordId
+  }
+
+  return <div className="record-form-grid">
+    <div className="record-form-modes span-2" role="group" aria-label="Modo de criação do item">
+      {([["simple", "Simples"], ["advanced", "Avançado"]] as const).map(([value, label]) => (
+        <button key={value} className={mode === value ? "active" : ""} aria-pressed={mode === value} onClick={() => changeMode(value)}>{label}</button>
+      ))}
+    </div>
+    <Field className="span-2" label="Nome" value={item.name} onChange={(value) => update((draft) => { find(draft.inventory, item.id).name = value })} />
+    <SelectField label="Uso" value={item.usage} options={inventoryUsageOptions} onChange={(value) => update((draft) => { find(draft.inventory, item.id).usage = value as CharacterInventoryItem["usage"] })} />
+    <SelectField label="Tipo" value={item.type} options={inventoryTypeOptions} onChange={(value) => update((draft) => { find(draft.inventory, item.id).type = value as CharacterInventoryItem["type"] })} />
+    {advanced && <SelectField label="Afinidade" value={String(item.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => update((draft) => { find(draft.inventory, item.id).affinity = Number(value) as CharacterInventoryItem["affinity"] })} />}
+    {advanced && <NumberField label="Pontos de vínculo" value={item.bondPoints} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondPoints = value })} />}
+    <NumberField label="Tamanho (cm)" value={item.size} min={0} onChange={(value) => update((draft) => { const entry = find(draft.inventory, item.id); entry.size = Math.max(0, value); entry.mt = calculateItemSizeModifier(entry.size) })} />
+    <InfoMetric label="MT" value={formatSigned(item.mt)} />
+    <NumberField label="Quantidade" value={item.quantity} min={1} onChange={(value) => update((draft) => { find(draft.inventory, item.id).quantity = Math.max(1, value) })} />
+    <NumberField label="Peso base" value={item.baseWeight} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).baseWeight = value })} />
+    <CheckField label="Usar MT?" checked={item.applyScaleWeight} onChange={(value) => update((draft) => { find(draft.inventory, item.id).applyScaleWeight = value })} />
+    <InfoMetric label="Peso total" value={`${formatWeight(calculateItemRealWeight(item, character.info.scaleMultiplier))} kg`} />
+    {showDamage && <Field label="Dano" value={item.damage} onChange={(value) => update((draft) => { find(draft.inventory, item.id).damage = value })} />}
+    {showDamage && <InfoMetric label="Bônus" value={`${formatSigned(bonus.total)} → ${composeItemDamageExpression(item.damage, bonus.total) || "—"}`} />}
+    {showDefense && <NumberField label="RDF" value={item.rdf} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).rdf = value })} />}
+    {showDefense && <NumberField label="RDM" value={item.rdm} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).rdm = value })} />}
+    {showPr && <NullableNumber label="PR atual" value={item.prCurrent} onChange={(value) => update((draft) => { find(draft.inventory, item.id).prCurrent = value })} />}
+    {showPr && <NullableNumber label="PR máximo" value={item.prMaximum} onChange={(value) => update((draft) => { find(draft.inventory, item.id).prMaximum = value })} />}
+    {showSkill && <SelectField label="Perícia vinculada" value={item.skillId} options={[{ value: "", label: "Nenhuma" }, ...testSources.map((source) => ({ value: source.id, label: source.kind === "skill" ? source.name : `${source.name} · Elemento` }))]} onChange={(value) => update((draft) => { find(draft.inventory, item.id).skillId = value })} />}
+    {advanced && <Field label="Vínculo" value={item.bondId} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondId = value })} />}
+    <div className="span-2 item-attachments-grid">
+      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((entryId) => character.abilities.filter((ability) => ability.id === entryId).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.abilityIds.includes(entryId)) entry.abilityIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.abilityIds = entry.abilityIds.filter((candidate) => candidate !== entryId) })} onCreate={(record) => createRecord("ability", record)} />
+      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((entryId) => character.spells.filter((spell) => spell.id === entryId).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.spellIds.includes(entryId)) entry.spellIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.spellIds = entry.spellIds.filter((candidate) => candidate !== entryId) })} onCreate={(record) => createRecord("spell", record)} />
+    </div>
+    <TextArea label="Descrição" value={item.description} onChange={(value) => update((draft) => { find(draft.inventory, item.id).description = value })} />
+  </div>
+}
+
+function emptyItem(id: string): CharacterInventoryItem { return { id, usage: "stored", name: "Novo item", type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" } }
 
 function AdvancedSection({ title, description, action, children }: { title: string; description: string; action?: () => void; children: React.ReactNode }) { return <section className="advanced-section"><header><div><h3>{title}</h3><p>{description}</p></div>{action && <button className="primary-button" onClick={action}><Plus size={16} /> Adicionar</button>}</header>{children}</section> }
 function TableHeader({ labels }: { labels: string[] }) { return <div className="tools-table-header" aria-hidden="true">{labels.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}</div> }

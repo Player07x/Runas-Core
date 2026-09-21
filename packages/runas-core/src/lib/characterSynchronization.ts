@@ -19,12 +19,25 @@ function finite(value: number): number {
 export function synchronizeCharacterDerivedValues(previous: Character, changed: Character): Character {
   const attributes = { ...changed.attributes }
   let equippedArmorFound = false
+  // Habilidades e magias anexadas a um item são referências: ao remover o
+  // registro da ficha, o item não pode continuar apontando para o vazio.
+  const abilityIds = new Set(changed.abilities.map((ability) => ability.id))
+  const spellIds = new Set(changed.spells.map((spell) => spell.id))
   const inventory = changed.inventory.map((item) => {
     const usage = normalizeInventoryUsage(item.type, item.usage)
     const equippedAsArmor = usage === "equipped" && item.equippedAsArmor && !equippedArmorFound
     if (equippedAsArmor) equippedArmorFound = true
-    return { ...item, usage, equippedAsArmor, size: Math.max(0, finite(item.size)), mt: calculateItemSizeModifier(item.size) }
+    return {
+      ...item,
+      usage,
+      equippedAsArmor,
+      size: Math.max(0, finite(item.size)),
+      mt: calculateItemSizeModifier(item.size),
+      abilityIds: (item.abilityIds ?? []).filter((id) => abilityIds.has(id)),
+      spellIds: (item.spellIds ?? []).filter((id) => spellIds.has(id)),
+    }
   })
+  const elements = (changed.elements ?? []).map((element) => ({ ...element, level: Math.max(0, Math.trunc(finite(element.level))) }))
 
   for (const group of attributeGroups) {
     const primaryKey = group.primary.key
@@ -65,5 +78,5 @@ export function synchronizeCharacterDerivedValues(previous: Character, changed: 
   stats.determination = Math.min(snapshot.determinationMax, Math.max(0, finite(stats.determination)))
   stats.casualty = Math.min(snapshot.casualtyMax, Math.max(0, finite(stats.casualty)))
 
-  return { ...changed, attributes, info, stats, inventory }
+  return { ...changed, attributes, info, stats, inventory, elements }
 }

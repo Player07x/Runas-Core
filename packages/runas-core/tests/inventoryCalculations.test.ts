@@ -5,13 +5,16 @@ import { calculateItemSizeModifier } from "../src/lib/characterCalculations"
 import type { CharacterInventoryItem } from "../src/types/character"
 
 function item(id: string, rdf: number, rdm: number, equippedAsArmor = false): CharacterInventoryItem {
-  return { id, usage: "equipped", name: id, type: "armor", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf, rdm, equippedAsArmor, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "", description: "" }
+  return { id, usage: "equipped", name: id, type: "armor", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf, rdm, equippedAsArmor, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" }
 }
 
 describe("armadura ativa", () => {
-  it("deriva o MT de itens em centímetros com o ajuste de +2", () => {
-    expect(calculateItemSizeModifier(80)).toBe(0)
-    expect(calculateItemSizeModifier(200)).toBe(2)
+  it("deriva o MT de itens em centímetros pela mesma tabela de tamanho das fichas", () => {
+    expect(calculateItemSizeModifier(80)).toBe(-2)
+    expect(calculateItemSizeModifier(150)).toBe(0)
+    expect(calculateItemSizeModifier(200)).toBe(0)
+    expect(calculateItemSizeModifier(300)).toBe(1)
+    expect(calculateItemSizeModifier(10)).toBe(-6)
     expect(calculateItemSizeModifier(0)).toBe(0)
   })
 

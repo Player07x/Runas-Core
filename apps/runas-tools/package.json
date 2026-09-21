@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/inject-sw-precache.mjs",
     "start": "next start",
     "lint": "eslint .",
     "check:bundle": "node scripts/check-bundle-size.mjs",

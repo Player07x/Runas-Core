@@ -456,7 +456,7 @@ export function BookApp({ mode, seed }: { mode: Mode; seed: BookWorkspace }) {
     link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url)
   }
 
-  function saveBookSettings(patch: Pick<BookRecord, "title" | "subtitle" | "author" | "accent" | "coverImageDataUrl">) {
+  function saveBookSettings(patch: Pick<BookRecord, "title" | "subtitle" | "author" | "accent" | "coverImageDataUrl" | "categoryColors">) {
     if (!book) return
     setWorkspace((current) => ({ ...current, books: current.books.map((item) => item.id === book.id ? { ...item, ...patch } : item), updatedAt: Date.now() }))
     setShowBookSettings(false)

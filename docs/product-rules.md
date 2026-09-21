@@ -25,6 +25,30 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - Ações agregam itens equipados, habilidades não raciais e magias no formato `nome categoria`.
 - O uso `Equipado` não escolhe automaticamente uma armadura. Vários itens, inclusive várias armaduras, podem permanecer equipados; o usuário seleciona separadamente um único item equipado como armadura ativa, e somente o RDF/RDM desse item entra nas calculadoras de dano.
 
+## Itens
+
+- Criar ou editar um item tem dois modos, nos dois aplicativos. O **simples** mostra nome, uso, tipo, peso base, tamanho, quantidade, os botões de habilidade e encantamento e a descrição. O **avançado** é o modo simples mais todos os campos do modelo compartilhado.
+- No modo simples, cada campo de combate aparece apenas para quem o usa: dano e perícia em `Arma`, PR e RDF/RDM em `Escudo`, RDF/RDM em `Armadura`.
+- O modo escolhido acompanha o usuário entre itens e sessões.
+- O item não tem mais um campo de encantamento nem um de habilidade. Tem os botões **Adicionar Habilidade** e **Adicionar Encantamento**, e cada um aceita três caminhos: usar um registro da própria ficha, criar um na mesma tela ou importar um arquivo externo. Magias de qualquer categoria podem ser anexadas, não só encantamentos.
+- O que está anexado é exibido de forma simples — nome e texto — para ser lido de relance.
+- `Dano` e `Bônus` são campos separados. O jogador escreve só a expressão; o bônus é calculado pelo sistema e não é editável.
+- `Usar MT?` calcula o peso verdadeiro **e** entra no bônus de dano pela diferença entre o MT do item e o MT do personagem.
+
+## Magias: elementos
+
+- A seção de Magias começa pelos elementos: um recorte curto da perícia, com `Nome do Elemento`, `Nível` e o botão de rolar. Sem pontos de perícia e sem outros modificadores.
+- O teste é `Místico + Poder + nível do elemento`.
+- O usuário escolhe entre os elementos básicos, raros e divinos, ou digita um elemento qualquer.
+- Com qualquer elemento de nível maior que zero, o sistema exibe sozinho as fusões disponíveis e o nível de cada uma, que é a soma dos níveis dos componentes. Fusão não tem botão de rolar: clicar no nome já rola.
+- Onde a ficha pede uma perícia — perícia do item, teste de conjuração — o elemento e a fusão são escolhas válidas.
+
+## Runas Book
+
+- Um recurso importado exibe apenas o que ele tem: campo opcional vazio não aparece, nem na leitura nem na exportação.
+- Uma magia de aplicação `Relativo` não exibe valor fixo. Um custo `Outro` exibe o próprio texto do custo no lugar do valor fixo.
+- O DM pode definir uma cor por categoria. Todos os recursos daquela categoria usam a mesma cor de box, na leitura e na exportação. A categoria de uma habilidade ou magia é a própria categoria; a de um item é o tipo.
+
 ## Barra superior
 
 - A barra superior carrega apenas marca, navegação e um botão de ações (`⋯`). Tema, backup, importação, Obsidian e atalhos externos ficam dentro desse painel.

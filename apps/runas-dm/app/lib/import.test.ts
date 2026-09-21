@@ -9,7 +9,7 @@ describe("parseRunasImport", () => {
     character.skills.push({ id: "skill-linked", name: "Profecia", attributeKey: "knowledge", points: 4, modifier: 2, locked: false })
     character.abilities.push({ id: "ability-linked", category: "Racial", name: "Visão", description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" })
     character.spells.push({ id: "spell-linked", category: "Metal", name: "Presságio", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "Profecia" })
-    character.inventory.push({ id: "attack-linked", usage: "equipped", name: "Lâmina", type: "weapon", affinity: 0, bondPoints: 0, baseWeight: 1, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, enchantmentSpellId: "", bondId: "", bondAbilityId: "", skillId: "skill-linked", description: "" })
+    character.inventory.push({ id: "attack-linked", usage: "equipped", name: "Lâmina", type: "weapon", affinity: 0, bondPoints: 0, baseWeight: 1, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "2D cortante", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "skill-linked", description: "" })
 
     const parsed = parseRunasImport({ version: 17, character })
 

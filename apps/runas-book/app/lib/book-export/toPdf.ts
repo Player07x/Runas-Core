@@ -28,7 +28,9 @@ function fieldCell(field: { label: string; value: string }): Content {
   return { stack: [{ text: field.label.toLocaleUpperCase("pt-BR"), fontSize: 8, bold: true, color: "#8a8a8a" }, { text: field.value, fontSize: 10.5, margin: [0, 1, 0, 0] }] }
 }
 
-function cardToPdf(block: Extract<Block, { type: "card" }>, accent: string): Content {
+function cardToPdf(block: Extract<Block, { type: "card" }>, bookAccent: string): Content {
+  // A cor da categoria, quando o DM definiu uma, vence a cor do livro.
+  const accent = block.accent ?? bookAccent
   const fieldRows: Content[][] = []
   for (let index = 0; index < block.fields.length; index += 2) {
     const pair = block.fields.slice(index, index + 2)
@@ -124,7 +126,7 @@ export async function generateBookPdfBlob(book: BookRecord): Promise<Blob> {
       } as unknown as Content)
       content.push(...pageBlocks(pageEntry.content, 2, accent))
       if (pageEntry.kind === "character" && pageEntry.entity) content.push(cardToPdf(characterCardBlock(pageEntry.entity), accent))
-      for (const resource of pageEntry.resources) content.push(cardToPdf(resourceCardBlock(resource, pageEntry.resources), accent))
+      for (const resource of pageEntry.resources) content.push(cardToPdf(resourceCardBlock(resource, pageEntry.resources, book.categoryColors), accent))
     }
   }
 

@@ -85,7 +85,9 @@ function fieldCellParagraphs(field: { label: string; value: string }): Paragraph
   ]
 }
 
-function cardToDocx(block: Extract<Block, { type: "card" }>, accentHex: string): Table {
+function cardToDocx(block: Extract<Block, { type: "card" }>, bookAccentHex: string): Table {
+  // A cor da categoria, quando o DM definiu uma, vence a cor do livro.
+  const accentHex = block.accent ? block.accent.replace("#", "").toUpperCase() : bookAccentHex
   const titleParagraph = new Paragraph({
     children: [
       new DocxTextRun({ text: block.title, bold: true, size: 26 }),
@@ -185,7 +187,7 @@ export async function generateBookDocxBlob(book: BookRecord): Promise<Blob> {
       children.push(new Paragraph({ text: pageEntry.title, heading: HeadingLevel.HEADING_2 }))
       children.push(...await blocksToDocx(pageEntry.content, accentHex, 2))
       if (pageEntry.kind === "character" && pageEntry.entity) children.push(cardToDocx(characterCardBlock(pageEntry.entity), accentHex))
-      for (const resource of pageEntry.resources) children.push(cardToDocx(resourceCardBlock(resource, pageEntry.resources), accentHex))
+      for (const resource of pageEntry.resources) children.push(cardToDocx(resourceCardBlock(resource, pageEntry.resources, book.categoryColors), accentHex))
     }
     children.push(new Paragraph({ children: [new PageBreak()] }))
   }

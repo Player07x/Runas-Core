@@ -3,6 +3,7 @@
 import { useRef, useState } from "react"
 import { Check, ImageOff, Upload, X } from "lucide-react"
 import type { BookRecord } from "../lib/book-model"
+import { collectResourceCategories, resourceCategoryKey } from "../lib/resource-fields"
 
 async function compressCoverImage(file: File): Promise<string> {
   const source = await new Promise<string>((resolve, reject) => {
@@ -27,9 +28,12 @@ async function compressCoverImage(file: File): Promise<string> {
 
 interface Props {
   book: BookRecord
-  onSave: (patch: Pick<BookRecord, "title" | "subtitle" | "author" | "accent" | "coverImageDataUrl">) => void
+  onSave: (patch: Pick<BookRecord, "title" | "subtitle" | "author" | "accent" | "coverImageDataUrl" | "categoryColors">) => void
   onClose: () => void
 }
+
+/** Cor sugerida para uma categoria nova: a do livro, até o DM escolher outra. */
+const DEFAULT_CATEGORY_COLOR = "#7d97a6"
 
 export function BookSettingsDialog({ book, onSave, onClose }: Props) {
   const [title, setTitle] = useState(book.title)
@@ -37,7 +41,20 @@ export function BookSettingsDialog({ book, onSave, onClose }: Props) {
   const [author, setAuthor] = useState(book.author)
   const [accent, setAccent] = useState(book.accent || "#7d97a6")
   const [cover, setCover] = useState(book.coverImageDataUrl)
+  const [categoryColors, setCategoryColors] = useState<Record<string, string>>(book.categoryColors ?? {})
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Todas as categorias que o livro realmente tem: o DM colore o que existe.
+  const categories = collectResourceCategories(book.chapters.flatMap((chapter) => chapter.entries.flatMap((entry) => entry.resources)))
+
+  function setCategoryColor(category: string, color: string | null) {
+    const key = resourceCategoryKey(category)
+    setCategoryColors((current) => {
+      const next = { ...current }
+      if (color) next[key] = color
+      else delete next[key]
+      return next
+    })
+  }
 
   async function handleCoverFile(file: File | undefined) {
     if (!file || !file.type.startsWith("image/")) return
@@ -52,6 +69,23 @@ export function BookSettingsDialog({ book, onSave, onClose }: Props) {
       <label>Subtítulo<input className="form-input" value={subtitle} onChange={(event) => setSubtitle(event.target.value)} /></label>
       <label>Autor<input className="form-input" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="Exibido na capa gerada e nos metadados da exportação" /></label>
       <label>Cor do livro<div className="book-settings-color-row"><input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /><span>{accent}</span></div></label>
+
+      {categories.length > 0 && <div className="book-settings-categories">
+        <span className="book-settings-cover-label">Cor por categoria</span>
+        <p className="book-settings-cover-hint">Todos os recursos de uma categoria usam a mesma cor de box, na leitura e na exportação.</p>
+        <div className="book-settings-category-list">
+          {categories.map((category) => {
+            const key = resourceCategoryKey(category)
+            const color = categoryColors[key]
+            return <div key={key} className="book-settings-category">
+              <span style={color ? { background: color } : undefined} aria-hidden="true" />
+              <strong>{category}</strong>
+              <input type="color" value={color ?? DEFAULT_CATEGORY_COLOR} aria-label={`Cor da categoria ${category}`} onChange={(event) => setCategoryColor(category, event.target.value)} />
+              {color && <button className="ghost-link" onClick={() => setCategoryColor(category, null)}>Limpar</button>}
+            </div>
+          })}
+        </div>
+      </div>}
 
       <div className="book-settings-cover">
         <span className="book-settings-cover-label">Capa</span>
@@ -68,7 +102,7 @@ export function BookSettingsDialog({ book, onSave, onClose }: Props) {
 
       <div className="editor-actions">
         <button className="outline-action" onClick={onClose}><X size={15} /> Cancelar</button>
-        <button className="primary-action" onClick={() => onSave({ title: title.trim() || book.title, subtitle, author, accent, coverImageDataUrl: cover })}><Check size={15} /> Salvar</button>
+        <button className="primary-action" onClick={() => onSave({ title: title.trim() || book.title, subtitle, author, accent, coverImageDataUrl: cover, categoryColors })}><Check size={15} /> Salvar</button>
       </div>
     </section>
   </div>
