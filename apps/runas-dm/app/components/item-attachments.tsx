@@ -26,7 +26,13 @@ interface Props {
   available: Attachment[]
   onAttach: (id: string) => void
   onDetach: (id: string) => void
-  onCreate: (record: ImportedAbility | ImportedSpell) => string
+  /**
+   * Cria os registros na ficha **e** anexa ao item, numa única alteração.
+   * `AdvancedSheetEditor.update` parte sempre do `character` recebido por
+   * prop, então criar e anexar em duas chamadas faria a segunda descartar a
+   * primeira — o registro nasceria e sumiria no mesmo clique.
+   */
+  onCreate: (records: Array<ImportedAbility | ImportedSpell>) => void
 }
 
 const magicTypeLabels: Record<CharacterSpell["magicType"], string> = {
@@ -63,7 +69,7 @@ export function ItemAttachments({ kind, attached, available, onAttach, onDetach,
   function create() {
     const name = draft.name.trim()
     if (!name) { setError(`Dê um nome ${isAbility ? "à habilidade" : "à magia"} antes de anexar.`); return }
-    onAttach(onCreate({ ...draft, name }))
+    onCreate([{ ...draft, name }])
     close()
   }
 
@@ -78,7 +84,7 @@ export function ItemAttachments({ kind, attached, available, onAttach, onDetach,
       const entries: Array<ImportedAbility | ImportedSpell> = isAbility
         ? (record ? [parseImportedAbility(record)] : parseAbilityListFile(text))
         : (record ? [parseImportedSpell(record)] : parseSpellListFile(text))
-      for (const entry of entries) onAttach(onCreate(entry))
+      onCreate(entries)
       close()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível ler o arquivo.")

@@ -1051,13 +1051,16 @@ function SimpleItemDetails({ item, character, mutate }: { item: Character["inven
   const testSources = listCharacterTestSources(character)
   const attach = (field: "abilityIds" | "spellIds", id: string) => mutate((draft) => { const entry = draft.inventory.find((candidate) => candidate.id === item.id); if (entry && !entry[field].includes(id)) entry[field].push(id) })
   const detach = (field: "abilityIds" | "spellIds", id: string) => mutate((draft) => { const entry = draft.inventory.find((candidate) => candidate.id === item.id); if (entry) entry[field] = entry[field].filter((candidate) => candidate !== id) })
-  function createRecord(kind: "ability" | "spell", record: ImportedAbility | ImportedSpell): string {
-    const recordId = `${kind}-${crypto.randomUUID()}`
+  function createRecords(kind: "ability" | "spell", records: Array<ImportedAbility | ImportedSpell>) {
     mutate((draft) => {
-      if (kind === "ability") draft.abilities.push({ id: recordId, ...(record as ImportedAbility) })
-      else draft.spells.push({ id: recordId, ...(record as ImportedSpell) })
+      const entry = draft.inventory.find((candidate) => candidate.id === item.id)
+      if (!entry) return
+      for (const record of records) {
+        const recordId = `${kind}-${crypto.randomUUID()}`
+        if (kind === "ability") { draft.abilities.push({ id: recordId, ...(record as ImportedAbility) }); entry.abilityIds.push(recordId) }
+        else { draft.spells.push({ id: recordId, ...(record as ImportedSpell) }); entry.spellIds.push(recordId) }
+      }
     })
-    return recordId
   }
   return <div className="simple-record-details simple-item-details">
     <Field label="Nome" value={item.name} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { name: value }))} />
@@ -1073,8 +1076,8 @@ function SimpleItemDetails({ item, character, mutate }: { item: Character["inven
     {item.type === "shield" && <NumberField label="PR atual" value={item.prCurrent ?? 0} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { prCurrent: value }))} />}
     {item.type === "shield" && <NumberField label="PR máximo" value={item.prMaximum ?? 0} min={0} onChange={(value) => mutate((draft) => assignById(draft.inventory, item.id, { prMaximum: value }))} />}
     <div className="item-attachments-grid">
-      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((id) => character.abilities.filter((ability) => ability.id === id).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(id) => attach("abilityIds", id)} onDetach={(id) => detach("abilityIds", id)} onCreate={(record) => createRecord("ability", record)} />
-      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((id) => character.spells.filter((spell) => spell.id === id).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(id) => attach("spellIds", id)} onDetach={(id) => detach("spellIds", id)} onCreate={(record) => createRecord("spell", record)} />
+      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((id) => character.abilities.filter((ability) => ability.id === id).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(id) => attach("abilityIds", id)} onDetach={(id) => detach("abilityIds", id)} onCreate={(records) => createRecords("ability", records)} />
+      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((id) => character.spells.filter((spell) => spell.id === id).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(id) => attach("spellIds", id)} onDetach={(id) => detach("spellIds", id)} onCreate={(records) => createRecords("spell", records)} />
     </div>
     <RichTextEditor label="Descrição" value={item.description} onChange={(description) => mutate((draft) => assignById(draft.inventory, item.id, { description }))} className="wide" />
   </div>

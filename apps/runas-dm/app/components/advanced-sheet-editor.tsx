@@ -378,13 +378,15 @@ function InventoryForm({ item, character, update }: { item: CharacterInventoryIt
     try { window.localStorage.setItem(ITEM_EDITOR_MODE_KEY, next) } catch { /* preferência opcional */ }
   }
 
-  function createRecord(kind: "ability" | "spell", record: ImportedAbility | ImportedSpell): string {
-    const recordId = uid(kind)
+  function createRecords(kind: "ability" | "spell", records: Array<ImportedAbility | ImportedSpell>) {
     update((draft) => {
-      if (kind === "ability") draft.abilities.push({ id: recordId, ...(record as ImportedAbility) })
-      else draft.spells.push({ id: recordId, ...(record as ImportedSpell) })
+      const entry = find(draft.inventory, item.id)
+      for (const record of records) {
+        const recordId = uid(kind)
+        if (kind === "ability") { draft.abilities.push({ id: recordId, ...(record as ImportedAbility) }); entry.abilityIds.push(recordId) }
+        else { draft.spells.push({ id: recordId, ...(record as ImportedSpell) }); entry.spellIds.push(recordId) }
+      }
     })
-    return recordId
   }
 
   return <div className="record-form-grid">
@@ -413,8 +415,8 @@ function InventoryForm({ item, character, update }: { item: CharacterInventoryIt
     {showSkill && <SelectField label="Perícia vinculada" value={item.skillId} options={[{ value: "", label: "Nenhuma" }, ...testSources.map((source) => ({ value: source.id, label: source.kind === "skill" ? source.name : `${source.name} · Elemento` }))]} onChange={(value) => update((draft) => { find(draft.inventory, item.id).skillId = value })} />}
     {advanced && <Field label="Vínculo" value={item.bondId} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondId = value })} />}
     <div className="span-2 item-attachments-grid">
-      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((entryId) => character.abilities.filter((ability) => ability.id === entryId).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.abilityIds.includes(entryId)) entry.abilityIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.abilityIds = entry.abilityIds.filter((candidate) => candidate !== entryId) })} onCreate={(record) => createRecord("ability", record)} />
-      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((entryId) => character.spells.filter((spell) => spell.id === entryId).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.spellIds.includes(entryId)) entry.spellIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.spellIds = entry.spellIds.filter((candidate) => candidate !== entryId) })} onCreate={(record) => createRecord("spell", record)} />
+      <ItemAttachments kind="ability" attached={item.abilityIds.flatMap((entryId) => character.abilities.filter((ability) => ability.id === entryId).map(abilityAttachment))} available={character.abilities.map(abilityAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.abilityIds.includes(entryId)) entry.abilityIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.abilityIds = entry.abilityIds.filter((candidate) => candidate !== entryId) })} onCreate={(records) => createRecords("ability", records)} />
+      <ItemAttachments kind="spell" attached={item.spellIds.flatMap((entryId) => character.spells.filter((spell) => spell.id === entryId).map(spellAttachment))} available={character.spells.map(spellAttachment)} onAttach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); if (!entry.spellIds.includes(entryId)) entry.spellIds.push(entryId) })} onDetach={(entryId) => update((draft) => { const entry = find(draft.inventory, item.id); entry.spellIds = entry.spellIds.filter((candidate) => candidate !== entryId) })} onCreate={(records) => createRecords("spell", records)} />
     </div>
     <TextArea label="Descrição" value={item.description} onChange={(value) => update((draft) => { find(draft.inventory, item.id).description = value })} />
   </div>
