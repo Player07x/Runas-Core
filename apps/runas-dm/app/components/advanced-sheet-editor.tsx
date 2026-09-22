@@ -36,6 +36,7 @@ import { RichTextEditor } from "./rich-text-editor"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { TokenEditorDialog } from "./token-editor-dialog"
 import { createId } from "@runas/core/lib/ids"
+import { AdvancedSectionToolbar, advancedCategories, advancedCategoryKey, advancedCollator, advancedMatches, useAdvancedToolbar, type AdvancedSort } from "./advanced-section-toolbar"
 
 type AdvancedTab = "information" | "statistics" | "skills" | "bonds" | "abilities" | "inventory" | "spells" | "notes"
 type UpdateCharacter = (mutator: (draft: Character) => void) => void
@@ -203,11 +204,57 @@ function StatisticsSection({ character, update }: { character: Character; update
 
 function updateStat(update: UpdateCharacter, key: keyof Character["stats"], value: number) { update((draft) => { (draft.stats[key] as number) = value }) }
 
+const BOND_SORTS: AdvancedSort[] = [
+  { value: "default", label: "Padrão (ordem da ficha)" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "points-desc", label: "Pontos (maior primeiro)" },
+]
+
+const ABILITY_SORTS: AdvancedSort[] = [
+  { value: "default", label: "Padrão (ordem da ficha)" },
+  { value: "category", label: "Categoria, depois nome" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+]
+
+const SPELL_SORTS: AdvancedSort[] = ABILITY_SORTS
+const NOTE_SORTS: AdvancedSort[] = ABILITY_SORTS
+
+const INVENTORY_SORTS: AdvancedSort[] = [
+  { value: "default", label: "Padrão (ordem da ficha)" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "weight-desc", label: "Peso (maior primeiro)" },
+  { value: "quantity-desc", label: "Quantidade (maior primeiro)" },
+]
+
+const SKILL_SORTS: AdvancedSort[] = [
+  { value: "default", label: "Padrão (ordem da ficha)" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "level-desc", label: "Nível (maior primeiro)" },
+  { value: "points-desc", label: "Pontos (maior primeiro)" },
+]
+
 function SkillsSection({ character, update }: { character: Character; update: UpdateCharacter }) {
-  return <AdvancedSection title="Perícias" description="Edição direta, sem cartões expansíveis e sem botões de rolagem." action={() => update((draft) => { draft.skills.push({ id: uid("skill"), name: "Nova perícia", attributeKey: "", points: 0, modifier: 0, locked: false }) })}>
+  const toolbar = useAdvancedToolbar("default")
+  const atributoDe = (skill: { attributeKey: string }) => attributeGroups.flatMap((group) => group.attributes).find((attribute) => attribute.key === skill.attributeKey)?.name ?? "Sem atributo"
+  const categorias = advancedCategories(character.skills, atributoDe)
+  const visiveis = character.skills
+    .filter((skill) => !toolbar.hidden.has(advancedCategoryKey(atributoDe(skill))))
+    .filter((skill) => advancedMatches(toolbar.query, skill.name, atributoDe(skill)))
+  const ordenadas = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "level-desc") return calculateSkillLevel(right.points) - calculateSkillLevel(left.points)
+    if (toolbar.sort === "points-desc") return right.points - left.points
+    return 0
+  })
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="perícias" state={toolbar} categories={categorias} sorts={SKILL_SORTS} />} title="Perícias" description="Edição direta, sem cartões expansíveis e sem botões de rolagem." action={() => update((draft) => { draft.skills.push({ id: uid("skill"), name: "Nova perícia", attributeKey: "", points: 0, modifier: 0, locked: false }) })}>
     <datalist id="advanced-system-skill-suggestions">{systemSkills.map((skill) => <option key={skill.name} value={skill.name} />)}</datalist>
     <div className="tools-table skill-table"><TableHeader labels={["Nome", "Teste", "Nível", "Atributo", "Pontos", "Mod.", ""]} />
-      {character.skills.map((skill) => { const level = calculateSkillLevel(skill.points); const test = skill.attributeKey ? calculateAttributeTest(character.attributes, skill.attributeKey) + level + skill.modifier : null; return <div className="tools-table-row" key={skill.id}>
+      {ordenadas.map((skill) => { const level = calculateSkillLevel(skill.points); const test = skill.attributeKey ? calculateAttributeTest(character.attributes, skill.attributeKey) + level + skill.modifier : null; return <div className="tools-table-row" key={skill.id}>
         <InlineText label="Nome" value={skill.name} list="advanced-system-skill-suggestions" readOnly={skill.locked} onChange={(value) => update((draft) => { const target = find(draft.skills, skill.id); const detected = findExactSystemSkill(value); target.name = detected?.name ?? value; if (detected) target.attributeKey = detected.attributeKey })} />
         <OutputCell label="Teste" value={test ?? "—"} /><OutputCell label="Nível" value={formatSigned(level)} />
         <InlineSelect label="Atributo" value={skill.attributeKey} options={[{ value: "", label: "Nenhum" }, ...secondaryAttributes.map((attribute) => ({ value: attribute.key, label: attribute.name }))]} onChange={(value) => update((draft) => { find(draft.skills, skill.id).attributeKey = value as SecondaryAttributeKey | "" })} />
@@ -220,9 +267,20 @@ function SkillsSection({ character, update }: { character: Character; update: Up
 }
 
 function BondsSection({ character, update }: { character: Character; update: UpdateCharacter }) {
-  return <AdvancedSection title="Vínculos" description="Todos os valores ficam visíveis e editáveis na própria linha." action={() => update((draft) => { draft.bonds.push({ id: uid("bond"), category: "", name: "Novo vínculo", points: 0, modifier: 0 }) })}>
+  const toolbar = useAdvancedToolbar("default")
+  const categorias = advancedCategories(character.bonds, (bond) => bond.category)
+  const visiveis = character.bonds
+    .filter((bond) => !toolbar.hidden.has(advancedCategoryKey(bond.category)))
+    .filter((bond) => advancedMatches(toolbar.query, bond.name, bond.category))
+  const ordenados = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "points-desc") return right.points - left.points
+    return 0
+  })
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="vínculos" state={toolbar} categories={categorias} sorts={BOND_SORTS} />} title="Vínculos" description="Todos os valores ficam visíveis e editáveis na própria linha." action={() => update((draft) => { draft.bonds.push({ id: uid("bond"), category: "", name: "Novo vínculo", points: 0, modifier: 0 }) })}>
     <div className="tools-table bond-table"><TableHeader labels={["Ação", "Categoria", "Nome", "Teste", "Qualidade", "Nível", "Pontos", "Mod.", ""]} />
-      {character.bonds.map((bond) => { const quality = calculateBondQuality(bond.points); return <div className="tools-table-row" key={bond.id}>
+      {ordenados.map((bond) => { const quality = calculateBondQuality(bond.points); return <div className="tools-table-row" key={bond.id}>
         <span className="bond-symbol" aria-hidden="true"><Handshake size={18} /></span>
         <InlineText label="Categoria" value={bond.category} onChange={(value) => update((draft) => { find(draft.bonds, bond.id).category = value })} />
         <InlineText label="Nome" value={bond.name} onChange={(value) => update((draft) => { find(draft.bonds, bond.id).name = value })} />
@@ -238,9 +296,20 @@ function BondsSection({ character, update }: { character: Character; update: Upd
 
 function AbilitiesSection({ items, update }: { items: CharacterAbility[]; update: UpdateCharacter }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const toolbar = useAdvancedToolbar("default")
+  const categorias = advancedCategories(items, (item) => item.category ?? "")
+  const visiveis = items
+    .filter((item) => !toolbar.hidden.has(advancedCategoryKey(item.category ?? "")))
+    .filter((item) => advancedMatches(toolbar.query, item.name, item.category, item.description))
+  const ordenados = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "category") return advancedCollator.compare(left.category ?? "", right.category ?? "") || advancedCollator.compare(left.name, right.name)
+    return 0
+  })
   const selected = items.find((item) => item.id === selectedId) ?? null
-  return <AdvancedSection title="Habilidades" description="Categoria, nome, descrição e custo visíveis antes de abrir a edição." action={() => { const nextId = uid("ability"); update((draft) => { draft.abilities.push({ id: nextId, category: "", name: "Nova habilidade", description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" }) }); setSelectedId(nextId) }}>
-    <div className="summary-table ability-summary"><TableHeader labels={["Categoria", "Nome", "Descrição", "Custo"]} />{items.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><span>{item.category || "Sem categoria"}</span><strong>{item.name}</strong><span>{plainText(item.description) || "Sem descrição"}</span><span>{costLabel(item)}</span></button>)}</div>
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="habilidades" state={toolbar} categories={categorias} sorts={ABILITY_SORTS} />} title="Habilidades" description="Categoria, nome, descrição e custo visíveis antes de abrir a edição." action={() => { const nextId = uid("ability"); update((draft) => { draft.abilities.push({ id: nextId, category: "", name: "Nova habilidade", description: "", permanentModifiers: "", costType: "none", costMode: "fixed", costValue: 0, costText: "" }) }); setSelectedId(nextId) }}>
+    <div className="summary-table ability-summary"><TableHeader labels={["Categoria", "Nome", "Descrição", "Custo"]} />{ordenados.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><span>{item.category || "Sem categoria"}</span><strong>{item.name}</strong><span>{plainText(item.description) || "Sem descrição"}</span><span>{costLabel(item)}</span></button>)}</div>
     {selected && <RecordModal title="Editar habilidade" onClose={() => setSelectedId(null)}><AbilityForm item={selected} update={update} /><ModalActions onRemove={() => { update((draft) => { draft.abilities = draft.abilities.filter((candidate) => candidate.id !== selected.id) }); setSelectedId(null) }} onClose={() => setSelectedId(null)} /></RecordModal>}
   </AdvancedSection>
 }
@@ -290,10 +359,21 @@ function ElementsBlock({ character, update }: { character: Character; update: Up
 
 function SpellsSection({ character, items, update }: { character: Character; items: CharacterSpell[]; update: UpdateCharacter }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const toolbar = useAdvancedToolbar("default")
+  const categorias = advancedCategories(items, (item) => item.category ?? "")
+  const visiveis = items
+    .filter((item) => !toolbar.hidden.has(advancedCategoryKey(item.category ?? "")))
+    .filter((item) => advancedMatches(toolbar.query, item.name, item.category, item.description))
+  const ordenados = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "category") return advancedCollator.compare(left.category ?? "", right.category ?? "") || advancedCollator.compare(left.name, right.name)
+    return 0
+  })
   const selected = items.find((item) => item.id === selectedId) ?? null
-  return <AdvancedSection title="Magias" description="Lista compacta como no Runas Tools; clique apenas para editar uma magia." action={() => { const nextId = uid("spell"); update((draft) => { draft.spells.push({ id: nextId, category: "", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }) }); setSelectedId(nextId) }}>
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="magias" state={toolbar} categories={categorias} sorts={SPELL_SORTS} />} title="Magias" description="Lista compacta como no Runas Tools; clique apenas para editar uma magia." action={() => { const nextId = uid("spell"); update((draft) => { draft.spells.push({ id: nextId, category: "", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" }) }); setSelectedId(nextId) }}>
     <ElementsBlock character={character} update={update} />
-    <div className="summary-table spell-summary"><TableHeader labels={["Nome", "Tipo", "Alcance", "Duração", "Custo"]} />{items.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><strong>{item.name}</strong><span>{magicTypes.find((option) => option.value === item.magicType)?.label}</span><span>{[item.rangeText, rangeTypes.find((option) => option.value === item.rangeType)?.label].filter(Boolean).join(", ")}</span><span>{item.duration || "—"}</span><span>{costLabel(item)}</span></button>)}</div>
+    <div className="summary-table spell-summary"><TableHeader labels={["Nome", "Tipo", "Alcance", "Duração", "Custo"]} />{ordenados.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><strong>{item.name}</strong><span>{magicTypes.find((option) => option.value === item.magicType)?.label}</span><span>{[item.rangeText, rangeTypes.find((option) => option.value === item.rangeType)?.label].filter(Boolean).join(", ")}</span><span>{item.duration || "—"}</span><span>{costLabel(item)}</span></button>)}</div>
     {selected && <RecordModal title="Editar magia" onClose={() => setSelectedId(null)}><SpellForm item={selected} update={update} /><ModalActions onRemove={() => { update((draft) => { draft.spells = draft.spells.filter((candidate) => candidate.id !== selected.id) }); setSelectedId(null) }} onClose={() => setSelectedId(null)} /></RecordModal>}
   </AdvancedSection>
 }
@@ -305,7 +385,19 @@ function InventorySection({ character, update }: { character: Character; update:
   const defense = calculateEquippedArmorDefense(character.inventory)
   const load = calculateInventoryLoad(character.inventory, character.info.scaleMultiplier)
   function open(id: string, edit = false) { setSelectedId(id); setEditing(edit) }
-  return <AdvancedSection title="Inventário" description="Carga, armadura, equipamentos e itens na mesma hierarquia do Runas Tools." action={() => { const nextId = uid("item"); update((draft) => { draft.inventory.push(emptyItem(nextId)) }); open(nextId, true) }}>
+  const toolbar = useAdvancedToolbar("default")
+  const categorias = advancedCategories(character.inventory, (item) => inventoryTypeLabel(item.type))
+  const visiveis = character.inventory
+    .filter((item) => !toolbar.hidden.has(advancedCategoryKey(inventoryTypeLabel(item.type))))
+    .filter((item) => advancedMatches(toolbar.query, item.name, inventoryTypeLabel(item.type), item.description))
+  const ordenados = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "weight-desc") return right.baseWeight - left.baseWeight
+    if (toolbar.sort === "quantity-desc") return right.quantity - left.quantity
+    return 0
+  })
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="itens" state={toolbar} categories={categorias} sorts={INVENTORY_SORTS} />} title="Inventário" description="Carga, armadura, equipamentos e itens na mesma hierarquia do Runas Tools." action={() => { const nextId = uid("item"); update((draft) => { draft.inventory.push(emptyItem(nextId)) }); open(nextId, true) }}>
     <div className="inventory-overview"><InfoMetric label="Carga atual" value={`${formatWeight(load)} kg`} /><InfoMetric label="Capacidade" value={`${formatWeight(calculateCharacterStatSnapshot(character.attributes, character.info, character.stats, character.skills, character.abilities).loadCapacity)} kg`} /><NumberField label="Modificador de carga" value={character.stats.loadBonus} onChange={(value) => updateStat(update, "loadBonus", value)} /><InfoMetric label="Total de itens" value={character.inventory.reduce((sum, item) => sum + item.quantity, 0)} /></div>
     <section className="armor-overview"><header><Shield size={17} /><div><h4>Armadura</h4><label><span>Item usado como armadura</span><select value={character.inventory.find((item) => item.usage === "equipped" && item.equippedAsArmor)?.id ?? ""} onChange={(event) => update((draft) => { draft.inventory.forEach((item) => { item.equippedAsArmor = item.usage === "equipped" && item.id === event.target.value }) })}><option value="">Nenhum</option>{character.inventory.filter((item) => item.usage === "equipped").map((item) => <option key={item.id} value={item.id}>{item.name || "Item sem nome"}</option>)}</select></label></div></header><InfoMetric label="RDF" value={defense.rdf} /><InfoMetric label="RDM" value={defense.rdm} /></section>
     <h4 className="inventory-list-title">Todos os itens</h4>
@@ -321,9 +413,20 @@ function InventorySection({ character, update }: { character: Character; update:
 
 function NotesSection({ items, update }: { items: CharacterNote[]; update: UpdateCharacter }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const toolbar = useAdvancedToolbar("default")
+  const categorias = advancedCategories(items, (item) => item.category ?? "")
+  const visiveis = items
+    .filter((item) => !toolbar.hidden.has(advancedCategoryKey(item.category ?? "")))
+    .filter((item) => advancedMatches(toolbar.query, item.name, item.category, item.description))
+  const ordenados = [...visiveis].sort((left, right) => {
+    if (toolbar.sort === "name") return advancedCollator.compare(left.name, right.name)
+    if (toolbar.sort === "name-desc") return advancedCollator.compare(right.name, left.name)
+    if (toolbar.sort === "category") return advancedCollator.compare(left.category ?? "", right.category ?? "") || advancedCollator.compare(left.name, right.name)
+    return 0
+  })
   const selected = items.find((item) => item.id === selectedId) ?? null
-  return <AdvancedSection title="Anotações" description="Registros livres da ficha completa." action={() => { const nextId = uid("note"); update((draft) => { draft.notes.push({ id: nextId, category: "", name: "Nova anotação", description: "", date: "" }) }); setSelectedId(nextId) }}>
-    <div className="summary-table note-summary"><TableHeader labels={["Categoria", "Nome", "Data", "Descrição"]} />{items.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><span>{item.category || "Sem categoria"}</span><strong>{item.name}</strong><span>{item.date || "—"}</span><span>{plainText(item.description) || "Sem descrição"}</span></button>)}</div>
+  return <AdvancedSection toolbar={<AdvancedSectionToolbar label="anotações" state={toolbar} categories={categorias} sorts={NOTE_SORTS} />} title="Anotações" description="Registros livres da ficha completa." action={() => { const nextId = uid("note"); update((draft) => { draft.notes.push({ id: nextId, category: "", name: "Nova anotação", description: "", date: "" }) }); setSelectedId(nextId) }}>
+    <div className="summary-table note-summary"><TableHeader labels={["Categoria", "Nome", "Data", "Descrição"]} />{ordenados.map((item) => <button className="summary-row" key={item.id} onClick={() => setSelectedId(item.id)}><span>{item.category || "Sem categoria"}</span><strong>{item.name}</strong><span>{item.date || "—"}</span><span>{plainText(item.description) || "Sem descrição"}</span></button>)}</div>
     {selected && <RecordModal title="Editar anotação" onClose={() => setSelectedId(null)}><div className="record-form-grid"><Field label="Categoria" value={selected.category} onChange={(value) => update((draft) => { find(draft.notes, selected.id).category = value })} /><Field label="Nome" value={selected.name} onChange={(value) => update((draft) => { find(draft.notes, selected.id).name = value })} /><Field label="Data" value={selected.date} onChange={(value) => update((draft) => { find(draft.notes, selected.id).date = value })} /><TextArea label="Descrição" value={selected.description} onChange={(value) => update((draft) => { find(draft.notes, selected.id).description = value })} /></div><ModalActions onRemove={() => { update((draft) => { draft.notes = draft.notes.filter((candidate) => candidate.id !== selected.id) }); setSelectedId(null) }} onClose={() => setSelectedId(null)} /></RecordModal>}
   </AdvancedSection>
 }
@@ -426,7 +529,7 @@ function InventoryForm({ item, character, update }: { item: CharacterInventoryIt
 
 function emptyItem(id: string): CharacterInventoryItem { return { id, usage: "stored", name: "Novo item", type: "other", affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" } }
 
-function AdvancedSection({ title, description, action, children }: { title: string; description: string; action?: () => void; children: React.ReactNode }) { return <section className="advanced-section"><header><div><h3>{title}</h3><p>{description}</p></div>{action && <button className="primary-button" onClick={action}><Plus size={16} /> Adicionar</button>}</header>{children}</section> }
+function AdvancedSection({ title, description, action, toolbar, children }: { title: string; description: string; action?: () => void; toolbar?: React.ReactNode; children: React.ReactNode }) { return <section className="advanced-section"><header><div><h3>{title}</h3><p>{description}</p></div>{action && <button className="primary-button" onClick={action}><Plus size={16} /> Adicionar</button>}</header>{toolbar}{children}</section> }
 function TableHeader({ labels }: { labels: string[] }) { return <div className="tools-table-header" aria-hidden="true">{labels.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}</div> }
 function Field({ label, value, onChange, className = "" }: { label: string; value: string; onChange: (value: string) => void; className?: string }) { return <label className={`field ${className}`}><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
 function DeferredNumber({ value, onChange, fallback = 0, min, max, ariaLabel }: { value: number; onChange: (value: number) => void; fallback?: number; min?: number; max?: number; ariaLabel?: string }) { const [draft, setDraft] = useState(String(Number.isFinite(value) ? value : fallback)); function commit(raw: string, blur = false) { setDraft(raw); if (raw === "" || raw === "+" || raw === "-") { if (blur) { setDraft(String(fallback)); onChange(fallback) }; return } const parsed = Number(raw.replace(",", ".")); if (!Number.isFinite(parsed)) return; onChange(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed))) } return <input aria-label={ariaLabel} inputMode="decimal" value={draft} onChange={(event) => commit(event.target.value)} onBlur={() => commit(draft, true)} /> }

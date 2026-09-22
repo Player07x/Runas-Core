@@ -22,8 +22,6 @@ export function TokenEditorDialog({ file, initialSize, onCancel, onConfirm }: { 
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
   const [shape, setShape] = useState<TokenShape>("circle")
-  const [ringEnabled, setRingEnabled] = useState(true)
-  const [ringColor, setRingColor] = useState("#b99b65")
   const [size, setSize] = useState(initialSize)
   const [stageSize, setStageSize] = useState(320)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -47,14 +45,17 @@ export function TokenEditorDialog({ file, initialSize, onCancel, onConfirm }: { 
 
   const width = image?.naturalWidth ?? 1
   const height = image?.naturalHeight ?? 1
-  const crop = tokenCrop(width, height, zoom, offsetX, offsetY)
-  const scale = stageSize / crop.size
-  const maxXPixels = ((width - crop.size) / 2) * scale
-  const maxYPixels = ((height - crop.size) / 2) * scale
-  const ring = ringEnabled && shape === "circle" ? ringColor : null
-  const preview = useMemo(() => image ? renderTokenImage({ image, crop, shape, ringColor: ring, outputSize: 160 }) : null,
+  const crop = tokenCrop(width, height, zoom, offsetX, offsetY, shape)
+  // O palco é quadrado e o recorte, no formato Livre, não é: a escala segue o
+  // maior lado para a imagem inteira caber sem distorcer.
+  const scale = stageSize / Math.max(crop.width, crop.height)
+  const frameWidth = crop.width * scale
+  const frameHeight = crop.height * scale
+  const maxXPixels = ((width - crop.width) / 2) * scale
+  const maxYPixels = ((height - crop.height) / 2) * scale
+  const preview = useMemo(() => image ? renderTokenImage({ image, crop, shape, outputSize: 160 }) : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `crop` é derivado dos valores listados.
-    [image, zoom, offsetX, offsetY, shape, ring])
+    [image, zoom, offsetX, offsetY, shape])
 
   function move(event: React.PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current
@@ -66,7 +67,7 @@ export function TokenEditorDialog({ file, initialSize, onCancel, onConfirm }: { 
 
   function confirm() {
     if (!image) return
-    onConfirm(renderTokenImage({ image, crop, shape, ringColor: ring }), size)
+    onConfirm(renderTokenImage({ image, crop, shape }), size)
   }
 
   return <div className="modal-backdrop portrait-crop-backdrop" role="presentation">
@@ -74,8 +75,10 @@ export function TokenEditorDialog({ file, initialSize, onCancel, onConfirm }: { 
       <header><div><p className="eyebrow">Token da ficha</p><h2 id="token-editor-title">Monte o token para o mapa</h2><p>Arraste a imagem para enquadrar. O fundo fora do token fica transparente.</p></div><button className="icon-button" onClick={onCancel} aria-label="Cancelar"><X size={20} /></button></header>
       <div className="portrait-crop-body">
         <div ref={stageRef} className={`portrait-crop-stage token-stage ${shape}`} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { x: event.clientX, y: event.clientY, offsetX, offsetY } }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
+          <span className="token-frame" style={{ width: frameWidth, height: frameHeight }}>
           {source && <img src={source} alt="Imagem do token" draggable={false} onLoad={(event) => setImage(event.currentTarget)} style={{ top: 0, left: 0, translate: "none", width: width * scale, height: height * scale, transform: `translate(${-crop.x * scale}px, ${-crop.y * scale}px)` }} />}
-          <span aria-hidden="true" className="token-mask" />
+          </span>
+          <span aria-hidden="true" className="token-mask" style={{ width: frameWidth, height: frameHeight }} />
         </div>
         <div className="portrait-crop-controls">
           <div className="token-shape-switch" role="radiogroup" aria-label="Formato">
@@ -85,7 +88,7 @@ export function TokenEditorDialog({ file, initialSize, onCancel, onConfirm }: { 
           <label><span>Zoom</span><input type="range" min="1" max="4" step="0.01" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
           <label><span>Horizontal</span><input type="range" min="-1" max="1" step="0.01" value={offsetX} disabled={maxXPixels === 0} onChange={(event) => setOffsetX(Number(event.target.value))} /></label>
           <label><span>Vertical</span><input type="range" min="-1" max="1" step="0.01" value={offsetY} disabled={maxYPixels === 0} onChange={(event) => setOffsetY(Number(event.target.value))} /></label>
-          {shape === "circle" && <div className="token-ring"><label className="token-check"><input type="checkbox" checked={ringEnabled} onChange={(event) => setRingEnabled(event.target.checked)} /> Borda</label><input type="color" aria-label="Cor da borda" value={ringColor} disabled={!ringEnabled} onChange={(event) => setRingColor(event.target.value)} /></div>}
+          <p className="token-shape-hint">{shape === "circle" ? "O círculo recorta um quadrado da imagem." : "Livre mantém a proporção original da imagem."}</p>
           <label><span>Tamanho no mapa</span><select value={size} onChange={(event) => setSize(Number(event.target.value))}>{TOKEN_SIZES.map((cells) => <option key={cells} value={cells}>{cells === 0.5 ? "½ célula" : `${cells}×${cells} células`}</option>)}</select></label>
           {preview && <div className="token-preview"><span>Prévia</span><img src={preview} alt="Prévia do token" /></div>}
         </div>
