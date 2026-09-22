@@ -57,10 +57,13 @@ export interface AvailableFusion {
  * vence a de maior nível.
  */
 export function availableElementFusions(elements: CharacterElementSkill[]): AvailableFusion[] {
+  // Conhecer o elemento basta; o nível dele pode ser +0. O que decide a fusão
+  // é ter os componentes na ficha, não o quanto já se evoluiu neles — por isso
+  // a presença é guardada à parte do nível, que aqui pode legitimamente ser 0.
   const known = new Map<string, number>()
   for (const element of elements) {
     const level = Math.trunc(Number.isFinite(element.level) ? element.level : 0)
-    if (level <= 0) continue
+    if (level < 0) continue
     const key = normalizeElementName(elementSkillName(element))
     if (!key) continue
     known.set(key, Math.max(known.get(key) ?? 0, level))
@@ -72,9 +75,9 @@ export function availableElementFusions(elements: CharacterElementSkill[]): Avai
     if (element.kind !== "Fusão") continue
     let best: AvailableFusion | null = null
     for (const recipe of fusionRecipes(element)) {
-      const levels = recipe.map((name) => known.get(normalizeElementName(name)) ?? 0)
-      if (levels.some((level) => level <= 0)) continue
-      const level = levels.reduce((total, value) => total + value, 0)
+      const keys = recipe.map((name) => normalizeElementName(name))
+      if (!keys.every((key) => known.has(key))) continue
+      const level = keys.reduce((total, key) => total + (known.get(key) ?? 0), 0)
       if (!best || level > best.level) best = { element, level, components: recipe }
     }
     if (best) result.push(best)

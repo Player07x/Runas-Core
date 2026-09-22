@@ -5,12 +5,13 @@ import { calculateLegacyRarityLevel, modifierToNumber } from "./characterCalcula
  * Bônus de dano de um item. O jogador escreve apenas a expressão do dano; o
  * bônus é sempre derivado da ficha, nunca digitado:
  *
- * - afinidade: +1 por nível (Ordinário +0, Notável +1, Impressionante +2…);
  * - vínculo: +1 por nível de raridade (Comum +0, Incomum +1, Raro +2…);
  * - tamanho: só com `Usar MT?` ativo, pela diferença `MT do item − MT do personagem`.
+ *
+ * A afinidade do item **não** entra no dano. Ela continua no item, descrevendo
+ * a qualidade dele, mas somá-la aqui inflava toda arma notável.
  */
 export interface ItemDamageBonus {
-  affinity: number
   bond: number
   mt: number
   total: number
@@ -20,24 +21,31 @@ export interface ItemDamageBonus {
  * Converte a diferença `MT do item − MT do personagem` em bônus de dano.
  * Um item menor que quem o usa penaliza pouco (−1 por ponto); um item maior
  * rende o dobro (+2 por ponto).
+ *
+ * MT 0 no item é neutro por decisão de produto: ele é tanto o MT de um item de
+ * 1,50 m a 2,00 m quanto o valor de "tamanho não informado" — o padrão de todo
+ * item criado sem medida e de toda ficha migrada. Deixá-lo participar da conta
+ * fazia um item sem tamanho tirar dano de um personagem grande, sem que nada
+ * na tela explicasse a penalidade.
  */
 export function calculateMtDifferenceDamageBonus(itemMt: number, characterMt: number): number {
   const finite = (value: number) => Math.trunc(Number.isFinite(value) ? value : 0)
-  const difference = finite(itemMt) - finite(characterMt)
+  const item = finite(itemMt)
+  if (item === 0) return 0
+  const difference = item - finite(characterMt)
   return difference < 0 ? difference : difference * 2
 }
 
 export function calculateItemDamageBonus(
-  item: Pick<CharacterInventoryItem, "affinity" | "bondPoints" | "mt" | "applyScaleWeight">,
+  item: Pick<CharacterInventoryItem, "bondPoints" | "mt" | "applyScaleWeight">,
   characterSizeModifier: number | string = 0,
 ): ItemDamageBonus {
-  const affinity = Math.max(0, Math.trunc(Number.isFinite(item.affinity) ? item.affinity : 0))
   const bond = calculateLegacyRarityLevel(item.bondPoints)
   const characterMt = typeof characterSizeModifier === "number"
     ? Math.trunc(Number.isFinite(characterSizeModifier) ? characterSizeModifier : 0)
     : modifierToNumber(characterSizeModifier)
   const mt = item.applyScaleWeight ? calculateMtDifferenceDamageBonus(item.mt, characterMt) : 0
-  return { affinity, bond, mt, total: affinity + bond + mt }
+  return { bond, mt, total: bond + mt }
 }
 
 /** Primeiro grupo de dados da expressão e o bônus numérico colado nele (`3D`, `2D+2`, `4D - 1`). */

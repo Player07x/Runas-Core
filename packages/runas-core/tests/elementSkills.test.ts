@@ -33,8 +33,16 @@ describe("fusões disponíveis", () => {
     expect(fusions.map((fusion) => [fusion.element.name, fusion.level])).toEqual([["Metal", 5]])
   })
 
-  it("ignora componentes de nível zero", () => {
-    expect(availableElementFusions([element("fogo", 2), element("terra", 0)])).toEqual([])
+  /** Ter o elemento na ficha basta: o nível +0 entra na fusão e soma 0. */
+  it("aceita componentes de nível zero", () => {
+    const comZero = availableElementFusions([element("fogo", 2), element("terra", 0)])
+    expect(comZero.map((fusion) => [fusion.element.name, fusion.level])).toEqual([["Metal", 2]])
+    const todosZero = availableElementFusions([element("fogo", 0), element("terra", 0)])
+    expect(todosZero.map((fusion) => [fusion.element.name, fusion.level])).toEqual([["Metal", 0]])
+  })
+
+  it("continua exigindo que o elemento exista na ficha", () => {
+    expect(availableElementFusions([element("fogo", 2)])).toEqual([])
   })
 
   it("acumula fusões de dois e de três elementos", () => {

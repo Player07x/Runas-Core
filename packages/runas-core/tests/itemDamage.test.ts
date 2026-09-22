@@ -6,10 +6,10 @@ const item = (patch: Partial<{ affinity: 0 | 1 | 2 | 3 | 4; bondPoints: number; 
 })
 
 describe("bônus de dano do item", () => {
-  it("soma +1 por nível de afinidade", () => {
+  it("ignora a afinidade: ela descreve o item, não o dano", () => {
     expect(calculateItemDamageBonus(item({ affinity: 0 })).total).toBe(0)
-    expect(calculateItemDamageBonus(item({ affinity: 2 })).total).toBe(2)
-    expect(calculateItemDamageBonus(item({ affinity: 4 })).total).toBe(4)
+    expect(calculateItemDamageBonus(item({ affinity: 2 })).total).toBe(0)
+    expect(calculateItemDamageBonus(item({ affinity: 4 })).total).toBe(0)
   })
 
   it("soma +1 por nível de vínculo, pelos pontos de vínculo do item", () => {
@@ -21,9 +21,16 @@ describe("bônus de dano do item", () => {
 
   it("converte a diferença de MT: -1 por ponto abaixo, +2 por ponto acima", () => {
     expect(calculateMtDifferenceDamageBonus(-2, 0)).toBe(-2)
-    expect(calculateMtDifferenceDamageBonus(0, 0)).toBe(0)
     expect(calculateMtDifferenceDamageBonus(3, 0)).toBe(6)
     expect(calculateMtDifferenceDamageBonus(1, 3)).toBe(-2)
+  })
+
+  /** MT 0 no item também significa "tamanho não informado": nunca penaliza. */
+  it("trata o MT 0 do item como neutro, qualquer que seja o MT do personagem", () => {
+    expect(calculateMtDifferenceDamageBonus(0, 0)).toBe(0)
+    expect(calculateMtDifferenceDamageBonus(0, 1)).toBe(0)
+    expect(calculateMtDifferenceDamageBonus(0, -2)).toBe(0)
+    expect(calculateItemDamageBonus(item({ mt: 0, applyScaleWeight: true }), "+1").total).toBe(0)
   })
 
   it("só aplica o MT com `Usar MT?` ativo", () => {
@@ -32,9 +39,9 @@ describe("bônus de dano do item", () => {
     expect(calculateItemDamageBonus(item({ mt: 2, applyScaleWeight: true }), "+1").mt).toBe(2)
   })
 
-  it("acumula afinidade, vínculo e MT no total", () => {
+  it("acumula vínculo e MT no total, sem a afinidade", () => {
     const bonus = calculateItemDamageBonus(item({ affinity: 2, bondPoints: 40, mt: 1, applyScaleWeight: true }), "-1")
-    expect(bonus).toEqual({ affinity: 2, bond: 3, mt: 4, total: 9 })
+    expect(bonus).toEqual({ bond: 3, mt: 4, total: 7 })
   })
 })
 

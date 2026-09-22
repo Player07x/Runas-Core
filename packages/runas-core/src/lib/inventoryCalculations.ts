@@ -80,3 +80,24 @@ export function isBondAbilityCategory(category: string): boolean {
 export function formatWeight(value: number): string {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value)
 }
+
+/**
+ * O tamanho do item é guardado em centímetros — é o que `calculateItemSizeModifier`
+ * espera e o que as fichas já gravadas contêm —, mas é lido e escrito em metros,
+ * na mesma unidade da altura do personagem e da tabela de MT.
+ */
+export function metersFromCentimeters(centimeters: number): number {
+  const value = Number.isFinite(centimeters) ? centimeters : 0
+  return Math.round(value) / 100
+}
+
+export function centimetersFromMeters(meters: number): number {
+  const value = Number.isFinite(meters) ? meters : 0
+  return Math.max(0, Math.round(value * 100))
+}
+
+/** Tamanho do item para leitura: `1,7 m`, ou um travessão quando não informado. */
+export function formatItemSize(centimeters: number): string {
+  if (!Number.isFinite(centimeters) || centimeters <= 0) return "—"
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(metersFromCentimeters(centimeters))} m`
+}

@@ -33,14 +33,17 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - O item não tem mais um campo de encantamento nem um de habilidade. Tem os botões **Adicionar Habilidade** e **Adicionar Encantamento**, e cada um aceita três caminhos: usar um registro da própria ficha, criar um na mesma tela ou importar um arquivo externo. Magias de qualquer categoria podem ser anexadas, não só encantamentos.
 - O que está anexado é exibido de forma simples — nome e texto — para ser lido de relance.
 - `Dano` e `Bônus` são campos separados. O jogador escreve só a expressão; o bônus é calculado pelo sistema e não é editável.
-- `Usar MT?` calcula o peso verdadeiro **e** entra no bônus de dano pela diferença entre o MT do item e o MT do personagem.
+- A afinidade do item **não** entra no bônus de dano. Ela descreve a qualidade do item e continua visível, mas somá-la ao dano inflava toda arma notável.
+- O tamanho do item é lido e escrito em **metros**, na mesma unidade da altura do personagem e da tabela de MT.
+- `Usar MT?` calcula o peso verdadeiro **e** entra no bônus de dano pela diferença entre o MT do item e o MT do personagem. Um item de **MT 0 é sempre neutro no dano**: MT 0 é também o valor de "tamanho não informado", o padrão de todo item sem medida e de toda ficha migrada, e não pode penalizar em silêncio.
+- No modo simples, o MT e o botão `Usar MT?` não aparecem: são detalhe do modo avançado.
 
 ## Magias: elementos
 
 - A seção de Magias começa pelos elementos: um recorte curto da perícia, com `Nome do Elemento`, `Nível` e o botão de rolar. Sem pontos de perícia e sem outros modificadores.
 - O teste é `Místico + Poder + nível do elemento`.
 - O usuário escolhe entre os elementos básicos, raros e divinos, ou digita um elemento qualquer.
-- Com qualquer elemento de nível maior que zero, o sistema exibe sozinho as fusões disponíveis e o nível de cada uma, que é a soma dos níveis dos componentes. Fusão não tem botão de rolar: clicar no nome já rola.
+- Basta **ter** os elementos na ficha para o sistema exibir sozinho as fusões disponíveis: um elemento de nível +0 também compõe fusão. O nível da fusão é a soma dos níveis dos componentes, e pode ser 0. Fusão não tem botão de rolar: clicar no nome já rola.
 - Onde a ficha pede uma perícia — perícia do item, teste de conjuração — o elemento e a fusão são escolhas válidas.
 
 ## Runas Book

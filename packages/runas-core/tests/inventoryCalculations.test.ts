@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createEmptyCharacter, normalizeCharacter } from "../src/lib/characterStorage"
-import { calculateEquippedArmorDefense, calculateItemRealWeight } from "../src/lib/inventoryCalculations"
+import { calculateEquippedArmorDefense, calculateItemRealWeight, centimetersFromMeters, formatItemSize, metersFromCentimeters } from "../src/lib/inventoryCalculations"
 import { calculateItemSizeModifier } from "../src/lib/characterCalculations"
 import type { CharacterInventoryItem } from "../src/types/character"
 
@@ -42,5 +42,38 @@ describe("armadura ativa", () => {
       { usage: "equipped", equippedAsArmor: false },
     ])
     expect(normalized.stats).toMatchObject({ armorRdf: 4, armorRdm: 2 })
+  })
+})
+
+/**
+ * O tamanho é gravado em centímetros e lido em metros. A ida e a volta
+ * precisam fechar, senão editar um item sem tocar no tamanho mudaria o MT.
+ */
+describe("tamanho do item em metros", () => {
+  it("converte centímetros e metros nos dois sentidos", () => {
+    expect(metersFromCentimeters(80)).toBe(0.8)
+    expect(metersFromCentimeters(150)).toBe(1.5)
+    expect(metersFromCentimeters(0)).toBe(0)
+    expect(centimetersFromMeters(0.8)).toBe(80)
+    expect(centimetersFromMeters(1.5)).toBe(150)
+    expect(centimetersFromMeters(-3)).toBe(0)
+  })
+
+  it("fecha a ida e a volta nos tamanhos de item usados na tabela de MT", () => {
+    for (const cm of [0, 30, 50, 80, 100, 120, 150, 170, 200, 250, 300]) {
+      expect(centimetersFromMeters(metersFromCentimeters(cm))).toBe(cm)
+    }
+  })
+
+  it("exibe em metros e marca o tamanho não informado", () => {
+    expect(formatItemSize(80)).toBe("0,8 m")
+    expect(formatItemSize(170)).toBe("1,7 m")
+    expect(formatItemSize(0)).toBe("—")
+  })
+
+  it("mantém o MT que a tabela já dava para o mesmo item", () => {
+    expect(calculateItemSizeModifier(centimetersFromMeters(0.8))).toBe(-2)
+    expect(calculateItemSizeModifier(centimetersFromMeters(1.5))).toBe(0)
+    expect(calculateItemSizeModifier(centimetersFromMeters(2.5))).toBe(1)
   })
 })

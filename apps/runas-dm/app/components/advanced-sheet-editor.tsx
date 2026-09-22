@@ -12,6 +12,7 @@ import { synchronizeCharacterDerivedValues } from "@runas/core/lib/characterSync
 import {
   calculateEquippedArmorDefense, calculateInventoryLoad, calculateItemRealWeight, formatWeight,
   inventoryTypeLabel, inventoryTypeOptions, inventoryUsageLabel, inventoryUsageOptions, itemAffinityOptions,
+  metersFromCentimeters, centimetersFromMeters, formatItemSize,
 } from "@runas/core/lib/inventoryCalculations"
 import { calculateItemSizeModifier } from "@runas/core/lib/characterCalculations"
 import { calculateItemDamageBonus, composeItemDamageExpression } from "@runas/core/lib/itemDamage"
@@ -341,7 +342,7 @@ function InventoryDetails({ item, character }: { item: CharacterInventoryItem; c
       <InfoMetric label="Tipo" value={inventoryTypeLabel(item.type)} />
       <InfoMetric label="Afinidade" value={itemAffinityOptions.find((option) => option.value === item.affinity)?.label ?? item.affinity} />
       <InfoMetric label="Pontos de vínculo" value={item.bondPoints} />
-      <InfoMetric label="Tamanho" value={item.size > 0 ? `${item.size} cm` : "—"} />
+      <InfoMetric label="Tamanho" value={formatItemSize(item.size)} />
       <InfoMetric label="MT" value={formatSigned(item.mt)} />
       <InfoMetric label="Quantidade" value={item.quantity} />
       <InfoMetric label="Peso base" value={`${formatWeight(item.baseWeight)} kg`} />
@@ -400,7 +401,7 @@ function InventoryForm({ item, character, update }: { item: CharacterInventoryIt
     <SelectField label="Tipo" value={item.type} options={inventoryTypeOptions} onChange={(value) => update((draft) => { find(draft.inventory, item.id).type = value as CharacterInventoryItem["type"] })} />
     {advanced && <SelectField label="Afinidade" value={String(item.affinity)} options={itemAffinityOptions.map((option) => ({ value: String(option.value), label: option.label }))} onChange={(value) => update((draft) => { find(draft.inventory, item.id).affinity = Number(value) as CharacterInventoryItem["affinity"] })} />}
     {advanced && <NumberField label="Pontos de vínculo" value={item.bondPoints} onChange={(value) => update((draft) => { find(draft.inventory, item.id).bondPoints = value })} />}
-    <NumberField label="Tamanho (cm)" value={item.size} min={0} onChange={(value) => update((draft) => { const entry = find(draft.inventory, item.id); entry.size = Math.max(0, value); entry.mt = calculateItemSizeModifier(entry.size) })} />
+    <NumberField label="Tamanho (m)" value={metersFromCentimeters(item.size)} min={0} onChange={(value) => update((draft) => { const entry = find(draft.inventory, item.id); entry.size = centimetersFromMeters(value); entry.mt = calculateItemSizeModifier(entry.size) })} />
     <InfoMetric label="MT" value={formatSigned(item.mt)} />
     <NumberField label="Quantidade" value={item.quantity} min={1} onChange={(value) => update((draft) => { find(draft.inventory, item.id).quantity = Math.max(1, value) })} />
     <NumberField label="Peso base" value={item.baseWeight} min={0} onChange={(value) => update((draft) => { find(draft.inventory, item.id).baseWeight = value })} />
