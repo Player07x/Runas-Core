@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createEmptyKnowledgeWorkspace, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -148,6 +148,21 @@ describe("knowledge model", () => {
       ["session", "gm-note", ["Sessões"]],
     ])
     expect(state.tags.map((tag) => tag.name).sort()).toEqual(["Fauna", "Monstros", "Sessões"])
+  })
+
+  it("mostra as dez eras na interface sem adicionar páginas ao vault e preserva edições e exclusões", () => {
+    const empty = createEmptyKnowledgeWorkspace()
+    expect(empty.pages).toHaveLength(0)
+    const projected = chronologyEraPages(empty)
+    expect(projected).toHaveLength(10)
+    expect(projected.map((page) => page.title)).toContain("Pré-Runas")
+    expect(projected.map((page) => page.title)).toContain("Era dos Titãs")
+    const edited = { ...projected.find((page) => page.id === "era-monges")!, title: "Era dos Sábios", eraEndYear: 1500 }
+    const restored = normalizeKnowledgeWorkspace({ ...empty, pages: [edited], deletedIds: ["era-magos"] })
+    expect(restored.pages).toHaveLength(1)
+    expect(chronologyEraPages(restored)).toHaveLength(9)
+    expect(chronologyEraPages(restored).find((page) => page.id === "era-monges")).toMatchObject({ title: "Era dos Sábios", eraEndYear: 1500 })
+    expect(chronologyEraPages(restored).some((page) => page.id === "era-magos")).toBe(false)
   })
 
   it("migra categorias antigas para tags e cria páginas de era uma única vez", () => {

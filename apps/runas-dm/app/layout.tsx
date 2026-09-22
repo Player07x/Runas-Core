@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { ServiceWorkerRegistration } from "./components/service-worker-registration"
+import { SelectSearch } from "./components/select-search"
 
 const geist = Geist({ variable: "--font-sans", subsets: ["latin"] })
 const geistMono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] })
@@ -22,5 +23,5 @@ export const metadata: Metadata = {
 const themeInitScript = `try{document.documentElement.dataset.theme=localStorage.getItem("runas-dm.theme")==="light"?"light":"dark"}catch(e){}`
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR" data-theme="dark" suppressHydrationWarning><body className={`${geist.variable} ${geistMono.variable}`}><script dangerouslySetInnerHTML={{ __html: themeInitScript }} />{children}<ServiceWorkerRegistration /></body></html>
+  return <html lang="pt-BR" data-theme="dark" suppressHydrationWarning><body className={`${geist.variable} ${geistMono.variable}`}><script dangerouslySetInnerHTML={{ __html: themeInitScript }} />{children}<ServiceWorkerRegistration /><SelectSearch /></body></html>
 }

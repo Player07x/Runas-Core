@@ -27,3 +27,20 @@ describe("tags da Wiki", () => {
     expect(removed.tags[0].pinnedIn).toEqual(["geography"])
   })
 })
+
+describe("tags de Notas de campanha", () => {
+  it("mantém a mesma palavra isolada por campanha depois de normalizar e renomear", () => {
+    const lion = { ...createKnowledgePage("campaign", "gm-note", "lion"), id: "lion-note", tags: ["Sessões"] }
+    const city = { ...createKnowledgePage("campaign", "gm-note", "city"), id: "city-note", tags: ["Sessões"] }
+    const state = normalizeKnowledgeWorkspace({ pages: [lion, city] })
+    const lionTag = tagsForSection(state, "campaign-notes:lion")[0]
+    const cityTag = tagsForSection(state, "campaign-notes:city")[0]
+    expect(lionTag.id).not.toBe(cityTag.id)
+    expect(tagsForSection(normalizeKnowledgeWorkspace(state), "campaign-notes:lion")[0].id).toBe(lionTag.id)
+    const renamed = renameTag(state, lionTag.id, "Diário")
+    expect(renamed.pages.find((page) => page.id === "lion-note")?.tags).toEqual(["Diário"])
+    expect(renamed.pages.find((page) => page.id === "city-note")?.tags).toEqual(["Sessões"])
+    const removed = removeTagFromSection(renamed, lionTag.id, "campaign-notes:lion")
+    expect(removed.pages.find((page) => page.id === "city-note")?.tags).toEqual(["Sessões"])
+  })
+})

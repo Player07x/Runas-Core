@@ -115,8 +115,8 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
   const lastEmittedValueRef = useRef("")
   const vaultImageUrlsRef = useRef<string[]>([])
   const [imageSelected, setImageSelected] = useState(false)
-  const [imageWidth, setImageWidth] = useState(75)
-  const [imageAlign, setImageAlign] = useState<"left" | "center" | "right">("center")
+  const [imageWidth, setImageWidth] = useState(25)
+  const [imageAlign, setImageAlign] = useState<"left" | "center" | "right">("left")
   const [wikiQuery, setWikiQuery] = useState<string | null>(null)
 
   useEffect(() => {
@@ -299,13 +299,13 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
     const inserted = editorRef.current?.querySelector("img:last-of-type") as HTMLImageElement | null
     if (inserted) {
       inserted.alt = file.name.replace(/\.[^.]+$/, "")
-      inserted.dataset.width = "75"
-      inserted.dataset.align = "center"
-      inserted.style.width = "75%"
+      inserted.dataset.width = "25"
+      inserted.dataset.align = "left"
+      inserted.style.width = "25%"
       selectedImageRef.current = inserted
       setImageSelected(true)
-      setImageWidth(75)
-      setImageAlign("center")
+      setImageWidth(25)
+      setImageAlign("left")
     }
     emitCurrentValue()
   }
@@ -397,8 +397,8 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
           selectedImageRef.current = selectedImage
           setImageSelected(Boolean(selectedImage))
           if (selectedImage) {
-            setImageWidth(Number(selectedImage.dataset.width) || 75)
-            setImageAlign(selectedImage.dataset.align === "left" || selectedImage.dataset.align === "right" ? selectedImage.dataset.align : "center")
+            setImageWidth(Number(selectedImage.dataset.width) || 25)
+            setImageAlign(selectedImage.dataset.align === "center" || selectedImage.dataset.align === "right" ? selectedImage.dataset.align : "left")
           }
         }}
         onInput={handleEditorInput}

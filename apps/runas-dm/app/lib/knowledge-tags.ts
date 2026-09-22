@@ -4,6 +4,7 @@ export const NO_CATEGORY_TAG = "Sem Categoria"
 export const normalizedTagName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR")
 
 function belongsToSection(page: KnowledgePage, section: string): boolean {
+  if (section.startsWith("campaign-notes:")) return page.scope === "campaign" && page.kind === "gm-note" && page.campaignId === section.slice("campaign-notes:".length)
   if (section === "campaign-notes") return page.scope === "campaign" && page.kind === "gm-note"
   if (page.scope !== "wiki") return false
   return section === "chronology" ? page.kind === "chronology" || page.kind === "event" : page.kind === section
@@ -21,8 +22,9 @@ export function tagsForSection(state: KnowledgeWorkspaceState, section: string):
   for (const page of state.pages.filter((item) => belongsToSection(item, section))) {
     for (const name of page.tags) {
       if (section !== "chronology" && eraNames.has(normalizedTagName(name))) continue
-      const existing = state.tags.find((tag) => normalizedTagName(tag.name) === normalizedTagName(name))
+      const existing = state.tags.find((tag) => normalizedTagName(tag.name) === normalizedTagName(name) && tag.pinnedIn.includes(section))
       if (existing) used.set(normalizedTagName(existing.name), existing)
+      else used.set(normalizedTagName(name), { id: `legacy-${section}-${normalizedTagName(name)}`, name, icon: "🏷️", color: "#87909b", pinnedIn: [section] })
     }
   }
   if (state.pages.some((page) => belongsToSection(page, section) && page.tags.length === 0)) used.set(normalizedTagName(NO_CATEGORY_TAG), { id: "__no-category__", name: NO_CATEGORY_TAG, icon: "", color: "#87909b", pinnedIn: [section] })
@@ -37,7 +39,7 @@ export function renameTag(state: KnowledgeWorkspaceState, tagId: string, name: s
   const target = state.tags.find((tag) => tag.id === tagId)
   if (!target) return state
   const old = normalizedTagName(target.name)
-  return { ...state, tags: state.tags.map((tag) => tag.id === tagId ? { ...tag, name: name.trim(), icon: icon ?? tag.icon, color: color ?? tag.color } : tag), pages: state.pages.map((page) => ({ ...page, tags: page.tags.map((value) => normalizedTagName(value) === old ? name.trim() : value) })) }
+  return { ...state, tags: state.tags.map((tag) => tag.id === tagId ? { ...tag, name: name.trim(), icon: icon ?? tag.icon, color: color ?? tag.color } : tag), pages: state.pages.map((page) => ({ ...page, tags: page.tags.map((value) => normalizedTagName(value) === old && target.pinnedIn.some((section) => belongsToSection(page, section)) ? name.trim() : value) })) }
 }
 
 export function removeTagFromSection(state: KnowledgeWorkspaceState, tagId: string, section: string): KnowledgeWorkspaceState {
@@ -51,17 +53,17 @@ export function removeTagFromSection(state: KnowledgeWorkspaceState, tagId: stri
 
 /** Cria ou atualiza o registro global das tags digitadas no editor. */
 export function ensureTagsForPage(state: KnowledgeWorkspaceState, page: KnowledgePage): KnowledgeWorkspaceState {
-  const pinnedIn = page.scope === "campaign" ? "campaign-notes" : page.kind
+  const pinnedIn = page.scope === "campaign" && page.kind === "gm-note" ? `campaign-notes:${page.campaignId}` : page.kind
   const tags = [...state.tags]
   for (const name of page.tags) {
     const key = normalizedTagName(name)
     if (!key || key === normalizedTagName(NO_CATEGORY_TAG)) continue
-    const existing = tags.find((tag) => normalizedTagName(tag.name) === key)
+    const existing = tags.find((tag) => normalizedTagName(tag.name) === key && (page.scope === "wiki" || tag.pinnedIn.includes(pinnedIn)))
     if (existing) {
       existing.pinnedIn = [...new Set([...existing.pinnedIn, pinnedIn])]
       continue
     }
-    tags.push({ id: `tag-${key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sem-nome"}`, name: name.trim(), icon: "Tag", color: "#87909b", pinnedIn: [pinnedIn] })
+    tags.push({ id: `tag-${page.scope === "campaign" ? `${page.campaignId}-` : ""}${key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sem-nome"}`, name: name.trim(), icon: "🏷️", color: "#87909b", pinnedIn: [pinnedIn] })
   }
   return { ...state, tags }
 }

@@ -8,7 +8,6 @@ import {
   CAMPAIGN_STATUSES,
   WIKI_SECTIONS,
   pageKindLabel,
-  parseList,
   missionOrderLinks,
   normalizeMissionOrder,
   type KnowledgeCategory,
@@ -34,6 +33,7 @@ export function KnowledgeEditor({
   onDelete,
   onClose,
   onLaunchEncounter,
+  onCreateTag,
 }: {
   /** `inline` desenha o mesmo editor dentro do documento, sem sobreposição: é como um acontecimento é editado dentro da sua História. */
   variant?: "modal" | "inline"
@@ -48,12 +48,13 @@ export function KnowledgeEditor({
   onDelete: (id: string) => void
   onClose: () => void
   onLaunchEncounter: (page: KnowledgePage) => void
+  onCreateTag?: () => void
 }) {
   useEscapeToClose(onClose)
   void categories
   const [draft, setDraft] = useState<KnowledgePage>(() => structuredClone(page))
   const [yearText, setYearText] = useState(String(page.eventYear ?? ""))
-  const [tagText, setTagText] = useState(() => page.tags.join(", "))
+  const [tagSearch, setTagSearch] = useState("")
   const [relationSearch, setRelationSearch] = useState("")
   const [error, setError] = useState("")
   const automaticLinks = missionOrderLinks(draft, pages)
@@ -66,6 +67,8 @@ export function KnowledgeEditor({
   )
   const isEncounter = draft.scope === "campaign" && draft.kind === "encounter"
   const isStoryEvent = draft.scope === "wiki" && draft.kind === "event"
+  const showTags = draft.kind !== "story" && !isStoryEvent
+  const availableTags = useMemo(() => tags.filter((tag) => tag.id !== "__no-category__" && (tag.name.toLocaleLowerCase("pt-BR").includes(tagSearch.trim().toLocaleLowerCase("pt-BR")) || draft.tags.includes(tag.name))).sort((a, b) => Number(draft.tags.includes(b.name)) - Number(draft.tags.includes(a.name)) || a.name.localeCompare(b.name, "pt-BR")), [tags, tagSearch, draft.tags])
   const supportsSheet = draft.scope === "wiki" && ["characters", "creatures"].includes(draft.kind)
   // Um acontecimento já aconteceu: status ("Concluída", "Em Progresso") só
   // faz sentido para missões e eventos de campanha.
@@ -122,11 +125,11 @@ export function KnowledgeEditor({
     // ano fora de todos os intervalos o deixa honestamente sem era.
     const eventYear = parseCalendarYear(yearText)
     const eraId = eventYear == null ? draft.eraId : eraForYear(eventYear, eras)?.id ?? ""
-    onSave({ ...draft, eventYear, eraId, tags: parseList(tagText), updatedAt: Date.now() })
+    onSave({ ...draft, eventYear, eraId, updatedAt: Date.now() })
   }
 
   function saveAndLaunchEncounter() {
-    const ready = { ...draft, tags: parseList(tagText), updatedAt: Date.now() }
+    const ready = { ...draft, updatedAt: Date.now() }
     onSave(ready)
     onLaunchEncounter(ready)
   }
@@ -165,7 +168,6 @@ export function KnowledgeEditor({
             {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <label><span>Ordem</span><input value={draft.order || ""} onChange={(event) => patch({ order: event.target.value })} placeholder="3.1" /></label>}
             {hasStatus && <label><span>Status</span><select value={draft.status} onChange={(event) => patch({ status: event.target.value as KnowledgePage["status"] })}>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}
             {!isEncounter && <label className="wide"><span>Resumo</span><ExpandableTextarea resizeKey={draft.id} value={draft.summary} onChange={(event) => patch({ summary: event.target.value })} placeholder="Uma visão rápida para encontrar esta página depois." /></label>}
-            <label><span>Tags</span><input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="emboscada, floresta, nível alto" /></label>
           </div>
 
           {isEncounter ? <>
@@ -220,11 +222,11 @@ export function KnowledgeEditor({
             <div className="relation-list">{relatedPages.slice(0, 30).map((candidate) => <label key={candidate.id}><input type="checkbox" checked={draft.linkedPageIds.includes(candidate.id)} onChange={() => toggleValue("linkedPageIds", candidate.id)} /><span><strong>{candidate.title}</strong><small>{pageKindLabel(candidate.kind, candidate.scope)}</small></span></label>)}</div>
             {backlinks.length > 0 && <div className="backlinks"><b>Ligam para esta página</b>{backlinks.map((candidate) => <span key={candidate.id}>[[{candidate.title}]]</span>)}</div>}
           </section>}
-          <section>
+          {showTags && <section>
             <header><BookOpen size={16} /><strong>Tags</strong></header>
-            <p className="field-hint">Tags são globais e podem ser separadas por vírgulas. As sugestões existentes aparecem abaixo.</p>
-            <div className="tag-suggestions">{tags.filter((tag) => tag.id !== "__no-category__").slice(0, 12).map((tag) => <button type="button" key={tag.id} onClick={() => setTagText((current) => [...new Set([...parseList(current), tag.name])].join(", "))}>#{tag.name}</button>)}</div>
-          </section>
+            <div className="tag-picker-actions"><label className="mini-search"><Search size={14} /><input value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Buscar tag desta categoria" /></label>{onCreateTag && <button type="button" className="tag-create-button" onClick={onCreateTag}><Plus size={14} /> Nova tag</button>}</div>
+            <div className="relation-list tag-option-list">{availableTags.map((tag) => <label key={tag.id}><input type="checkbox" checked={draft.tags.includes(tag.name)} onChange={() => patch({ tags: draft.tags.includes(tag.name) ? draft.tags.filter((name) => name !== tag.name) : [...draft.tags, tag.name] })} /><span><strong>{tag.icon && /\p{Extended_Pictographic}/u.test(tag.icon) ? tag.icon : "🏷️"} {tag.name}</strong></span></label>)}{availableTags.length === 0 && <p className="mini-empty">Nenhuma tag encontrada.</p>}</div>
+          </section>}
           {["story", "mission", "event"].includes(draft.kind) && <section><header><BookOpen size={16} /><strong>Imagem {draft.kind === "story" ? "da história" : draft.kind === "mission" ? "da missão" : isStoryEvent ? "do acontecimento" : "do evento"}</strong></header><KnowledgeImagePicker value={draft.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => patch({ backgroundImageDataUrl })} /></section>}
           {supportsSheet && <section>
             <header><BookOpen size={16} /><strong>Ficha vinculada</strong></header>

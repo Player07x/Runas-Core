@@ -15,7 +15,7 @@ const SECTIONS: Array<{ id: CampaignAdventureSection; label: string; description
 ]
 
 export function CampaignAdventure({ section, onSection, onBack, children, organizer, onOrganizerChange }: { section?: CampaignAdventureSection; onSection: (section: CampaignAdventureSection) => void; onBack: () => void; children?: ReactNode; organizer?: { nodes: OrganizerNode[]; edges: OrganizerEdge[] }; onOrganizerChange?: (nodes: OrganizerNode[], edges: OrganizerEdge[]) => void }) {
-  if (!section) return <section className="campaign-subpage"><header className="campaign-subpage-heading"><div><p className="eyebrow">Campanha</p><h2>Aventura</h2><p>Missões, eventos, encontros e o mapa de relações desta campanha.</p></div></header><div className="subpage-grid">{SECTIONS.map(({ id, label, description, icon: Icon }) => <button className="subpage-card" key={id} onClick={() => onSection(id)}><Icon size={27} /><strong>{label}</strong><small>{description}</small></button>)}</div></section>
+  if (!section) return <section className="campaign-subpage"><h2 className="section-title">Aventura</h2><div className="subpage-grid">{SECTIONS.map(({ id, label, icon: Icon }) => <button className="subpage-card" key={id} onClick={() => onSection(id)}><Icon size={24} /><strong>{label}</strong></button>)}</div></section>
   if (section === "organizer") return <CampaignOrganizer nodes={organizer?.nodes ?? []} edges={organizer?.edges ?? []} onChange={onOrganizerChange ?? (() => undefined)} />
   const current = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]
   return <section className="campaign-subpage"><SubpageHeader title={`Aventura · ${current.label}`} onBack={onBack} />{children}</section>

@@ -800,9 +800,9 @@ async function cacheEmbeddedVaultImages(state: KnowledgeWorkspaceState, adapter:
         const image = documentValue.createElement("img")
         image.alt = target.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "Imagem"
         image.dataset.obsidianPath = raw
-        image.dataset.width = "75"
-        image.dataset.align = "center"
-        image.style.width = "75%"
+        image.dataset.width = "25"
+        image.dataset.align = "left"
+        image.style.width = "25%"
         element.replaceWith(image)
       }
     }

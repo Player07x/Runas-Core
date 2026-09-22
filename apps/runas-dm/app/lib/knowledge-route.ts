@@ -36,7 +36,7 @@ export function replaceKnowledgeRoute(path: "/campaigns" | "/wiki", route: Parti
 
 /** Mantém a tela sincronizada com Voltar/Avançar do navegador. */
 export function useKnowledgeRoute(path: "/campaigns" | "/wiki"): [KnowledgeRoute, (route: Partial<KnowledgeRoute>, replace?: boolean) => void] {
-  const [route, setRoute] = useState<KnowledgeRoute>(() => readKnowledgeRoute())
+  const [route, setRoute] = useState<KnowledgeRoute>(() => readKnowledgeRoute("http://localhost/"))
   useEffect(() => {
     const onPopState = () => setRoute(readKnowledgeRoute())
     window.addEventListener("popstate", onPopState)

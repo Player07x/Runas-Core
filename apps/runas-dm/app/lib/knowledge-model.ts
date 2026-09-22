@@ -197,6 +197,22 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
   }
 }
 
+/** Mostra as eras padrão sem gravar dez arquivos no vault antes de serem editadas. */
+export function chronologyEraPages(state: Pick<KnowledgeWorkspaceState, "eras" | "pages" | "deletedIds">): KnowledgePage[] {
+  const actual = state.pages.filter((page) => page.scope === "wiki" && page.kind === "chronology")
+  const used = new Set<string>()
+  const deleted = new Set(state.deletedIds)
+  const normalizedTitle = (title: string) => title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR")
+  const presets = normalizeUniverseEras(state.eras).flatMap((era) => {
+    const id = `era-${era.id}`
+    const saved = actual.find((page) => page.id === id || normalizedTitle(page.title) === normalizedTitle(era.name))
+    if (saved) { used.add(saved.id); return [saved] }
+    if (deleted.has(id)) return []
+    return [{ ...createKnowledgePage("wiki", "chronology", null), id, title: era.name, summary: era.note, icon: "🕰️", eraStartYear: era.startYear, eraEndYear: era.endYear, eraCalendar: era.calendar, tags: [era.name] }]
+  })
+  return [...presets, ...actual.filter((page) => !used.has(page.id))]
+}
+
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : []
 }
@@ -227,16 +243,17 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
   const categoryById = new Map(categories.map((category) => [category.id, category]))
   const tagsByName = new Map<string, KnowledgeTag>()
   const normalized = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")
-  const stableTagId = (name: string) => `tag-${normalized(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sem-nome"}`
+  const tagKey = (name: string, pinnedIn: string[]) => `${normalized(name)}|${pinnedIn.find((scope) => scope.startsWith("campaign-notes:")) ?? "global"}`
+  const stableTagId = (name: string, pinnedIn: string[]) => `tag-${tagKey(name, pinnedIn).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sem-nome"}`
   const ensureTag = (name: string, pinnedIn: string[] = []) => {
-    const key = normalized(name)
-    if (!key) return
+    const key = tagKey(name, pinnedIn)
+    if (!normalized(name)) return
     const current = tagsByName.get(key)
     if (current) { current.pinnedIn = [...new Set([...current.pinnedIn, ...pinnedIn])]; return }
-    tagsByName.set(key, { id: stableTagId(name), name: name.trim(), icon: "Tag", color: "#87909b", pinnedIn: [...new Set(pinnedIn)] })
+    tagsByName.set(key, { id: stableTagId(name, pinnedIn), name: name.trim(), icon: "🏷️", color: "#87909b", pinnedIn: [...new Set(pinnedIn)] })
   }
   const inputTags = Array.isArray(candidate.tags) ? candidate.tags : []
-  inputTags.forEach((item) => { if (item && typeof item === "object" && typeof (item as KnowledgeTag).name === "string") { const tag = item as KnowledgeTag; tagsByName.set(normalized(tag.name), { id: tag.id, name: tag.name, icon: tag.icon || "Tag", color: tag.color || "#87909b", pinnedIn: strings(tag.pinnedIn) }) } })
+  inputTags.forEach((item) => { if (item && typeof item === "object" && typeof (item as KnowledgeTag).name === "string") { const tag = item as KnowledgeTag; const pinnedIn = strings(tag.pinnedIn); tagsByName.set(tagKey(tag.name, pinnedIn), { id: tag.id, name: tag.name, icon: tag.icon || "🏷️", color: tag.color || "#87909b", pinnedIn }) } })
   const pages: KnowledgePage[] = Array.isArray(candidate.pages) ? candidate.pages.flatMap((item) => {
     if (!item || typeof item !== "object") return []
     const page = item as KnowledgePage
@@ -247,7 +264,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       campaignId: typeof page.campaignId === "string" ? page.campaignId : null, kind: page.kind,
       title: typeof page.title === "string" ? page.title : "Página sem nome", summary: typeof page.summary === "string" ? page.summary : "",
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
-      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), eraStartYear: fictionalYear(page.eraStartYear), eraEndYear: fictionalYear(page.eraEndYear), eraCalendar: typeof page.eraCalendar === "string" ? page.eraCalendar : "C.E.", icon: typeof page.icon === "string" ? page.icon : "Clock", accentColor: page.kind === "chronology" && typeof page.accentColor === "string" ? page.accentColor : undefined, order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
+      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), eraStartYear: fictionalYear(page.eraStartYear), eraEndYear: fictionalYear(page.eraEndYear), eraCalendar: typeof page.eraCalendar === "string" ? page.eraCalendar : "C.E.", icon: typeof page.icon === "string" ? page.icon : "🕰️", accentColor: page.kind === "chronology" && typeof page.accentColor === "string" ? page.accentColor : undefined, order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       storyEventIds: [...new Set(strings(page.storyEventIds))], storyViewMode: page.storyViewMode === "chronology" ? "chronology" as const : "tale" as const,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
@@ -265,19 +282,18 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     if (page.kind === "fauna") legacyNames.push("Fauna")
     if (page.kind === "monsters") legacyNames.push("Monstros")
     if (page.kind === "session-note") legacyNames.push("Sessões")
-    for (const name of [...page.tags, ...legacyNames]) ensureTag(name, page.scope === "campaign" ? ["campaign-notes"] : [migratedKind])
+    for (const name of [...page.tags, ...legacyNames]) ensureTag(name, page.scope === "campaign" && migratedKind === "gm-note" ? [`campaign-notes:${page.campaignId}`] : [migratedKind])
     page.tags = [...new Set([...page.tags, ...legacyNames])]
     page.kind = migratedKind as KnowledgePageKind
-    if (page.scope === "wiki" && page.kind === "chronology" && page.eraStartYear == null && page.eraEndYear == null) page.kind = "event"
+    if (page.scope === "wiki" && page.kind === "chronology" && page.eraStartYear == null && page.eraEndYear == null && page.eventYear != null) page.kind = "event"
   }
   const eras = normalizeUniverseEras(candidate.eras)
-  // Snapshots vazios (ou novos) não ganham automaticamente as dez eras do
-  // documento. A criação das páginas de era é uma migração explícita de um
-  // workspace v2 que realmente carregava `eras`.
+  // Páginas de era antigas são migradas uma vez; eras padrão que ainda não
+  // foram editadas são projetadas apenas na interface de Cronologia.
   if ((candidate.version ?? 2) < 3 && Array.isArray(candidate.eras)) {
     for (const era of eras) {
       const id = `era-${era.id}`
-      if (!pages.some((page) => page.id === id)) pages.push({ ...createKnowledgePage("wiki", "chronology", null), id, title: era.name, summary: era.note, icon: "Clock", accentColor: "", eraStartYear: era.startYear, eraEndYear: era.endYear, eraCalendar: era.calendar, tags: [era.name], createdAt: Date.now(), updatedAt: Date.now() } as KnowledgePage)
+      if (!pages.some((page) => page.id === id) && !deleted.has(id)) pages.push({ ...createKnowledgePage("wiki", "chronology", null), id, title: era.name, summary: era.note, icon: "🕰️", accentColor: "", eraStartYear: era.startYear, eraEndYear: era.endYear, eraCalendar: era.calendar, tags: [era.name], createdAt: Date.now(), updatedAt: Date.now() } as KnowledgePage)
       ensureTag(era.name, ["chronology"])
     }
   }
