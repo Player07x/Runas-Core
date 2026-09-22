@@ -13,6 +13,7 @@ import {
   normalizeMissionOrder,
   type KnowledgeCategory,
   type KnowledgePage,
+  type KnowledgeTag,
 } from "../lib/knowledge-model"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { RichTextEditor } from "./rich-text-editor"
@@ -26,6 +27,7 @@ export function KnowledgeEditor({
   eras,
   pages,
   categories,
+  tags = [],
   bestiary,
   backlinks,
   onSave,
@@ -39,6 +41,7 @@ export function KnowledgeEditor({
   eras: UniverseEra[]
   pages: KnowledgePage[]
   categories: KnowledgeCategory[]
+  tags?: KnowledgeTag[]
   bestiary: BestiaryEntry[]
   backlinks: KnowledgePage[]
   onSave: (page: KnowledgePage) => void
@@ -47,6 +50,7 @@ export function KnowledgeEditor({
   onLaunchEncounter: (page: KnowledgePage) => void
 }) {
   useEscapeToClose(onClose)
+  void categories
   const [draft, setDraft] = useState<KnowledgePage>(() => structuredClone(page))
   const [yearText, setYearText] = useState(String(page.eventYear ?? ""))
   const [tagText, setTagText] = useState(() => page.tags.join(", "))
@@ -62,7 +66,7 @@ export function KnowledgeEditor({
   )
   const isEncounter = draft.scope === "campaign" && draft.kind === "encounter"
   const isStoryEvent = draft.scope === "wiki" && draft.kind === "event"
-  const supportsSheet = draft.scope === "wiki" && ["characters", "fauna", "monsters"].includes(draft.kind)
+  const supportsSheet = draft.scope === "wiki" && ["characters", "creatures"].includes(draft.kind)
   // Um acontecimento já aconteceu: status ("Concluída", "Em Progresso") só
   // faz sentido para missões e eventos de campanha.
   const hasStatus = draft.scope === "campaign" && ["mission", "event"].includes(draft.kind)
@@ -217,8 +221,9 @@ export function KnowledgeEditor({
             {backlinks.length > 0 && <div className="backlinks"><b>Ligam para esta página</b>{backlinks.map((candidate) => <span key={candidate.id}>[[{candidate.title}]]</span>)}</div>}
           </section>}
           <section>
-            <header><BookOpen size={16} /><strong>Categorias</strong></header>
-            <div className="relation-list">{categories.length === 0 ? <p className="mini-empty">Crie categorias na tela principal.</p> : categories.map((category) => <label key={category.id}><input type="checkbox" checked={draft.categoryIds.includes(category.id)} onChange={() => toggleValue("categoryIds", category.id)} /><span><strong>{category.name}</strong></span></label>)}</div>
+            <header><BookOpen size={16} /><strong>Tags</strong></header>
+            <p className="field-hint">Tags são globais e podem ser separadas por vírgulas. As sugestões existentes aparecem abaixo.</p>
+            <div className="tag-suggestions">{tags.filter((tag) => tag.id !== "__no-category__").slice(0, 12).map((tag) => <button type="button" key={tag.id} onClick={() => setTagText((current) => [...new Set([...parseList(current), tag.name])].join(", "))}>#{tag.name}</button>)}</div>
           </section>
           {["story", "mission", "event"].includes(draft.kind) && <section><header><BookOpen size={16} /><strong>Imagem {draft.kind === "story" ? "da história" : draft.kind === "mission" ? "da missão" : isStoryEvent ? "do acontecimento" : "do evento"}</strong></header><KnowledgeImagePicker value={draft.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => patch({ backgroundImageDataUrl })} /></section>}
           {supportsSheet && <section>

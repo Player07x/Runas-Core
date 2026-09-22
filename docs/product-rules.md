@@ -82,6 +82,23 @@ o registro do site e nunca toca no `.md`.
 - Onde um ano fictício aparece — linha do tempo, cabeçalho do acontecimento e limites da era — os dois calendários são exibidos. Uma era com calendário renomeado pelo mestre não tem equivalência conhecida e mostra apenas o próprio.
 - A Cronologia é a linha do tempo inteira: além das suas próprias páginas, ela exibe os acontecimentos de todas as Histórias, filtrados pela mesma era e ordenados pelo mesmo ano fictício. Cada um mostra a que História pertence e, ao ser aberto, leva ao documento dela — nunca a um formulário solto.
 
+## Wiki: categorias e tags
+
+- A Wiki tem sete categorias fixas: Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações. Gráfico é uma visualização, não uma categoria.
+- Fauna e Monstros são migrados para Criaturas; a origem permanece como tag. Categorias antigas de snapshots v2 também viram tags globais, preservando compatibilidade de leitura.
+- Cada categoria abre uma grade de tags. A página de tag oferece busca, ordenação, criação e edição sem duplicar registros. Tags de era aparecem somente em Cronologia.
+- Uma página de História continua sendo o registro Wiki `story`; seu corpo é derivado de `storyEventIds` por `withStoryEvents`.
+
+## Campanhas
+
+- A campanha se organiza em História, Mundo, Aventura, Notas, Estilo e Gráfico.
+- Mundo tem Locais, Organizações, Itens e Personagens. Criar um item cria uma página na categoria equivalente da Wiki e grava seu id em `worldPageIds`; vincular ou remover vínculo nunca apaga a página da Wiki.
+- Aventura tem Missões, Eventos, Encontros e Organizador. Encontros preservam o envio de fichas para a Mesa/RunasVTT, e missões continuam usando ordem narrativa e status.
+- História permite criar ou vincular Histórias da Wiki sem sair da campanha e exibe a cronologia agregada dos acontecimentos vinculados.
+- Notas são registros de campanha `gm-note`, agrupados por tags e excluídos da Wiki e do Gráfico.
+- O Organizador é um canvas local por campanha com nós de texto, arrastar, editar, excluir e setas entre nós; não há exportação `.canvas` nesta etapa.
+- O Gráfico da campanha inclui missões, eventos, encontros, Histórias vinculadas e páginas do Mundo. Missões e eventos recebem destaque visual; notas, estilo e organizador ficam fora.
+
 ## Mesa de encontro
 
 - Anexar uma ficha cria cópia independente; mudanças de recursos não alteram o bestiário.

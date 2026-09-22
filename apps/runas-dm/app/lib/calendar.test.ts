@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { eraForYear, formatCalendarYears, LOGI_EPOCH_IN_CE, normalizeUniverseEras, parseCalendarYear, readCalendarYear, resolveEra, toLogiYear } from "./chronology"
+import { eraForYear, erasForYear, formatCalendarYears, LOGI_EPOCH_IN_CE, normalizeUniverseEras, parseCalendarYear, readCalendarYear, resolveEra, toLogiYear, withEraTags } from "./chronology"
 
 describe("calendário fictício", () => {
   it("lê o ano com ou sem calendário e guarda sempre em C.E.", () => {
@@ -57,5 +57,19 @@ describe("calendário fictício", () => {
     expect(formatCalendarYears(4027, "C.E.")).toBe("4.027 C.E. · 0 Logi")
     expect(formatCalendarYears(0, "Solaris")).toBe("0 Solaris")
     expect(formatCalendarYears(null)).toBe("Não definido")
+  })
+
+  it("marca todas as eras sobrepostas e recalcula de forma idempotente", () => {
+    const eras = [
+      { id: "a", title: "Era A", eraStartYear: 0, eraEndYear: 100 },
+      { id: "b", title: "Era B", eraStartYear: 50, eraEndYear: 150 },
+      { id: "open", title: "Sem limites", eraStartYear: null, eraEndYear: null },
+    ]
+    expect(erasForYear(75, eras).map((era) => era.id)).toEqual(["a", "b"])
+    const pages = [{ id: "event", scope: "wiki", kind: "event", eventYear: 75, tags: ["Era A", "livro"] }, { id: "none", scope: "wiki", kind: "event", eventYear: 500, tags: ["Era A"] }]
+    const tagged = withEraTags(pages, eras)
+    expect(tagged[0].tags).toEqual(["livro", "Era A", "Era B"])
+    expect(tagged[1].tags).toEqual([])
+    expect(withEraTags(tagged, eras)).toEqual(tagged)
   })
 })

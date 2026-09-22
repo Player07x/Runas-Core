@@ -4,6 +4,7 @@ import { fictionalYear, normalizeUniverseEras } from "./chronology"
 import { buildKnowledgeGraph } from "../components/knowledge-graph"
 import { bindGraphWheel } from "./graph-wheel"
 import { mergeObsidianNotes, pageToMarkdown } from "./obsidian-sync"
+import { knowledgeRouteUrl, readKnowledgeRoute } from "./knowledge-route"
 
 function mission(order: string, patch: Partial<KnowledgePage> = {}): KnowledgePage {
   return { ...createKnowledgePage("campaign", "mission", "campaign"), id: order, order, createdAt: 10, ...patch }
@@ -74,4 +75,11 @@ it("cancela o zoom nativo somente no gráfico e remove o listener ao sair", () =
   const after = new Event("wheel", { cancelable: true })
   graph.dispatchEvent(after)
   expect(after.defaultPrevented).toBe(false)
+})
+
+it("serializa os dois níveis de navegação em querystring", () => {
+  const url = knowledgeRouteUrl("/wiki", { campaignId: "chronology", tag: "Era das Estrelas" })
+  expect(url).toBe("/wiki?c=chronology&t=Era+das+Estrelas")
+  expect(readKnowledgeRoute(`https://runas-dm.pages.dev${url}`)).toEqual({ campaignId: "chronology", page: null, section: null, tag: "Era das Estrelas" })
+  expect(knowledgeRouteUrl("/campaigns", { campaignId: "campaign-1", page: "mundo", section: "locais" })).toBe("/campaigns?c=campaign-1&p=mundo&s=locais")
 })

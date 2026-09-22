@@ -70,6 +70,33 @@ A galeria do Runas Tools usa o limite de produto `GALLERY_MAX_CHARACTERS = 100`,
 - O banco remoto não participa dos cálculos nem bloqueia o uso offline.
 - As rotas reais do Runas DM usam navegação de documento por âncoras HTML. O Vinext beta não oferece transições RSC confiáveis em produção; por isso `next/link` e `useRouter` não podem controlar Bestiário, Mesa, Campanhas ou Wiki. Campanhas e Wiki não têm tela de login; o token de backup só ativa a cópia na nuvem.
 
+## Modelo de conhecimento do Runas DM
+
+`KnowledgeWorkspaceState` é versionado em v3 e salvo primeiro no IndexedDB. O
+domínio compartilha `KnowledgePage`, `KnowledgeTag` e `CampaignRecord` entre a
+Wiki e as Campanhas; a normalização de snapshots antigos permanece em
+`knowledge-model.ts`.
+
+- A Wiki usa sete seções fixas. `fauna`/`monsters` migram para `creatures`,
+  `session-note` para `gm-note`, e `KnowledgeCategory` antiga é convertida em
+  tag global. Eras deixam de ser uma lista especial e viram páginas de
+  Cronologia; `withEraTags` recalcula as tags dos acontecimentos.
+- Uma campanha guarda `storyIds`, `worldPageIds` e o `organizer`. Páginas do
+  Mundo continuam no escopo Wiki; o vínculo é somente a presença do id no
+  registro da campanha. Notas de campanha são `gm-note` e não entram no
+  Gráfico.
+- `knowledge-route.ts` serializa os dois níveis internos em querystring:
+  `c` identifica campanha ou seção, `p` a página principal, `s` a subpágina e
+  `t` a tag. `useKnowledgeRoute` sincroniza `pushState`, `replaceState` e
+  `popstate`; a troca entre áreas continua sendo uma âncora HTML.
+- `knowledge-portal.tsx` mantém hidratação, IndexedDB, nuvem e Obsidian. A
+  apresentação é dividida entre `CampaignPortal`, `CampaignWorld`,
+  `CampaignAdventure`, `CampaignStory`, `CampaignOrganizer` e `WikiPortal`.
+- `filterKnowledgeGraphPages` define o contrato de escopo do gráfico: a Wiki
+  aceita somente registros das sete seções e a campanha aceita seus registros,
+  histórias vinculadas e páginas do Mundo, excluindo notas, estilo e
+  organizador.
+
 ## Política para mudanças
 
 1. Regra ou tabela comum deve ser alterada em `@runas/core`.

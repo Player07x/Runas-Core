@@ -134,4 +134,42 @@ describe("knowledge model", () => {
     const replaced = applyCloudBackup(local, backup, "replace")
     expect(replaced.campaigns.map((campaign) => campaign.id)).toEqual(["backup-only"])
   })
+
+  it("migra Fauna, Monstros e Sessões para os tipos e tags v3", () => {
+    const state = normalizeKnowledgeWorkspace({ version: 2, pages: [
+      { id: "fauna", scope: "wiki", kind: "fauna", title: "Lobo", tags: [], categoryIds: [] },
+      { id: "monsters", scope: "wiki", kind: "monsters", title: "Dragão", tags: [], categoryIds: [] },
+      { id: "session", scope: "campaign", campaignId: "c", kind: "session-note", title: "Sessão 1", tags: [], categoryIds: [] },
+    ] })
+    expect(state.version).toBe(3)
+    expect(state.pages.map((page) => [page.id, page.kind, page.tags])).toEqual([
+      ["fauna", "creatures", ["Fauna"]],
+      ["monsters", "creatures", ["Monstros"]],
+      ["session", "gm-note", ["Sessões"]],
+    ])
+    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["Fauna", "Monstros", "Sessões"])
+  })
+
+  it("migra categorias antigas para tags e cria páginas de era uma única vez", () => {
+    const input = { version: 2, eras: [{ id: "monges", name: "Monges", startYear: 0, endYear: 1489, calendar: "C.E." }], categories: [{ id: "cat", scope: "wiki", campaignId: null, name: "Runilitas", parentId: null }], pages: [{ id: "person", scope: "wiki", kind: "characters", title: "Martim", categoryIds: ["cat"], tags: [], eventYear: 100 }] }
+    const first = normalizeKnowledgeWorkspace(input)
+    expect(first.pages.find((page) => page.id === "person")?.tags).toContain("Runilitas")
+    expect(first.pages.some((page) => page.id === "era-monges" && page.kind === "chronology")).toBe(true)
+    const second = normalizeKnowledgeWorkspace(first)
+    expect(second.pages.map((page) => page.id)).toEqual(first.pages.map((page) => page.id))
+    expect(second.tags.map((tag) => tag.id)).toEqual(first.tags.map((tag) => tag.id))
+  })
+
+  it("transforma uma cronologia avulsa em acontecimento e preserva lápides", () => {
+    const state = normalizeKnowledgeWorkspace({ version: 2, deletedIds: ["deleted"], pages: [{ id: "deleted", kind: "chronology", title: "apagada" }, { id: "loose", scope: "wiki", kind: "chronology", title: "Acontecimento avulso", eraId: "monges", eventYear: 42 }] })
+    expect(state.deletedIds).toEqual(["deleted"])
+    expect(state.pages.find((page) => page.id === "deleted")).toBeUndefined()
+    expect(state.pages.find((page) => page.id === "loose")?.kind).toBe("event")
+  })
+
+  it("normaliza vínculos de Mundo e o Organizador sem aceitar arestas órfãs", () => {
+    const normalized = normalizeKnowledgeWorkspace({ campaigns: [{ id: "camp", title: "Campanha", worldPageIds: ["world"], organizer: { nodes: [{ id: "n1", title: "Pista", body: "Texto", x: 10, y: 20 }], edges: [{ id: "valid", fromId: "n1", toId: "n1" }, { id: "orphan", fromId: "n1", toId: "missing" }] } }] })
+    expect(normalized.campaigns[0].worldPageIds).toEqual(["world"])
+    expect(normalized.campaigns[0].organizer).toMatchObject({ nodes: [{ id: "n1" }], edges: [{ id: "valid" }] })
+  })
 })

@@ -37,6 +37,9 @@ Antes de alterar qualquer parte desta suíte, leia integralmente:
 - A importação do Runas DM aceita uma ficha JSON, vários JSON selecionados simultaneamente e o ZIP JSON exportado pela galeria do Runas Tools.
 - Uma página de História da Wiki nunca é editada como texto: `contentHtml` é derivado de `storyEventIds` por `withStoryEvents`. Alterar a sequência, o corpo ou o `.md` de uma História passa por essa função.
 - Na Wiki, `kind: "event"` chama-se **Acontecimento** e não tem status; `Evento` continua sendo o registro de campanha. Use `pageKindLabel(kind, scope)` para rotular.
+- A Wiki usa sete seções fixas (`Cronologia`, `História`, `Geografia`, `Personagens`, `Criaturas`, `Itens`, `Organizações`); agrupamentos internos são `KnowledgeTag`. Em Campanhas, use as páginas principais História, Mundo, Aventura, Notas, Estilo e Gráfico.
+- Páginas do Mundo continuam no escopo Wiki e são vinculadas por `CampaignRecord.worldPageIds`; remover o vínculo nunca remove a página. O Organizador fica em `CampaignRecord.organizer` e não é exportado para o Obsidian.
+- O Gráfico deve usar `filterKnowledgeGraphPages`: Wiki cobre apenas as sete seções; campanha inclui missões, eventos, encontros, histórias vinculadas e Mundo, excluindo notas, estilo e organizador.
 - Mudanças compartilhadas exigem teste no `@runas/core`, typecheck e build dos dois aplicativos.
 - Os dois aplicativos são PWAs. A opção de instalação existe somente nas telas iniciais e nenhum fluxo principal pode depender da rede.
 - Service workers nunca armazenam `/api/backup`, autenticação ou respostas do Cloudflare Access/Sites.

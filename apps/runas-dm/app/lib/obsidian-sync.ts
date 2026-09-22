@@ -209,12 +209,11 @@ function referencedCampaignTitle(frontmatter: Record<string, unknown>): string {
 }
 
 export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWorkspaceState): string {
-  const categories = state.categories.filter((category) => page.categoryIds.includes(category.id)).map((category) => category.name).sort()
   const links = state.pages.filter((candidate) => page.linkedPageIds.includes(candidate.id)).map((candidate) => candidate.title).sort()
   return JSON.stringify({
     title: page.title, scope: page.scope, campaign: campaignFor(page, state.campaigns)?.title ?? "", kind: page.kind,
     summary: page.summary, contentHtml: page.contentHtml, status: page.status, date: page.date,
-    tags: [...page.tags].sort(), categories, links, bestiaryEntryId: page.bestiaryEntryId,
+    tags: [...page.tags].sort(), links, bestiaryEntryId: page.bestiaryEntryId,
     encounterCreatures: page.encounterCreatures,
     ...(page.order ? { order: page.order } : {}),
     ...(page.eraId ? { eraId: page.eraId } : {}),
@@ -364,7 +363,7 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
   return `${frontmatter}\n\n# ${page.title}\n\n${page.summary ? `${page.kind === "encounter" ? "## Notas do mestre\n\n" : ""}${page.summary}\n\n` : ""}${body}${relations}${encounter}\n`
 }
 
-/** Wiki usa pasta por seção e, quando presente, a primeira categoria como subpasta. */
+/** Wiki usa pasta por seção e, quando presente, a primeira tag como subpasta. */
 export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspaceState, rootFolder = ""): string {
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
   const filename = `${filePart(page.title, "Página sem nome")}.md`
@@ -376,8 +375,12 @@ export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspa
   // Um evento da Wiki pertence a uma história e mora na pasta dela.
   if (page.kind === "event") return pathInsideRoot(joinVaultPath(STORY_VAULT_FOLDER, storyFolderOf(page, state), filename), rootFolder)
   const section = WIKI_SECTIONS.find((candidate) => candidate.id === page.kind)?.label ?? "Cronologia"
-  const primaryCategory = state.categories.find((category) => page.categoryIds.includes(category.id) && category.scope === "wiki")
-  return pathInsideRoot(joinVaultPath(section, primaryCategory ? folderPart(primaryCategory.name, "Categoria") : "", filename), rootFolder)
+  // Snapshots v2 ainda podem não ter `tags`; a leitura compatível usa a
+  // categoria legada apenas para calcular o caminho físico. Novas páginas
+  // sempre chegam aqui com tags.
+  const legacyPrimaryCategory = state.categories.find((category) => page.categoryIds.includes(category.id) && category.scope === "wiki")?.name
+  const primaryTag = page.tags[0] ?? legacyPrimaryCategory
+  return pathInsideRoot(joinVaultPath(section, primaryTag ? folderPart(primaryTag, "Tag") : "", filename), rootFolder)
 }
 
 /** Organização usada quando o vault possui pelo menos um arquivo `.base`. */
@@ -389,12 +392,11 @@ export function organizedObsidianPathForPage(page: KnowledgePage, state: Knowled
   // encontros de campanhas diferentes cairiam todos nas mesmas pastas
   // genéricas de "Campanhas", misturando o conteúdo de aventuras distintas.
   const campaignFolder = folderPart(campaignFor(page, state.campaigns)?.title ?? "", "Sem campanha")
-  const category = state.categories.find((item) => item.scope === "campaign" && item.campaignId === page.campaignId && page.categoryIds.includes(item.id))
   const defaultFolder = page.kind === "mission" || page.kind === "event"
     ? "Eventos e Missões"
     : page.kind === "session-note" ? "Anotações/Sessões"
       : page.kind === "encounter" ? "Encontros" : "Anotações"
-  const folder = category ? folderPart(category.name, defaultFolder) : defaultFolder
+  const folder = defaultFolder
   return pathInsideRoot(joinVaultPath(CAMPAIGN_VAULT_FOLDER, campaignFolder, folder, filename), rootFolder)
 }
 
@@ -406,7 +408,7 @@ export function exportKnowledgeZip(state: KnowledgeWorkspaceState): void {
     used.add(normalizedLabel(name))
     return { name, content: pageToMarkdown(page, state) }
   })
-  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, História, Geografia, Personagens, Fauna, Monstros e Itens. Cada história é uma subpasta de História, com um arquivo por evento. A primeira categoria define a subpasta; categorias adicionais ficam no frontmatter. Anexos ficam em `Assets`.\n" })
+  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações. Cada história é uma subpasta de História, com um arquivo por acontecimento. A primeira tag define a subpasta física; todas as tags ficam no frontmatter. Anexos ficam em `Assets`.\n" })
   const zip = createTextZip(files)
   const buffer = new ArrayBuffer(zip.byteLength)
   new Uint8Array(buffer).set(zip)
@@ -583,7 +585,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     eraId: text(frontmatter.runas_era ?? fallback?.eraId),
     eventYear: fictionalYear(frontmatter.ano_evento ?? fallback?.eventYear),
     backgroundImageDataUrl: fallback?.backgroundImageDataUrl ?? "",
-    tags: stringArray(frontmatter.tags),
+    tags: [...new Set([...stringArray(frontmatter.tags), ...stringArray(frontmatter.categorias), ...(wikiLocationMatch?.category ? [wikiLocationMatch.category] : [])])],
     categoryIds: [],
     linkedPageIds: stringArray(frontmatter.runas_linked_ids),
     bestiaryEntryId: text(frontmatter.ficha_bestiario) || null,
@@ -598,7 +600,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     createdAt: Number(frontmatter.runas_created_at) || fallback?.createdAt || note.createdAt,
     updatedAt: Number(frontmatter.runas_updated_at) || note.modifiedAt,
   }
-  page.categoryIds = ensureCategories(state.categories, [...new Set([...stringArray(frontmatter.categorias), ...(location?.category ? [location.category] : []), ...(locationCampaign?.category && scope === "campaign" ? [locationCampaign.category] : [])])], scope, page.campaignId)
+  page.categoryIds = ensureCategories(state.categories, [...new Set([...(location?.category ? [location.category] : []), ...(locationCampaign?.category && scope === "campaign" ? [locationCampaign.category] : [])])], scope, page.campaignId)
   return page
 }
 
@@ -674,13 +676,11 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
       else {
         adoptedRemote = false
         const location = existing.scope === "wiki" ? wikiLocation(note.path) : null
-        const categoryIds = location?.category
-          ? ensureCategories(state.categories, [location.category], "wiki", null)
-          : []
         const retained = {
           ...existing,
           kind: location?.kind ?? existing.kind,
-          categoryIds: [...new Set([...existing.categoryIds, ...categoryIds])],
+          categoryIds: [...new Set([...existing.categoryIds, ...remote.categoryIds])],
+          tags: [...new Set([...existing.tags, ...(location?.category ? [location.category] : [])])],
           obsidianPath: remote.obsidianPath,
           obsidianModifiedAt: note.modifiedAt,
           obsidianSourceMarkdown: note.markdown,
@@ -738,7 +738,7 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
   }
   reconcileStories(state)
   state.updatedAt = Math.max(state.updatedAt, ...notes.map((note) => note.modifiedAt), 0)
-  return { state, imported }
+  return { state: normalizeKnowledgeWorkspace(state), imported }
 }
 
 /**

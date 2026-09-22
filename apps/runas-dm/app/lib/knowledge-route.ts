@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useState } from "react"
+
 export interface KnowledgeRoute {
   campaignId: string | null
   page: string | null
@@ -26,3 +28,24 @@ export function pushKnowledgeRoute(path: "/campaigns" | "/wiki", route: Partial<
   return readKnowledgeRoute(next)
 }
 
+export function replaceKnowledgeRoute(path: "/campaigns" | "/wiki", route: Partial<KnowledgeRoute>): KnowledgeRoute {
+  const next = knowledgeRouteUrl(path, route)
+  if (typeof window !== "undefined") window.history.replaceState(null, "", next)
+  return readKnowledgeRoute(next)
+}
+
+/** Mantém a tela sincronizada com Voltar/Avançar do navegador. */
+export function useKnowledgeRoute(path: "/campaigns" | "/wiki"): [KnowledgeRoute, (route: Partial<KnowledgeRoute>, replace?: boolean) => void] {
+  const [route, setRoute] = useState<KnowledgeRoute>(() => readKnowledgeRoute())
+  useEffect(() => {
+    const onPopState = () => setRoute(readKnowledgeRoute())
+    window.addEventListener("popstate", onPopState)
+    onPopState()
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [path])
+  const navigate = useCallback((next: Partial<KnowledgeRoute>, replace = false) => {
+    const result = replace ? replaceKnowledgeRoute(path, next) : pushKnowledgeRoute(path, next)
+    setRoute(result)
+  }, [path])
+  return [route, navigate]
+}

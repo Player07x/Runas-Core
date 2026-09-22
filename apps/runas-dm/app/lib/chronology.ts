@@ -136,7 +136,7 @@ export function erasForYear<T extends { eraStartYear?: number | null; eraEndYear
 }
 
 /** Recalcula somente as tags de era dos acontecimentos da Wiki. */
-export function withEraTags<T extends { scope: string; kind: string; eventYear?: number | null; tags: string[] }>(pages: T[], eraPages: Array<T & { id: string; title: string; eraStartYear?: number | null; eraEndYear?: number | null }>): T[] {
+export function withEraTags<P extends { scope: string; kind: string; eventYear?: number | null; tags: string[] }, E extends { id: string; title: string; eraStartYear?: number | null; eraEndYear?: number | null }>(pages: P[], eraPages: E[]): P[] {
   const eraNames = new Set(eraPages.map((era) => era.title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")))
   return pages.map((page) => {
     if (page.scope !== "wiki" || page.kind !== "event") return page

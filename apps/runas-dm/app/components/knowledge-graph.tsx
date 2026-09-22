@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Focus, Network, Search, ZoomIn, ZoomOut } from "lucide-react"
 import { effectivePageLinks, plainTextFromHtml, wikiLinkTitles, type KnowledgePage, type KnowledgePageKind } from "../lib/knowledge-model"
 import { bindGraphWheel } from "../lib/graph-wheel"
+import { isSynchronizableVaultPath } from "../lib/obsidian-sync"
 
 const VIEWBOX_WIDTH = 1400
 const VIEWBOX_HEIGHT = 850
 
 const GRAPH_GROUPS: Array<{ id: KnowledgePageKind; label: string; color: string }> = [
   { id: "chronology", label: "Cronologia", color: "#f06f78" },
+  { id: "story", label: "Histórias", color: "#d584c8" },
   { id: "geography", label: "Geografia", color: "#58a667" },
   { id: "characters", label: "Personagens", color: "#ff244d" },
   { id: "creatures", label: "Criaturas", color: "#35aaa5" },
@@ -17,6 +19,7 @@ const GRAPH_GROUPS: Array<{ id: KnowledgePageKind; label: string; color: string 
   { id: "organizations", label: "Organizações", color: "#8d79d6" },
   { id: "mission", label: "Missões", color: "#ad95c6" },
   { id: "event", label: "Eventos", color: "#e4b368" },
+  { id: "encounter", label: "Encontros", color: "#ef805d" },
   { id: "gm-note", label: "Notas", color: "#68babb" },
 ]
 
@@ -29,11 +32,36 @@ export interface KnowledgeGraphNode {
   degree: number
   radius: number
   color: string
+  emphasis: boolean
 }
 
 export interface KnowledgeGraphEdge {
   sourceId: string
   targetId: string
+}
+
+export type KnowledgeGraphScope = "wiki" | "campaign" | "all"
+
+/**
+ * Mantém a regra de escopo do gráfico fora do componente visual. A Wiki só
+ * exibe registros das sete seções (Acontecimento é a parte cronológica); o
+ * gráfico de campanha recebe os registros de campanha e os vínculos de Mundo
+ * e História que o chamador já reuniu.
+ */
+export function filterKnowledgeGraphPages(pages: KnowledgePage[], scope: KnowledgeGraphScope): KnowledgePage[] {
+  const wikiKinds = new Set<KnowledgePageKind | "story">(["chronology", "story", "geography", "characters", "creatures", "items", "organizations", "event"])
+  const campaignKinds = new Set<KnowledgePageKind>(["mission", "event", "encounter", "story", "geography", "characters", "creatures", "items", "organizations", "chronology"])
+  const allowed = scope === "wiki" ? wikiKinds : campaignKinds
+  if (scope === "all") return pages.filter((page) => [...wikiKinds, ...campaignKinds].includes(page.kind as never))
+  return pages.filter((page) => {
+    if (!allowed.has(page.kind as KnowledgePageKind | "story")) return false
+    if (page.obsidianPath && !isSynchronizableVaultPath(page.obsidianPath)) return false
+    if (scope === "wiki") return page.scope === "wiki"
+    if (scope !== "campaign") return true
+    // O chamador acrescenta apenas as páginas Wiki vinculadas à campanha.
+    // Acontecimento avulso da Wiki não pode atravessar o limite por acidente.
+    return page.scope === "campaign" || page.kind === "story" || ["geography", "characters", "creatures", "items", "organizations"].includes(page.kind)
+  })
 }
 
 function stringHash(value: string): number {
@@ -143,12 +171,11 @@ function forceLayout(nodes: KnowledgeGraphNode[], edges: KnowledgeGraphEdge[]): 
     }
   }
 
-  return mutable.map((node) => ({ page: node.page, x: node.x, y: node.y, degree: node.degree, radius: node.radius, color: node.color }))
+  return mutable.map((node) => ({ page: node.page, x: node.x, y: node.y, degree: node.degree, radius: node.radius, color: node.color, emphasis: node.emphasis }))
 }
 
-export function buildKnowledgeGraph(pages: KnowledgePage[]): { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] } {
-  const known = new Set([...GRAPH_GROUPS.map((group) => group.id), "story", "event", "encounter"])
-  pages = pages.filter((page) => known.has(page.kind))
+export function buildKnowledgeGraph(pages: KnowledgePage[], scope: KnowledgeGraphScope = "all"): { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] } {
+  pages = filterKnowledgeGraphPages(pages, scope)
   const edges = linksForPages(pages)
   const degree = new Map<string, number>()
   for (const edge of edges) {
@@ -168,8 +195,9 @@ export function buildKnowledgeGraph(pages: KnowledgePage[]): { nodes: KnowledgeG
       x: Math.cos(groupAngle) * 225 + Math.cos(jitterAngle) * jitterRadius,
       y: Math.sin(groupAngle) * 165 + Math.sin(jitterAngle) * jitterRadius,
       degree: pageDegree,
-      radius: Math.min(19, 4.5 + Math.sqrt(pageDegree) * 2.8),
+      radius: Math.min(scope === "campaign" && (page.kind === "mission" || page.kind === "event") ? 25 : 19, (scope === "campaign" && (page.kind === "mission" || page.kind === "event") ? 7 : 4.5) + Math.sqrt(pageDegree) * (scope === "campaign" && (page.kind === "mission" || page.kind === "event") ? 3.6 : 2.8)),
       color: GROUP_BY_KIND.get(page.kind)?.color ?? "#777b7c",
+      emphasis: scope !== "campaign" || page.kind === "mission" || page.kind === "event",
     }
   })
 
@@ -189,8 +217,8 @@ function fitTransform(nodes: KnowledgeGraphNode[]): ViewTransform {
   return { x: VIEWBOX_WIDTH / 2 - (minX + maxX) / 2 * scale, y: VIEWBOX_HEIGHT / 2 - (minY + maxY) / 2 * scale, scale }
 }
 
-export function KnowledgeGraph({ pages, onOpen }: { pages: KnowledgePage[]; onOpen: (page: KnowledgePage) => void }) {
-  const calculatedGraph = useMemo(() => buildKnowledgeGraph(pages), [pages])
+export function KnowledgeGraph({ pages, scope = "wiki", onOpen }: { pages: KnowledgePage[]; scope?: KnowledgeGraphScope; onOpen: (page: KnowledgePage) => void }) {
+  const calculatedGraph = useMemo(() => buildKnowledgeGraph(pages, scope), [pages, scope])
   const graphKey = useMemo(() => calculatedGraph.nodes.map((node) => `${node.page.id}:${node.page.updatedAt}`).sort().join("|"), [calculatedGraph.nodes])
 
   if (pages.length === 0) return <div className="knowledge-empty"><Network size={32} /><strong>O gráfico nasce junto com sua Wiki.</strong><p>Crie páginas e conecte-as para visualizar personagens, lugares e acontecimentos relacionados.</p></div>
@@ -304,7 +332,7 @@ function KnowledgeGraphView({ graph: calculatedGraph, onOpen }: { graph: ReturnT
             const matches = matchingIds.has(node.page.id)
             const related = hoveredId === node.page.id || calculatedGraph.edges.some((edge) => (edge.sourceId === hoveredId && edge.targetId === node.page.id) || (edge.targetId === hoveredId && edge.sourceId === node.page.id))
             const showLabel = view.scale >= 1.15 || node.degree >= 5 || hoveredId === node.page.id || Boolean(normalizedQuery && matches)
-            return <g key={node.page.id} className={`${matches ? "" : "dimmed"} ${related ? "related" : ""}`} transform={`translate(${node.x} ${node.y})`} role="button" tabIndex={0} aria-label={`Abrir ${node.page.title}`} onPointerDown={(event) => startNodeDrag(event, node.page.id)} onPointerEnter={() => setHoveredId(node.page.id)} onPointerLeave={() => setHoveredId(null)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(node.page) }}>
+            return <g key={node.page.id} className={`${matches ? "" : "dimmed"} ${related ? "related" : ""} ${node.emphasis ? "emphasis" : "muted"}`} transform={`translate(${node.x} ${node.y})`} role="button" tabIndex={0} aria-label={`Abrir ${node.page.title}`} onPointerDown={(event) => startNodeDrag(event, node.page.id)} onPointerEnter={() => setHoveredId(node.page.id)} onPointerLeave={() => setHoveredId(null)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(node.page) }}>
               <circle r={node.radius + 7} className="graph-node-halo" />
               <circle r={node.radius} fill={node.color} />
               {showLabel && <text x={node.radius + 7} y="4">{node.page.title}</text>}
