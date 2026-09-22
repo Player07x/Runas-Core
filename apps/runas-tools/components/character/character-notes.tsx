@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import dynamic from "next/dynamic"
-import { Eye, EyeOff, ListFilter, Plus, Save, Trash2, X } from "lucide-react"
+import { Save, Trash2, X } from "lucide-react"
 import type { CharacterNote } from "@runas/core/types/character"
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, categoryKeyOf, matchesQuery, toolbarCategories, toolbarCollator, useSectionToolbar, type ToolbarSort } from "./section-toolbar"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -49,49 +50,34 @@ function formatDate(value: string): string {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "Sem data"
 }
 
+const NOTE_SORTS: ToolbarSort[] = [
+  { value: "category", label: "Categoria, depois nome" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "date-desc", label: "Data (mais recente)" },
+  { value: "date", label: "Data (mais antiga)" },
+]
+
 export function CharacterNotes({ notes, onAddNote, onNoteChange, onRemoveNote }: Props) {
   const [editingNote, setEditingNote] = useState<CharacterNote | null>(null)
   const [isNewNote, setIsNewNote] = useState(false)
-  const [initialFilters] = useState(() => {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(NOTE_FILTER_STORAGE_KEY) ?? "null") as { hiddenCategories?: string[]; showFilters?: boolean } | null
-      return { hiddenCategories: new Set(saved?.hiddenCategories ?? []), showFilters: saved?.showFilters ?? false }
-    } catch {
-      return { hiddenCategories: new Set<string>(), showFilters: false }
-    }
-  })
-  const [hiddenCategories, setHiddenCategories] = useState(initialFilters.hiddenCategories)
-  const [showFilters, setShowFilters] = useState(initialFilters.showFilters)
+  const toolbar = useSectionToolbar(NOTE_FILTER_STORAGE_KEY, "category")
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(NOTE_FILTER_STORAGE_KEY, JSON.stringify({ hiddenCategories: [...hiddenCategories], showFilters }))
-    } catch {
-      // Mantém os filtros durante a sessão quando o armazenamento falhar.
-    }
-  }, [hiddenCategories, showFilters])
+  const categories = useMemo(() => toolbarCategories(notes, (note) => note.category), [notes])
 
-  const categories = useMemo(() => {
-    const byKey = new Map<string, string>()
-    notes.forEach((note) => {
-      const key = categoryKey(note.category)
-      if (!byKey.has(key)) byKey.set(key, note.category.trim() || "Sem categoria")
+  const visibleNotes = useMemo(() => {
+    const filtered = notes
+      .filter((note) => !toolbar.hiddenCategories.has(categoryKeyOf(note.category)))
+      .filter((note) => matchesQuery(toolbar.query, note.name, note.category, plainText(note.description)))
+    const byName = (left: CharacterNote, right: CharacterNote) => toolbarCollator.compare(left.name, right.name)
+    return [...filtered].sort((left, right) => {
+      if (toolbar.sort === "name") return byName(left, right)
+      if (toolbar.sort === "name-desc") return byName(right, left)
+      if (toolbar.sort === "date") return left.date.localeCompare(right.date) || byName(left, right)
+      if (toolbar.sort === "date-desc") return right.date.localeCompare(left.date) || byName(left, right)
+      return toolbarCollator.compare(left.category || "Sem categoria", right.category || "Sem categoria") || byName(left, right)
     })
-    return [...byKey].map(([key, label]) => ({ key, label }))
-  }, [notes])
-
-  const visibleNotes = useMemo(() => notes
-    .filter((note) => !hiddenCategories.has(categoryKey(note.category)))
-    .sort((left, right) => noteCollator.compare(left.category || "Sem categoria", right.category || "Sem categoria") || noteCollator.compare(left.name, right.name)), [notes, hiddenCategories])
-
-  function toggleCategory(key: string) {
-    setHiddenCategories((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  }, [notes, toolbar.hiddenCategories, toolbar.query, toolbar.sort])
 
   function saveNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -111,17 +97,19 @@ export function CharacterNotes({ notes, onAddNote, onNoteChange, onRemoveNote }:
   return (
     <section aria-label="Anotações do personagem" className="rounded-b-[22px] rounded-t-none border border-border bg-card p-2 shadow-sm sm:rounded-b-[27px] sm:p-7">
       <datalist id="note-category-suggestions">{categories.filter((category) => category.key !== "__without_category__").map((category) => <option key={category.key} value={category.label} />)}</datalist>
-      <div className="flex flex-col gap-3 border-b border-border px-0.5 pb-3 sm:flex-row sm:items-center sm:justify-end sm:px-0">
-        <button type="button" onClick={() => setShowFilters((current) => !current)} aria-expanded={showFilters} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground"><ListFilter className="size-4" /> Categorias</button>
-        <button type="button" onClick={() => { setEditingNote(createNote()); setIsNewNote(true) }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:bg-accent"><Plus className="size-4" /> Adicionar anotação</button>
-      </div>
-      {showFilters && <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-border bg-background/45 p-2" aria-label="Filtrar categorias de anotações">
-        {categories.length === 0 ? <span className="px-2 py-1 text-xs text-muted-foreground">Crie uma anotação para habilitar os filtros.</span> : categories.map((category) => {
-          const visible = !hiddenCategories.has(category.key)
-          return <button key={category.key} type="button" aria-pressed={visible} onClick={() => toggleCategory(category.key)} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${visible ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>{visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}{category.label}</button>
-        })}
-        {hiddenCategories.size > 0 && <button type="button" onClick={() => setHiddenCategories(new Set())} className="h-9 rounded-xl px-3 text-xs font-semibold text-muted-foreground transition hover:text-foreground">Mostrar todas</button>}
-      </div>}
+      <SectionToolbar
+        label="anotações"
+        query={toolbar.query}
+        onQueryChange={toolbar.setQuery}
+        categories={categories}
+        hiddenCategories={toolbar.hiddenCategories}
+        onHiddenCategoriesChange={toolbar.setHiddenCategories}
+        sorts={NOTE_SORTS}
+        sort={toolbar.sort}
+        onSortChange={toolbar.setSort}
+        onAdd={() => { setEditingNote(createNote()); setIsNewNote(true) }}
+        addLabel="Adicionar anotação"
+      />
       <div className="space-y-2 pt-3">
         <div className="hidden grid-cols-[minmax(6rem,.75fr)_minmax(7rem,1fr)_minmax(10rem,1.7fr)_6.5rem_2.75rem] gap-2 px-3 text-center text-[0.62rem] uppercase tracking-wide text-muted-foreground md:grid"><span>Categoria</span><span>Nome</span><span>Descrição</span><span>Data</span><span>Deletar</span></div>
         {visibleNotes.length === 0 && <p className="rounded-[18px] border border-dashed border-border bg-background/35 px-4 py-10 text-center text-sm text-muted-foreground">{notes.length === 0 ? "Nenhuma anotação cadastrada." : "Nenhuma anotação corresponde às categorias visíveis."}</p>}

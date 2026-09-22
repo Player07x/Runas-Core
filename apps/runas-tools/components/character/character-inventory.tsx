@@ -50,6 +50,7 @@ import type { ImportedAbility } from "@runas/core/lib/abilityTransfer"
 import type { ImportedSpell } from "@runas/core/lib/spellTransfer"
 import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
 import { createId, createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, SectionTransferDialog, categoryKeyOf, matchesQuery, toolbarCategories, toolbarCollator, useSectionToolbar, type ToolbarSort } from "./section-toolbar"
 
 interface Props {
   variant?: "runas-blue" | "cronos"
@@ -106,6 +107,20 @@ function createInventoryItem(): CharacterInventoryItem {
 }
 
 const EDITOR_MODE_KEY = "runas-tools:item-editor-mode"
+const INVENTORY_FILTER_STORAGE_KEY = "runas-tools:inventory-filters"
+
+const INVENTORY_SORTS: ToolbarSort[] = [
+  { value: "usage", label: "Uso, depois nome" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "type", label: "Tipo" },
+  { value: "weight-desc", label: "Peso (maior primeiro)" },
+  { value: "weight", label: "Peso (menor primeiro)" },
+  { value: "size-desc", label: "Tamanho (maior primeiro)" },
+  { value: "quantity-desc", label: "Quantidade (maior primeiro)" },
+]
+
+const USAGE_ORDER: Record<string, number> = { equipped: 0, stored: 1, absent: 2 }
 
 function readEditorMode(): "simple" | "advanced" {
   if (typeof window === "undefined") return "simple"
@@ -168,6 +183,8 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
   const [dialogMode, setDialogMode] = useState<"view" | "edit">("view")
   const [referencePreview, setReferencePreview] = useState<ReferencePreview | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
+  const toolbar = useSectionToolbar(INVENTORY_FILTER_STORAGE_KEY, "usage")
+  const [showTransfer, setShowTransfer] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [importedItems, setImportedItems] = useState<ImportedInventoryItem[]>([])
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
@@ -334,18 +351,38 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
     return skills.find((skill) => skill.id === item.skillId)
   }
 
+  // A "categoria" de um item é o tipo dele: Arma, Escudo, Armadura, Outro.
+  const inventoryCategories = useMemo(() => toolbarCategories(items, (item) => inventoryTypeLabel(item.type)), [items])
+
+  const visibleItems = useMemo(() => {
+    const filtered = items
+      .filter((item) => !toolbar.hiddenCategories.has(categoryKeyOf(inventoryTypeLabel(item.type))))
+      .filter((item) => matchesQuery(toolbar.query, item.name, inventoryTypeLabel(item.type), item.description, item.damage))
+    const byName = (left: CharacterInventoryItem, right: CharacterInventoryItem) => toolbarCollator.compare(left.name, right.name)
+    return [...filtered].sort((left, right) => {
+      if (toolbar.sort === "name") return byName(left, right)
+      if (toolbar.sort === "name-desc") return byName(right, left)
+      if (toolbar.sort === "type") return toolbarCollator.compare(inventoryTypeLabel(left.type), inventoryTypeLabel(right.type)) || byName(left, right)
+      if (toolbar.sort === "weight-desc") return right.baseWeight - left.baseWeight || byName(left, right)
+      if (toolbar.sort === "weight") return left.baseWeight - right.baseWeight || byName(left, right)
+      if (toolbar.sort === "size-desc") return right.size - left.size || byName(left, right)
+      if (toolbar.sort === "quantity-desc") return right.quantity - left.quantity || byName(left, right)
+      return (USAGE_ORDER[left.usage] ?? 9) - (USAGE_ORDER[right.usage] ?? 9) || byName(left, right)
+    })
+  }, [items, toolbar.hiddenCategories, toolbar.query, toolbar.sort])
+
   return (
     <section aria-label="Inventário do personagem" className="@container rounded-b-[22px] rounded-t-none border border-border bg-card p-3 shadow-sm sm:rounded-b-[27px] sm:p-7">
       <div className="grid gap-3 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(17rem,.8fr)]">
         <article className="@container rounded-[20px] border border-border bg-muted/30 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Carga</p>
-          <div className="mt-3 grid grid-cols-2 gap-2 @min-[32rem]:grid-cols-4">
-            <div className="flex min-w-0 flex-col rounded-xl bg-background/55 p-3"><span className="flex min-h-8 items-start text-xs text-muted-foreground">Atual</span><strong className="flex h-11 items-center text-xl text-foreground">{formatWeight(currentLoad)} kg</strong></div>
-            <div className="flex min-w-0 flex-col rounded-xl bg-background/55 p-3"><span className="flex min-h-8 items-start text-xs text-muted-foreground">Capacidade</span><strong className="flex h-11 items-center text-xl text-foreground">{formatWeight(statSnapshot.loadCapacity)} kg</strong></div>
-            <div className="min-w-0 rounded-xl bg-background/55 p-3"><NumberInput label="Modificador de Carga" value={stats.loadBonus} onChange={(value) => onLoadBonusChange(Math.trunc(value))} className="[&>label]:min-h-8" /></div>
-            <div className="flex min-w-0 flex-col rounded-xl bg-background/55 p-3"><span className="flex min-h-8 items-start text-xs text-muted-foreground">Total de Itens</span><strong className="flex h-11 items-center text-xl text-foreground">{items.filter((item) => item.usage !== "absent").reduce((total, item) => total + item.quantity, 0)}</strong></div>
+          <p className="text-[0.68rem] font-bold uppercase tracking-wide text-muted-foreground">Carga</p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5 @min-[32rem]:grid-cols-4">
+            <div className="flex min-w-0 flex-col rounded-lg bg-background/55 px-2.5 py-1.5"><span className="text-[0.62rem] leading-tight text-muted-foreground">Atual</span><strong className="text-sm leading-tight text-foreground">{formatWeight(currentLoad)} kg</strong></div>
+            <div className="flex min-w-0 flex-col rounded-lg bg-background/55 px-2.5 py-1.5"><span className="text-[0.62rem] leading-tight text-muted-foreground">Capacidade</span><strong className="text-sm leading-tight text-foreground">{formatWeight(statSnapshot.loadCapacity)} kg</strong></div>
+            <div className="min-w-0 rounded-lg bg-background/55 px-2.5 py-1.5"><NumberInput label="Modificador" value={stats.loadBonus} onChange={(value) => onLoadBonusChange(Math.trunc(value))} className="[&>label]:min-h-0 [&>label>span]:text-[0.62rem] [&_input]:h-7 [&_input]:text-sm" /></div>
+            <div className="flex min-w-0 flex-col rounded-lg bg-background/55 px-2.5 py-1.5"><span className="text-[0.62rem] leading-tight text-muted-foreground">Total de Itens</span><strong className="text-sm leading-tight text-foreground">{items.filter((item) => item.usage !== "absent").reduce((total, item) => total + item.quantity, 0)}</strong></div>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">A carga soma automaticamente o peso real dos itens equipados e armazenados. Itens ausentes não contam.</p>
+          <p className="mt-2 text-[0.68rem] leading-snug text-muted-foreground">A carga soma o peso real dos itens equipados e armazenados. Itens ausentes não contam.</p>
           {statSnapshot.overweightLevel > 0 && <div className="mt-3 rounded-xl border border-yellow-500/25 bg-yellow-500/10 p-3 text-sm italic"><p className="font-semibold text-yellow-foreground">Sobrepeso {statSnapshot.overweightLevel}: -{statSnapshot.physicalPenalty} Físico, -{statSnapshot.movementPenalty} Desloc.</p>{statSnapshot.overweightWarnings.length > 0 && <p className="mt-1 font-bold text-destructive">{statSnapshot.overweightWarnings.join(", ")}</p>}</div>}
         </article>
 
@@ -360,7 +397,7 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
       {equippedCombatItems.length > 0 && (
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-bold text-foreground">Equipamentos em uso</h3>
-          <div className="grid gap-3 @min-[48rem]:grid-cols-2">
+          <div className="grid gap-3 @min-[34rem]:grid-cols-2 @min-[62rem]:grid-cols-3">
             {equippedCombatItems.map((item) => {
               const skill = itemSkill(item)
               const canRollDamage = (item.type === "weapon" || item.type === "shield") && Boolean(item.damage.trim())
@@ -378,19 +415,36 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
         </div>
       )}
 
-      <div className="mt-5 flex flex-col gap-4 border-t border-border pt-4 @min-[48rem]:flex-row @min-[48rem]:items-end @min-[48rem]:justify-between">
-        <div className="min-w-0 @min-[48rem]:flex-1"><h3 className="font-bold text-foreground">Todos os itens</h3><p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground"><strong>Equipado</strong> está sendo usado agora; <strong>Armazenado</strong> está nos bolsos ou mochila; <strong>Ausente</strong> está em outro lugar, mas continua sob posse ou registrado pelo jogador.</p></div>
-        <div className="grid w-full grid-cols-1 gap-2 @min-[32rem]:grid-cols-3 @min-[48rem]:w-auto @min-[48rem]:shrink-0">
-          <Button type="button" variant="outline" className="w-full" onClick={() => exportInventoryList(items, characterName, spells, bonds, abilities, skills)} disabled={items.length === 0}><Download /> Exportar todos</Button>
-          <Button type="button" variant="outline" className="w-full" onClick={openImport}><Upload /> Importar lista</Button>
-          <Button type="button" className="w-full" onClick={addItem}><Plus /> Adicionar item</Button>
-        </div>
+      <div className="mt-5 border-t border-border pt-4">
+        <div className="min-w-0"><h3 className="font-bold text-foreground">Todos os itens</h3><p className="mb-3 mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground"><strong>Equipado</strong> está sendo usado agora; <strong>Armazenado</strong> está nos bolsos ou mochila; <strong>Ausente</strong> está em outro lugar, mas continua sob posse ou registrado pelo jogador.</p></div>
+        <SectionToolbar
+          label="itens"
+          query={toolbar.query}
+          onQueryChange={toolbar.setQuery}
+          categories={inventoryCategories}
+          hiddenCategories={toolbar.hiddenCategories}
+          onHiddenCategoriesChange={toolbar.setHiddenCategories}
+          sorts={INVENTORY_SORTS}
+          sort={toolbar.sort}
+          onSortChange={toolbar.setSort}
+          onAdd={addItem}
+          addLabel="Adicionar item"
+          onTransfer={() => setShowTransfer(true)}
+        />
       </div>
+      {showTransfer && <SectionTransferDialog
+        label="itens"
+        onClose={() => setShowTransfer(false)}
+        onExport={() => exportInventoryList(items, characterName, spells, bonds, abilities, skills)}
+        exportDisabled={items.length === 0}
+        onImport={openImport}
+      />}
 
       <div className="mt-3 space-y-2">
         <div className="hidden grid-cols-[6.5rem_minmax(0,1fr)_5.5rem_minmax(0,1.2fr)_4.75rem_5rem_2.75rem] gap-2 px-3 text-center text-[0.62rem] uppercase tracking-wide text-muted-foreground @min-[36rem]:grid"><span>Uso</span><span>Nome</span><span>Tipo</span><span>Descrição</span><span>Qtd.</span><span>Peso</span><span>Editar</span></div>
         {items.length === 0 && <p className="rounded-[18px] border border-dashed border-border bg-background/35 px-4 py-10 text-center text-sm text-muted-foreground">Nenhum item cadastrado.</p>}
-        {items.map((item) => <article key={item.id} className="virtualized-list-item grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-[18px] border border-border bg-background/55 p-3 @min-[36rem]:grid-cols-[6.5rem_minmax(0,1fr)_5.5rem_minmax(0,1.2fr)_4.75rem_5rem_2.75rem] @min-[36rem]:items-center @min-[36rem]:p-2">
+        {items.length > 0 && visibleItems.length === 0 && <p className="rounded-[18px] border border-dashed border-border bg-background/35 px-4 py-10 text-center text-sm text-muted-foreground">Nenhum item encontrado com a busca e os filtros atuais.</p>}
+        {visibleItems.map((item) => <article key={item.id} className="virtualized-list-item grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-[18px] border border-border bg-background/55 p-3 @min-[36rem]:grid-cols-[6.5rem_minmax(0,1fr)_5.5rem_minmax(0,1.2fr)_4.75rem_5rem_2.75rem] @min-[36rem]:items-center @min-[36rem]:p-2">
           <select value={item.usage} onChange={(event) => changeUsage(item, event.target.value as InventoryUsage)} aria-label={`Uso de ${item.name}`} className="col-start-1 row-start-1 h-10 rounded-xl border border-input bg-background px-2 text-xs font-semibold text-foreground outline-none focus:border-ring @min-[36rem]:col-start-auto @min-[36rem]:row-start-auto">{inventoryUsageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
           <button type="button" onClick={() => openItem(item)} className="col-start-1 row-start-2 min-w-0 truncate text-left text-sm font-bold text-foreground hover:text-primary @min-[36rem]:col-start-auto @min-[36rem]:row-start-auto @min-[36rem]:px-2">{item.name}</button>
           <span className="col-start-2 row-start-1 text-right text-xs font-semibold text-muted-foreground @min-[36rem]:col-start-auto @min-[36rem]:row-start-auto @min-[36rem]:text-center">{inventoryTypeLabel(item.type)}</span>

@@ -8,6 +8,7 @@ import type { AbilityCostType, CharacterAbility, CharacterStats } from "@runas/c
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { exportAbilityList, parseAbilityListFile, type ImportedAbility } from "@/lib/abilityTransfer"
 import { createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, SectionTransferDialog, categoryKeyOf, matchesQuery, useSectionToolbar, type ToolbarSort } from "./section-toolbar"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -37,6 +38,13 @@ interface CostDialogState {
 }
 
 const ABILITY_FILTER_STORAGE_KEY = "runas-tools:ability-filters"
+
+const ABILITY_SORTS: ToolbarSort[] = [
+  { value: "category", label: "Categoria, depois nome" },
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "cost", label: "Tipo de custo" },
+]
 const abilityCollator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" })
 
 const costOptions: { value: AbilityCostType; label: string }[] = [
@@ -108,9 +116,8 @@ function costLabel(costType: AbilityCostType): string {
 }
 
 export function CharacterAbilities({ characterName, abilities, stats, onAddAbility, onImportAbilities, onAbilityChange, onRemoveAbility, onApplyCost }: Props) {
-  const [initialFilters] = useState(loadFilters)
-  const [hiddenCategories, setHiddenCategories] = useState(initialFilters.hiddenCategories)
-  const [showFilters, setShowFilters] = useState(initialFilters.showFilters)
+  const toolbar = useSectionToolbar(ABILITY_FILTER_STORAGE_KEY, "category")
+  const [showTransfer, setShowTransfer] = useState(false)
   const [editingAbility, setEditingAbility] = useState<CharacterAbility | null>(null)
   const [isNewAbility, setIsNewAbility] = useState(false)
   const [costDialog, setCostDialog] = useState<CostDialogState | null>(null)
@@ -122,17 +129,6 @@ export function CharacterAbilities({ characterName, abilities, stats, onAddAbili
   const [importError, setImportError] = useState<string | null>(null)
   const abilityFileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(ABILITY_FILTER_STORAGE_KEY, JSON.stringify({
-        hiddenCategories: [...hiddenCategories],
-        showFilters,
-      }))
-    } catch {
-      // Mantém os filtros durante a sessão quando o armazenamento falhar.
-    }
-  }, [hiddenCategories, showFilters])
-
   const categories = useMemo(() => {
     const byKey = new Map<string, string>()
     abilities.forEach((ability) => {
@@ -142,21 +138,18 @@ export function CharacterAbilities({ characterName, abilities, stats, onAddAbili
     return [...byKey].map(([key, label]) => ({ key, label }))
   }, [abilities])
 
-  const visibleAbilities = useMemo(() => abilities
-    .filter((ability) => !hiddenCategories.has(categoryKey(ability.category)))
-    .sort((left, right) => (
-      abilityCollator.compare(left.category || "Sem categoria", right.category || "Sem categoria") ||
-      abilityCollator.compare(left.name, right.name)
-    )), [abilities, hiddenCategories])
-
-  function toggleCategory(key: string) {
-    setHiddenCategories((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
+  const visibleAbilities = useMemo(() => {
+    const filtered = abilities
+      .filter((ability) => !toolbar.hiddenCategories.has(categoryKeyOf(ability.category)))
+      .filter((ability) => matchesQuery(toolbar.query, ability.name, ability.category, ability.description))
+    const byName = (left: CharacterAbility, right: CharacterAbility) => abilityCollator.compare(left.name, right.name)
+    return [...filtered].sort((left, right) => {
+      if (toolbar.sort === "name") return byName(left, right)
+      if (toolbar.sort === "name-desc") return byName(right, left)
+      if (toolbar.sort === "cost") return abilityCollator.compare(left.costType, right.costType) || byName(left, right)
+      return abilityCollator.compare(left.category || "Sem categoria", right.category || "Sem categoria") || byName(left, right)
     })
-  }
+  }, [abilities, toolbar.hiddenCategories, toolbar.query, toolbar.sort])
 
   function openNewAbility() {
     setEditingAbility(createAbility())
@@ -255,20 +248,27 @@ export function CharacterAbilities({ characterName, abilities, stats, onAddAbili
         {categories.filter((category) => category.key !== "__without_category__").map((category) => <option key={category.key} value={category.label} />)}
       </datalist>
 
-      <div className="flex flex-col gap-3 border-b border-border px-0.5 pb-3 sm:flex-row sm:items-center sm:justify-end sm:px-0">
-        <button type="button" onClick={() => exportAbilityList(abilities, characterName)} disabled={abilities.length === 0} title={abilities.length === 0 ? "Adicione uma habilidade antes de exportar" : "Exportar todas as habilidades"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
-          <Download className="size-4" /> Exportar todas
-        </button>
-        <button type="button" onClick={openImport} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground">
-          <Upload className="size-4" /> Importar lista
-        </button>
-        <button type="button" onClick={() => setShowFilters((current) => !current)} aria-expanded={showFilters} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground">
-          <ListFilter className="size-4" /> Categorias
-        </button>
-        <button type="button" onClick={openNewAbility} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:bg-accent">
-          <Plus className="size-4" /> Adicionar habilidade
-        </button>
-      </div>
+      <SectionToolbar
+        label="habilidades"
+        query={toolbar.query}
+        onQueryChange={toolbar.setQuery}
+        categories={categories}
+        hiddenCategories={toolbar.hiddenCategories}
+        onHiddenCategoriesChange={toolbar.setHiddenCategories}
+        sorts={ABILITY_SORTS}
+        sort={toolbar.sort}
+        onSortChange={toolbar.setSort}
+        onAdd={openNewAbility}
+        addLabel="Adicionar habilidade"
+        onTransfer={() => setShowTransfer(true)}
+      />
+      {showTransfer && <SectionTransferDialog
+        label="habilidades"
+        onClose={() => setShowTransfer(false)}
+        onExport={() => exportAbilityList(abilities, characterName)}
+        exportDisabled={abilities.length === 0}
+        onImport={openImport}
+      />}
 
       {showImport && createPortal((
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-3 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowImport(false) }}>
@@ -344,21 +344,6 @@ export function CharacterAbilities({ characterName, abilities, stats, onAddAbili
         </div>
       ), document.body)}
 
-      {showFilters && (
-        <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-border bg-background/45 p-2" aria-label="Filtrar categorias de habilidades">
-          {categories.length === 0
-            ? <span className="px-2 py-1 text-xs text-muted-foreground">Crie uma habilidade para habilitar os filtros.</span>
-            : categories.map((category) => {
-                const visible = !hiddenCategories.has(category.key)
-                return (
-                  <button key={category.key} type="button" aria-pressed={visible} onClick={() => toggleCategory(category.key)} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${visible ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>
-                    {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}{category.label}
-                  </button>
-                )
-              })}
-          {hiddenCategories.size > 0 && <button type="button" onClick={() => setHiddenCategories(new Set())} className="h-9 rounded-xl px-3 text-xs font-semibold text-muted-foreground transition hover:text-foreground">Mostrar todas</button>}
-        </div>
-      )}
 
       <div className="space-y-2 pt-3">
         <div className="hidden grid-cols-[minmax(6rem,.75fr)_minmax(7rem,1fr)_minmax(10rem,1.8fr)_2.75rem_2.75rem] gap-2 px-3 text-center text-[0.62rem] uppercase tracking-wide text-muted-foreground md:grid">

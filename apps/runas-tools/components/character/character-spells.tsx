@@ -12,6 +12,7 @@ import { exportSpellList, parseSpellListFile, type ImportedSpell } from "@/lib/s
 import { useCharacterPanel } from "@/components/character/character-panel"
 import { CharacterElements } from "@/components/character/character-elements"
 import { createId, createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, SectionTransferDialog, categoryKeyOf, matchesQuery, useSectionToolbar, type ToolbarSort } from "./section-toolbar"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -42,6 +43,14 @@ interface CostDialogState {
 }
 
 const FILTER_STORAGE_KEY = "runas-tools:spell-filters"
+
+const SPELL_SORTS: ToolbarSort[] = [
+  { value: "name", label: "Nome (A-Z)" },
+  { value: "name-desc", label: "Nome (Z-A)" },
+  { value: "category", label: "Categoria, depois nome" },
+  { value: "type", label: "Tipo de magia" },
+  { value: "cost", label: "Custo (menor primeiro)" },
+]
 const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" })
 const costOptions: { value: AbilityCostType; label: string }[] = [
   { value: "none", label: "Nenhum" },
@@ -143,8 +152,8 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
   const router = useRouter()
   const { close } = useCharacterPanel()
   const [initialFilters] = useState(loadFilters)
-  const [hiddenCategories, setHiddenCategories] = useState(initialFilters.hiddenCategories)
-  const [showFilters, setShowFilters] = useState(initialFilters.showFilters)
+  const toolbar = useSectionToolbar(FILTER_STORAGE_KEY, "name")
+  const [showTransfer, setShowTransfer] = useState(false)
   const [editingSpell, setEditingSpell] = useState<CharacterSpell | null>(null)
   const [isNewSpell, setIsNewSpell] = useState(false)
   const [costDialog, setCostDialog] = useState<CostDialogState | null>(null)
@@ -157,14 +166,6 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
   const fileRef = useRef<HTMLInputElement>(null)
   const availableCostOptions = variant === "cronos" ? cronosCostOptions : costOptions
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ hiddenCategories: [...hiddenCategories], showFilters }))
-    } catch {
-      // Preserva os filtros na sessão quando o armazenamento estiver indisponível.
-    }
-  }, [hiddenCategories, showFilters])
-
   const categories = useMemo(() => {
     const values = new Map<string, string>()
     spells.forEach((spell) => {
@@ -174,18 +175,19 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
     return [...values].map(([key, label]) => ({ key, label }))
   }, [spells])
 
-  const visibleSpells = useMemo(() => spells
-    .filter((spell) => !hiddenCategories.has(categoryKey(spell.category)))
-    .sort((left, right) => collator.compare(left.name, right.name)), [hiddenCategories, spells])
-
-  function toggleCategory(key: string) {
-    setHiddenCategories((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
+  const visibleSpells = useMemo(() => {
+    const filtered = spells
+      .filter((spell) => !toolbar.hiddenCategories.has(categoryKeyOf(spell.category)))
+      .filter((spell) => matchesQuery(toolbar.query, spell.name, spell.category, spell.description))
+    const byName = (left: CharacterSpell, right: CharacterSpell) => collator.compare(left.name, right.name)
+    return [...filtered].sort((left, right) => {
+      if (toolbar.sort === "name-desc") return byName(right, left)
+      if (toolbar.sort === "category") return collator.compare(left.category || "", right.category || "") || byName(left, right)
+      if (toolbar.sort === "type") return collator.compare(left.magicType, right.magicType) || byName(left, right)
+      if (toolbar.sort === "cost") return (left.costValue || 0) - (right.costValue || 0) || byName(left, right)
+      return byName(left, right)
     })
-  }
+  }, [spells, toolbar.hiddenCategories, toolbar.query, toolbar.sort])
 
   function saveSpell(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -313,20 +315,27 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
 
       <CharacterElements attributes={attributes} elements={elements} onChange={onElementsChange} onRoll={rollTestSource} />
 
-      <div className="flex flex-col gap-3 border-b border-border px-0.5 pb-3 sm:flex-row sm:items-center sm:justify-end sm:px-0">
-        <button type="button" onClick={() => exportSpellList(spells, characterName)} disabled={spells.length === 0} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-40"><Download className="size-4" /> Exportar todas</button>
-        <button type="button" onClick={() => { setShowImport(true); setImportedSpells([]); setSelectedSpells(new Set()); setImportFilename(""); setImportError(null) }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground"><Upload className="size-4" /> Importar lista</button>
-        <button type="button" onClick={() => setShowFilters((current) => !current)} aria-expanded={showFilters} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground"><ListFilter className="size-4" /> Categorias</button>
-        <button type="button" onClick={() => { setEditingSpell(createSpell()); setIsNewSpell(true) }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:bg-accent"><Plus className="size-4" /> Adicionar magia</button>
-      </div>
-
-      {showFilters && <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-border bg-background/45 p-2" aria-label="Filtrar categorias de magias">
-        {categories.length === 0 ? <span className="px-2 py-1 text-xs text-muted-foreground">Crie uma magia para habilitar os filtros.</span> : categories.map((category) => {
-          const visible = !hiddenCategories.has(category.key)
-          return <button key={category.key} type="button" aria-pressed={visible} onClick={() => toggleCategory(category.key)} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${visible ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>{visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}{category.label}</button>
-        })}
-        {hiddenCategories.size > 0 && <button type="button" onClick={() => setHiddenCategories(new Set())} className="h-9 rounded-xl px-3 text-xs font-semibold text-muted-foreground hover:text-foreground">Mostrar todas</button>}
-      </div>}
+      <SectionToolbar
+        label="magias"
+        query={toolbar.query}
+        onQueryChange={toolbar.setQuery}
+        categories={categories}
+        hiddenCategories={toolbar.hiddenCategories}
+        onHiddenCategoriesChange={toolbar.setHiddenCategories}
+        sorts={SPELL_SORTS}
+        sort={toolbar.sort}
+        onSortChange={toolbar.setSort}
+        onAdd={() => { setEditingSpell(createSpell()); setIsNewSpell(true) }}
+        addLabel="Adicionar magia"
+        onTransfer={() => setShowTransfer(true)}
+      />
+      {showTransfer && <SectionTransferDialog
+        label="magias"
+        onClose={() => setShowTransfer(false)}
+        onExport={() => exportSpellList(spells, characterName)}
+        exportDisabled={spells.length === 0}
+        onImport={() => { setShowImport(true); setImportedSpells([]); setSelectedSpells(new Set()); setImportFilename(""); setImportError(null) }}
+      />}
 
       {actionError && <p role="alert" className="mt-3 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm font-medium text-destructive">{actionError}</p>}
 
