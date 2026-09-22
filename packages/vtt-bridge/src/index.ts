@@ -106,4 +106,4 @@ export function masteryTableIdFromVttToken(token: Pick<VttToken, "envelope">, fa
 
 export { summarizeCharacterResources }
 
-export { renderTokenImage, tokenCrop, TOKEN_IMAGE_SIZE, TOKEN_SHAPES, type SquareCrop, type TokenImageOptions, type TokenShape } from "./tokenImage"
+export { renderTokenImage, tokenCrop, TOKEN_IMAGE_SIZE, TOKEN_SHAPES, type SquareCrop, type TokenCrop, type TokenImageOptions, type TokenShape } from "./tokenImage"
