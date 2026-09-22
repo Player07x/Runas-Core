@@ -11,6 +11,7 @@ import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { SkillIntegerInput } from "@/components/skill-test/skill-integer-input"
 import { useCharacterPanel } from "./character-panel"
 import { createId, createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, matchesQuery, type ToolbarSort } from "./section-toolbar"
 
 interface Props {
   attributes: CharacterAttributes
@@ -37,6 +38,17 @@ const sortFields: { key: BondSortKey; label: string }[] = [
 
 const bondCollator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" })
 const BOND_FILTER_STORAGE_KEY = "runas-tools:bond-filters"
+
+/** Mesmos organizadores da tabela: o seletor e o clique na coluna dividem `sortState`. */
+const BOND_SORTS: ToolbarSort[] = [
+  { value: "default", label: "Padrão (ordem da ficha)" },
+  { value: "name:asc", label: "Nome (A-Z)" },
+  { value: "name:desc", label: "Nome (Z-A)" },
+  { value: "category:asc", label: "Categoria" },
+  { value: "points:desc", label: "Pontos (maior primeiro)" },
+  { value: "level:desc", label: "Nível (maior primeiro)" },
+  { value: "test:desc", label: "Teste (maior primeiro)" },
+]
 
 function loadBondFilters(): { sortState: BondSortState; hiddenCategories: Set<string>; showFilters: boolean } {
   if (typeof window === "undefined") return { sortState: null, hiddenCategories: new Set(), showFilters: false }
@@ -105,7 +117,7 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
   const [initialFilters] = useState(loadBondFilters)
   const [sortState, setSortState] = useState<BondSortState>(initialFilters.sortState)
   const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(initialFilters.hiddenCategories)
-  const [showFilters, setShowFilters] = useState(initialFilters.showFilters)
+  const [bondSearch, setBondSearch] = useState("")
   const [showImport, setShowImport] = useState(false)
   const [importText, setImportText] = useState("")
   const [importErrors, setImportErrors] = useState<string[]>([])
@@ -115,12 +127,11 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
       window.localStorage.setItem(BOND_FILTER_STORAGE_KEY, JSON.stringify({
         sortState,
         hiddenCategories: [...hiddenCategories],
-        showFilters,
       }))
     } catch {
       // Os filtros continuam funcionando durante a sessão se o armazenamento falhar.
     }
-  }, [hiddenCategories, showFilters, sortState])
+  }, [hiddenCategories, sortState])
 
   const categories = useMemo(() => {
     const byKey = new Map<string, string>()
@@ -131,8 +142,18 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
     return [...byKey].map(([key, label]) => ({ key, label }))
   }, [bonds])
 
+  const sortValue = sortState ? `${sortState.key}:${sortState.direction}` : "default"
+
+  function changeSort(value: string) {
+    if (value === "default") { setSortState(null); return }
+    const [key, direction] = value.split(":")
+    setSortState({ key: key as BondSortKey, direction: direction === "desc" ? "desc" : "asc" })
+  }
+
   const visibleBonds = useMemo(() => {
-    const filtered = bonds.filter((bond) => !hiddenCategories.has(categoryKey(bond.category)))
+    const filtered = bonds
+      .filter((bond) => !hiddenCategories.has(categoryKey(bond.category)))
+      .filter((bond) => matchesQuery(bondSearch, bond.name, bond.category))
     if (!sortState) return filtered
     const valueFor = (bond: CharacterBond): string | number => {
       const quality = calculateBondQuality(bond.points)
@@ -153,22 +174,13 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
         : Number(leftValue) - Number(rightValue)
       return comparison * direction
     })
-  }, [attributes, bonds, hiddenCategories, sortState, stats])
+  }, [attributes, bonds, bondSearch, hiddenCategories, sortState, stats])
 
   function toggleSort(key: BondSortKey) {
     setSortState((current) => {
       if (!current || current.key !== key) return { key, direction: "asc" }
       if (current.direction === "asc") return { key, direction: "desc" }
       return null
-    })
-  }
-
-  function toggleCategory(key: string) {
-    setHiddenCategories((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
     })
   }
 
@@ -206,37 +218,21 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
         {categories.filter((category) => category.key !== "__without_category__").map((category) => <option key={category.key} value={category.label} />)}
       </datalist>
 
-        <div className="flex flex-col gap-3 border-b border-border px-0.5 pb-3 sm:px-0">
-          <div className="flex flex-col gap-2 min-[520px]:flex-row min-[520px]:items-center min-[520px]:justify-between">
-            <div className="grid grid-cols-3 gap-1.5 sm:ml-auto sm:gap-2">
-              <button type="button" onClick={() => setShowFilters((current) => !current)} aria-expanded={showFilters} className="inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-1.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground sm:gap-2 sm:px-3 sm:text-sm">
-                <ListFilter className="size-4" /> Categorias
-              </button>
-              <button type="button" onClick={() => setShowImport(true)} aria-label="Adicionar lista de vínculos" className="inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-1.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground sm:gap-2 sm:px-3 sm:text-sm">
-                <ListPlus className="size-4" /> <span className="sm:hidden">Importar</span><span className="hidden sm:inline">Adicionar lista</span>
-              </button>
-              <button type="button" onClick={addBond} aria-label="Adicionar vínculo" className="inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl bg-secondary px-1.5 py-2 text-xs font-semibold text-secondary-foreground transition hover:bg-accent sm:gap-2 sm:px-3 sm:text-sm">
-                <Plus className="size-4" /> <span className="sm:hidden">Novo</span><span className="hidden sm:inline">Adicionar vínculo</span>
-              </button>
-            </div>
-          </div>
-
-          {showFilters && (
-            <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-background/45 p-2" aria-label="Filtrar categorias de vínculos">
-              {categories.length === 0
-                ? <span className="px-2 py-1 text-xs text-muted-foreground">Crie uma categoria para habilitar os filtros.</span>
-                : categories.map((category) => {
-                    const visible = !hiddenCategories.has(category.key)
-                    return (
-                      <button key={category.key} type="button" aria-pressed={visible} onClick={() => toggleCategory(category.key)} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${visible ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>
-                        {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}{category.label}
-                      </button>
-                    )
-                  })}
-              {hiddenCategories.size > 0 && <button type="button" onClick={() => setHiddenCategories(new Set())} className="h-9 rounded-xl px-3 text-xs font-semibold text-muted-foreground transition hover:text-foreground">Mostrar todas</button>}
-            </div>
-          )}
-        </div>
+        <SectionToolbar
+          label="vínculos"
+          query={bondSearch}
+          onQueryChange={setBondSearch}
+          categories={categories}
+          hiddenCategories={hiddenCategories}
+          onHiddenCategoriesChange={setHiddenCategories}
+          sorts={BOND_SORTS}
+          sort={sortValue}
+          onSortChange={changeSort}
+          onAdd={addBond}
+          addLabel="Adicionar vínculo"
+          onTransfer={() => setShowImport(true)}
+          transferLabel="Adicionar lista de vínculos"
+        />
 
         <div className="space-y-2 pt-3">
           <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-muted/30 p-1.5 md:hidden" aria-label="Organizar vínculos">

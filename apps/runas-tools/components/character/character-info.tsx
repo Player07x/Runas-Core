@@ -183,7 +183,7 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
     : [{ value: info.race, label: info.race }, ...defaultRaceOptions]
 
   return (
-    <section aria-label="Informações do personagem" className="rounded-b-[27px] rounded-t-none border border-border bg-card p-4 shadow-sm sm:p-5">
+    <section aria-label="Informações do personagem" className="@container rounded-b-[27px] rounded-t-none border border-border bg-card p-4 shadow-sm sm:p-5">
       <div className="mb-3 flex items-center justify-end gap-3">
           <span className="text-right text-sm leading-tight text-muted-foreground">Ano<br />Atual</span>
           <input
@@ -209,12 +209,16 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
           </span>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-[12.5rem_minmax(0,1fr)]">
-        <div className="min-w-0">
+      {/* Retrato e token ficam lado a lado. Empilhados, a coluna da esquerda
+          ficava muito mais alta que os campos e sobrava um bloco vazio enorme
+          à direita; assim as duas alturas se aproximam e os campos ocupam a
+          largura inteira logo abaixo. */}
+      <div className="grid grid-cols-1 items-start gap-4 @min-[44rem]:grid-cols-[minmax(0,25rem)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-wrap items-start gap-4">
           <CharacterPortraitEditor value={portraitDataUrl} onChange={onPortraitChange} />
           <CharacterTokenEditor image={tokenImageDataUrl} size={tokenSize} onChange={onTokenChange} />
         </div>
-        <div className="grid min-w-0 gap-y-2">
+        <div className="field-stack min-w-0">
           <Field label="Nome" value={name} onChange={onNameChange} maxLength={80} required />
 
           <div className="grid min-w-0 grid-rows-[1.5rem_auto] gap-0.5">
@@ -254,7 +258,7 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+      <div className="field-stack mt-2 grid-cols-1 gap-x-4 sm:grid-cols-2">
         <Field label="Região" value={info.region} onChange={(value) => onInfoChange("region", value)} maxLength={40} />
 
         <Select

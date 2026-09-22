@@ -12,6 +12,7 @@ import { parseSkillImport, type ImportedSkill } from "@/lib/skillImport"
 import { SkillIntegerInput } from "@/components/skill-test/skill-integer-input"
 import { useCharacterPanel } from "./character-panel"
 import { createId, createPrefixedId } from "@runas/core/lib/ids"
+import { SectionToolbar, categoryKeyOf, toolbarCollator, type ToolbarSort } from "./section-toolbar"
 
 interface Props {
   attributes: CharacterAttributes
@@ -36,6 +37,21 @@ const sortFields: { key: SkillSortKey; label: string }[] = [
 
 const skillCollator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" })
 const SKILL_SORT_STORAGE_KEY = "runas-tools:skill-sort"
+
+/**
+ * Os organizadores do cabeçalho são os mesmos da tabela: o seletor e o clique
+ * na coluna mexem no mesmo `sortState`, então os dois nunca discordam.
+ */
+const SKILL_SORTS: ToolbarSort[] = [
+  { value: "default", label: "Padrão (fixas, depois criadas)" },
+  { value: "name:asc", label: "Nome (A-Z)" },
+  { value: "name:desc", label: "Nome (Z-A)" },
+  { value: "level:desc", label: "Nível (maior primeiro)" },
+  { value: "level:asc", label: "Nível (menor primeiro)" },
+  { value: "test:desc", label: "Teste (maior primeiro)" },
+  { value: "points:desc", label: "Pontos (maior primeiro)" },
+  { value: "attribute:asc", label: "Atributo" },
+]
 
 function loadSkillSort(): SkillSortState {
   if (typeof window === "undefined") return null
@@ -93,7 +109,7 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
   const [importText, setImportText] = useState("")
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [skillSearch, setSkillSearch] = useState("")
-  const [skillAttribute, setSkillAttribute] = useState<SecondaryAttributeKey | "all">("all")
+  const [hiddenAttributes, setHiddenAttributes] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     try {
@@ -106,7 +122,8 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
     const normalizedSearch = skillSearch.trim().toLocaleLowerCase("pt-BR")
     const filteredSkills = skills.filter((skill) => {
       const matchesName = !normalizedSearch || skill.name.toLocaleLowerCase("pt-BR").includes(normalizedSearch)
-      const matchesAttribute = skillAttribute === "all" || skill.attributeKey === skillAttribute
+      const nomeAtributo = damageAttributes.find((attribute) => attribute.key === skill.attributeKey)?.name ?? "Sem atributo"
+      const matchesAttribute = !hiddenAttributes.has(categoryKeyOf(nomeAtributo))
       return matchesName && matchesAttribute
     })
     const fixedSkills = filteredSkills.filter((skill) => skill.locked)
@@ -142,7 +159,7 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
       return comparison * direction
     })
     return [...fixedSkills, ...sortedCustomSkills]
-  }, [attributes, skillAttribute, skillSearch, skills, sortState])
+  }, [attributes, hiddenAttributes, skillSearch, skills, sortState])
 
   function toggleSort(key: SkillSortKey) {
     setSortState((current) => {
@@ -193,48 +210,44 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
     setShowImport(false)
   }
 
+  // O atributo da perícia é a "categoria" dela no cabeçalho padrão.
+  const skillCategories = useMemo(() => {
+    const usados = new Map<string, string>()
+    for (const skill of skills) {
+      const nome = damageAttributes.find((attribute) => attribute.key === skill.attributeKey)?.name ?? "Sem atributo"
+      usados.set(categoryKeyOf(nome), nome)
+    }
+    return [...usados].map(([key, label]) => ({ key, label })).sort((left, right) => toolbarCollator.compare(left.label, right.label))
+  }, [skills])
+
+  const sortValue = sortState ? `${sortState.key}:${sortState.direction}` : "default"
+
+  function changeSort(value: string) {
+    if (value === "default") { setSortState(null); return }
+    const [key, direction] = value.split(":")
+    setSortState({ key: key as SkillSortKey, direction: direction === "desc" ? "desc" : "asc" })
+  }
+
   return (
     <section aria-label="Perícias do personagem" className="rounded-b-[27px] rounded-t-none border border-border bg-card p-4 shadow-sm sm:p-7">
       <datalist id="system-skill-suggestions">
         {systemSkills.map((skill) => <option key={skill.name} value={skill.name} />)}
       </datalist>
-        <div className="flex flex-wrap flex-col gap-2 border-b border-border px-0.5 pb-3 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between sm:px-0">
-          <div className="flex min-w-0 flex-1 flex-wrap flex-col gap-2 min-[430px]:flex-row">
-            <label className="relative min-w-[160px] flex-1">
-              <span className="sr-only">Pesquisar perícia</span>
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                type="search"
-                value={skillSearch}
-                onChange={(event) => setSkillSearch(event.target.value)}
-                placeholder="Pesquisar perícia…"
-                aria-label="Pesquisar perícia pelo nome"
-                className="h-10 w-full rounded-xl border border-input bg-background/65 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25"
-              />
-            </label>
-            <label className="relative min-[430px]:w-52">
-              <span className="sr-only">Exibir perícias do atributo</span>
-              <select
-                value={skillAttribute}
-                onChange={(event) => setSkillAttribute(event.target.value as SecondaryAttributeKey | "all")}
-                aria-label="Exibir perícias baseadas em atributo"
-                className="h-10 w-full appearance-none rounded-xl border border-input bg-background/65 px-3 pr-8 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25"
-              >
-                <option value="all">Todos os atributos</option>
-                {damageAttributes.map((attribute) => <option key={attribute.key} value={attribute.key}>{attribute.name}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute bottom-3 right-2 size-4 text-muted-foreground" aria-hidden="true" />
-            </label>
-          </div>
-          <div className="grid gap-2 min-[430px]:ml-auto min-[430px]:grid-cols-2">
-            <button type="button" onClick={() => setShowImport(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground">
-              <ListPlus className="size-4" /> Adicionar lista de perícias
-            </button>
-            <button type="button" onClick={addSkill} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:bg-accent">
-              <Plus className="size-4" /> Adicionar perícia
-            </button>
-          </div>
-        </div>
+        <SectionToolbar
+          label="perícias"
+          query={skillSearch}
+          onQueryChange={setSkillSearch}
+          categories={skillCategories}
+          hiddenCategories={hiddenAttributes}
+          onHiddenCategoriesChange={setHiddenAttributes}
+          sorts={SKILL_SORTS}
+          sort={sortValue}
+          onSortChange={changeSort}
+          onAdd={addSkill}
+          addLabel="Adicionar perícia"
+          onTransfer={() => setShowImport(true)}
+          transferLabel="Adicionar lista de perícias"
+        />
 
         <div className="space-y-2 pt-3">
           <div className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-muted/30 p-2 md:hidden" aria-label="Organizar perícias">

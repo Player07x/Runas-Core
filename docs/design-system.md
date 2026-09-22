@@ -35,3 +35,34 @@ Painel operacional moderno inspirado no Livro Vermelho: árvore, pedra rúnica e
 - Ações frequentes de uma tela (rolar teste, aplicar dano, criar ficha) ficam sempre visíveis nela. As ações da barra superior são a exceção deliberada: tema, backup, importação e Obsidian moram no botão `⋯`, porque são raras e a barra precisa caber marca e navegação sem competição.
 - Em telas estreitas, navegação vira barra inferior e ações passam para baixo dos inimigos.
 - Na Mesa, equipamento, perícia e magia disparam ações integradas e levam a tela até a calculadora. Dano sempre separa o valor causado da simulação no alvo antes da aplicação.
+
+## Regua de espacamento do Runas Tools
+
+As medidas saem da pagina de Informacao da ficha, que e a referencia de
+densidade do aplicativo. Toda tela nova usa estes nomes (`app/globals.css`) em
+vez de escolher um `gap-` no olho:
+
+| Nome | Valor | Onde |
+|-|-|-|
+| `--space-label` | 0,125rem | rotulo -> input |
+| `--space-field` | 0,5rem | campo -> campo, na vertical |
+| `--space-column` | 0,75rem | coluna -> coluna, na horizontal |
+| `--space-group` | 0,625rem | dentro de uma caixa agrupadora |
+| `--space-section` | 1rem | bloco -> bloco |
+
+As classes `.field-stack`, `.field-row`, `.field-group` e `.section-stack`
+aplicam a regua direto, sem repetir os valores.
+
+## Cabecalho das secoes da ficha
+
+Perícias, Vinculos, Habilidades, Inventario, Magias e Anotacoes usam o mesmo
+`SectionToolbar`: busca a esquerda, botao de filtros e organizadores, `+` de
+adicionar e botao de importar/exportar, nessa ordem. Os filtros sao as
+categorias da secao, com `Selecionar tudo` e `Limpar`; os organizadores variam
+por secao. Importar e exportar nunca voltam para o corpo da pagina.
+
+## Configuracoes da ficha
+
+Exportar, importar e limpar ficam atras do botao **Configuracoes**, na barra do
+painel, ao lado dos controles de largura. No corpo da ficha fica so o estado de
+salvamento.

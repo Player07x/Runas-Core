@@ -27,7 +27,6 @@ import type { ImportedInventoryItem } from "@/lib/inventoryTransfer"
 import { cn } from "@/lib/utils"
 import { calculateEquippedArmorDefense, calculateInventoryLoad } from "@runas/core/lib/inventoryCalculations"
 import { useCharacter } from "./character-provider"
-import { CharacterActions } from "./character-actions"
 import { SaveIndicator } from "./save-indicator"
 import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
@@ -508,11 +507,11 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Exportar, importar e limpar moram no botão Configurações da barra
+          lateral. Aqui fica só o estado de salvamento, que num aplicativo
+          local-first não pode depender de abrir um menu. */}
       <section className="rounded-[20px] border border-border bg-card px-3 py-2.5 shadow-sm sm:rounded-[27px] sm:px-7 sm:py-4">
-        <div className="flex items-center justify-between gap-2 sm:block">
-          <SaveIndicator />
-          <CharacterActions />
-        </div>
+        <SaveIndicator />
       </section>
 
       <div className="relative">

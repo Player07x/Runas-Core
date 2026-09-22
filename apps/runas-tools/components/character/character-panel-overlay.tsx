@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
-import { Dices, PanelLeftClose, PanelLeftOpen, X } from "lucide-react"
+import { Dices, PanelLeftClose, PanelLeftOpen, Settings, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { CharacterTab } from "./character-sheet"
 import { useRuleset } from "@/components/rulesets/ruleset-provider"
+import { CharacterActions } from "./character-actions"
 
 const CharacterSheet = dynamic(
   () => import("./character-sheet").then((module) => module.CharacterSheet),
@@ -26,6 +27,7 @@ interface Props {
 
 export function CharacterPanelOverlay({ isOpen, close, activeTab, setActiveTab }: Props) {
   const [panelWidth, setPanelWidth] = useState(800)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const { activeRulesetId, activeRuleset } = useRuleset()
 
   useEffect(() => {
@@ -70,11 +72,18 @@ export function CharacterPanelOverlay({ isOpen, close, activeTab, setActiveTab }
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen} className={`flex size-9 items-center justify-center rounded-xl transition ${settingsOpen ? "bg-panel-input text-white" : "text-panel-muted hover:bg-panel-input hover:text-white"}`} aria-label="Configurações da ficha" title="Configurações da ficha"><Settings className="size-5" /></button>
             <button type="button" onClick={() => setPanelWidth((width) => Math.max(680, width - 120))} className="hidden size-9 items-center justify-center rounded-xl text-panel-muted transition hover:bg-panel-input hover:text-white sm:flex" aria-label="Diminuir painel" title="Diminuir painel"><PanelLeftOpen className="size-5" /></button>
             <button type="button" onClick={() => setPanelWidth((width) => Math.min(960, width + 120))} className="hidden size-9 items-center justify-center rounded-xl text-panel-muted transition hover:bg-panel-input hover:text-white sm:flex" aria-label="Ampliar painel" title="Ampliar painel"><PanelLeftClose className="size-5" /></button>
             <button type="button" onClick={close} className="flex size-9 items-center justify-center rounded-xl text-panel-muted transition-colors hover:bg-panel-input hover:text-white sm:size-10" aria-label="Fechar ficha"><X className="size-5.5" strokeWidth={2.25} /></button>
           </div>
         </div>
+        {settingsOpen && (
+          <div className="border-b border-panel-border bg-panel-elevated/70 px-3 py-3 sm:px-7" aria-label="Configurações da ficha">
+            <p className="mb-2 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-panel-muted">Arquivo da ficha</p>
+            <CharacterActions />
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-7 sm:py-6">
           {isOpen && (activeRulesetId === "cronos"
             ? <CronosCharacterSheet activeTab={activeTab} onActiveTabChange={setActiveTab} />

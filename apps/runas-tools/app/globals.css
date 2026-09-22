@@ -294,6 +294,47 @@ html[data-ruleset='cronos'].dark {
     background-size: auto, 7rem 6rem, auto;
   }
   /*
+   * Régua de espaçamento do Runas Tools.
+   *
+   * As medidas saem da página de Informação da ficha, que é a referência de
+   * densidade do aplicativo. Toda tela nova usa estes nomes em vez de escolher
+   * um `gap-` no olho, para que a distância entre rótulo, input e grade seja a
+   * mesma em qualquer lugar.
+   */
+  :root {
+    --space-label: 0.125rem;   /* rótulo -> input */
+    --space-field: 0.5rem;     /* campo -> campo, na vertical */
+    --space-column: 0.75rem;   /* coluna -> coluna, na horizontal */
+    --space-group: 0.625rem;   /* dentro de uma caixa agrupadora */
+    --space-section: 1rem;     /* bloco -> bloco */
+  }
+
+  /** Pilha de campos: a distância vertical padrão entre eles. */
+  .field-stack {
+    display: grid;
+    gap: var(--space-field);
+  }
+
+  /** Campos lado a lado na mesma linha. */
+  .field-row {
+    display: grid;
+    gap: var(--space-column);
+  }
+
+  /** Caixa que agrupa campos, com o respiro interno padrão. */
+  .field-group {
+    display: grid;
+    gap: var(--space-group);
+    padding: var(--space-group);
+  }
+
+  /** Blocos de uma seção: o maior respiro da régua. */
+  .section-stack {
+    display: grid;
+    gap: var(--space-section);
+  }
+
+  /*
    * Compartilha a altura do maior rótulo entre os campos da mesma linha.
    * A linha cresce apenas quando o conteúdo quebra, mantendo inputs alinhados.
    */
