@@ -1,4 +1,4 @@
-import { fictionalYear, normalizeUniverseEras, type UniverseEra } from "./chronology"
+import { fictionalYear, normalizeUniverseEras, withEraTags, type UniverseEra } from "./chronology"
 
 export const CAMPAIGN_STATUSES = [
   "Sem Status",
@@ -15,16 +15,15 @@ export const WIKI_SECTIONS = [
   { id: "story", label: "História" },
   { id: "geography", label: "Geografia" },
   { id: "characters", label: "Personagens" },
-  { id: "fauna", label: "Fauna" },
-  { id: "monsters", label: "Monstros" },
+  { id: "creatures", label: "Criaturas" },
   { id: "items", label: "Itens" },
+  { id: "organizations", label: "Organizações" },
 ] as const
 
 export const CAMPAIGN_PAGE_KINDS = [
   { id: "mission", label: "Missão" },
   { id: "event", label: "Evento" },
-  { id: "session-note", label: "Sessões" },
-  { id: "gm-note", label: "Nota de mestre" },
+  { id: "gm-note", label: "Nota" },
   { id: "encounter", label: "Encontro" },
 ] as const
 
@@ -50,7 +49,7 @@ export function pageKindLabel(kind: string, scope: "wiki" | "campaign"): string 
 export type CampaignStatus = typeof CAMPAIGN_STATUSES[number]
 export type WikiSection = typeof WIKI_SECTIONS[number]["id"]
 export type CampaignPageKind = typeof CAMPAIGN_PAGE_KINDS[number]["id"]
-export type KnowledgePageKind = WikiSection | CampaignPageKind
+export type KnowledgePageKind = WikiSection | CampaignPageKind | "fauna" | "monsters" | "session-note"
 
 export interface CampaignRecord {
   id: string
@@ -68,6 +67,19 @@ export interface CampaignRecord {
   imageBlur?: number
   /** Histórias da Wiki vinculadas à campanha, na ordem escolhida pelo mestre. */
   storyIds?: string[]
+  worldPageIds: string[]
+  organizer?: { nodes: OrganizerNode[]; edges: OrganizerEdge[] }
+}
+
+export interface OrganizerNode { id: string; title: string; body: string; x: number; y: number; color?: string }
+export interface OrganizerEdge { id: string; fromId: string; toId: string; label?: string }
+
+export interface KnowledgeTag {
+  id: string
+  name: string
+  icon: string
+  color: string
+  pinnedIn: string[]
 }
 
 export interface KnowledgeCategory {
@@ -96,6 +108,10 @@ export interface KnowledgePage {
   date: string
   eraId?: string
   eventYear?: number | null
+  eraStartYear?: number | null
+  eraEndYear?: number | null
+  eraCalendar?: "C.E." | "Logi" | string
+  icon?: string
   /** Ordem narrativa para missões e eventos da campanha. */
   order?: string
   /**
@@ -128,10 +144,12 @@ export interface KnowledgePage {
 }
 
 export interface KnowledgeWorkspaceState {
-  version: 2
+  version: 3
   eras?: UniverseEra[]
   campaigns: CampaignRecord[]
+  /** @deprecated mantido apenas para ler snapshots v2; novas gravações usam tags. */
   categories: KnowledgeCategory[]
+  tags: KnowledgeTag[]
   pages: KnowledgePage[]
   /**
    * IDs de campanhas/páginas excluídas pelo site. Sem essa lápide, mesclar
@@ -149,12 +167,12 @@ export function createKnowledgeId(prefix: string): string {
 }
 
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
-  return { version: 2, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], pages: [], deletedIds: [], updatedAt: 0 }
+  return { version: 3, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
   const now = Date.now()
-  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], storyIds: [], createdAt: now, updatedAt: now, accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "" }
+  return { id: createKnowledgeId("campaign"), title, description: "", tags: [], storyIds: [], worldPageIds: [], createdAt: now, updatedAt: now, accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "" }
 }
 
 export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgePageKind, campaignId: string | null): KnowledgePage {
@@ -182,7 +200,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     const record = item as CampaignRecord
     if (typeof record.id !== "string" || deleted.has(record.id)) return []
     const now = Date.now()
-    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), storyIds: strings(record.storyIds), createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
+    return [{ id: record.id, title: typeof record.title === "string" ? record.title : "Campanha sem nome", description: typeof record.description === "string" ? record.description : "", tags: strings(record.tags), storyIds: strings(record.storyIds), worldPageIds: strings(record.worldPageIds), organizer: record.organizer && typeof record.organizer === "object" ? record.organizer as CampaignRecord["organizer"] : undefined, createdAt: Number.isFinite(record.createdAt) ? record.createdAt : now, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : now, accentColor: typeof record.accentColor === "string" ? record.accentColor : "", backgroundColor: typeof record.backgroundColor === "string" ? record.backgroundColor : "", textColor: typeof record.textColor === "string" ? record.textColor : "", buttonColor: typeof record.buttonColor === "string" ? record.buttonColor : "", boxColor: typeof record.boxColor === "string" ? record.boxColor : "", imageBlur: typeof record.imageBlur === "number" && Number.isFinite(record.imageBlur) ? Math.min(24, Math.max(0, record.imageBlur)) : 8, backgroundImageDataUrl: typeof record.backgroundImageDataUrl === "string" ? record.backgroundImageDataUrl : "" }]
   }) : []
   const categories = Array.isArray(candidate.categories) ? candidate.categories.flatMap((item) => {
     if (!item || typeof item !== "object") return []
@@ -191,7 +209,19 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     return [{ id: category.id, scope: category.scope === "campaign" ? "campaign" as const : "wiki" as const, campaignId: typeof category.campaignId === "string" ? category.campaignId : null, name: category.name, parentId: typeof category.parentId === "string" ? category.parentId : null }]
   }) : []
   const validStatuses = new Set<string>(CAMPAIGN_STATUSES)
-  const pages = Array.isArray(candidate.pages) ? candidate.pages.flatMap((item) => {
+  const categoryById = new Map(categories.map((category) => [category.id, category]))
+  const tagsByName = new Map<string, KnowledgeTag>()
+  const normalized = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")
+  const ensureTag = (name: string, pinnedIn: string[] = []) => {
+    const key = normalized(name)
+    if (!key) return
+    const current = tagsByName.get(key)
+    if (current) { current.pinnedIn = [...new Set([...current.pinnedIn, ...pinnedIn])]; return }
+    tagsByName.set(key, { id: createKnowledgeId("tag"), name: name.trim(), icon: "Tag", color: "#87909b", pinnedIn: [...new Set(pinnedIn)] })
+  }
+  const inputTags = Array.isArray(candidate.tags) ? candidate.tags : []
+  inputTags.forEach((item) => { if (item && typeof item === "object" && typeof (item as KnowledgeTag).name === "string") { const tag = item as KnowledgeTag; tagsByName.set(normalized(tag.name), { id: tag.id, name: tag.name, icon: tag.icon || "Tag", color: tag.color || "#87909b", pinnedIn: strings(tag.pinnedIn) }) } })
+  const pages: KnowledgePage[] = Array.isArray(candidate.pages) ? candidate.pages.flatMap((item) => {
     if (!item || typeof item !== "object") return []
     const page = item as KnowledgePage
     if (typeof page.id !== "string" || typeof page.kind !== "string" || deleted.has(page.id)) return []
@@ -201,7 +231,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       campaignId: typeof page.campaignId === "string" ? page.campaignId : null, kind: page.kind,
       title: typeof page.title === "string" ? page.title : "Página sem nome", summary: typeof page.summary === "string" ? page.summary : "",
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
-      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
+      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), eraStartYear: fictionalYear(page.eraStartYear), eraEndYear: fictionalYear(page.eraEndYear), eraCalendar: typeof page.eraCalendar === "string" ? page.eraCalendar : "C.E.", icon: typeof page.icon === "string" ? page.icon : "Clock", order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       storyEventIds: [...new Set(strings(page.storyEventIds))], storyViewMode: page.storyViewMode === "chronology" ? "chronology" as const : "tale" as const,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
@@ -213,7 +243,32 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       createdAt: Number.isFinite(page.createdAt) ? page.createdAt : now, updatedAt: Number.isFinite(page.updatedAt) ? page.updatedAt : now,
     }]
   }) : []
-  return { version: 2, eras: normalizeUniverseEras(candidate.eras), campaigns, categories, pages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+  for (const page of pages) {
+    const legacyNames = page.categoryIds.flatMap((id) => { const category = categoryById.get(id); return category ? [category.name] : [] })
+    const migratedKind = page.kind === "fauna" || page.kind === "monsters" ? "creatures" : page.kind === "session-note" ? "gm-note" : page.kind
+    if (page.kind === "fauna") legacyNames.push("Fauna")
+    if (page.kind === "monsters") legacyNames.push("Monstros")
+    if (page.kind === "session-note") legacyNames.push("Sessões")
+    for (const name of [...page.tags, ...legacyNames]) ensureTag(name, page.scope === "campaign" ? ["campaign-notes"] : [migratedKind])
+    page.tags = [...new Set([...page.tags, ...legacyNames])]
+    page.kind = migratedKind as KnowledgePageKind
+    if (page.scope === "wiki" && page.kind === "chronology" && !page.eraStartYear && !page.eraEndYear) page.kind = "event"
+  }
+  const eras = normalizeUniverseEras(candidate.eras)
+  // Snapshots vazios (ou novos) não ganham automaticamente as dez eras do
+  // documento. A criação das páginas de era é uma migração explícita de um
+  // workspace v2 que realmente carregava `eras`.
+  if ((candidate.version ?? 2) < 3 && Array.isArray(candidate.eras)) {
+    for (const era of eras) {
+      const id = `era-${era.id}`
+      if (!pages.some((page) => page.id === id)) pages.push({ ...createKnowledgePage("wiki", "chronology", null), id, title: era.name, summary: era.note, icon: "Clock", accentColor: "", eraStartYear: era.startYear, eraEndYear: era.endYear, eraCalendar: era.calendar, tags: [era.name], createdAt: Date.now(), updatedAt: Date.now() } as KnowledgePage)
+      ensureTag(era.name, ["chronology"])
+    }
+  }
+  const eraPages = pages.filter((page) => page.scope === "wiki" && page.kind === "chronology" && (page.eraStartYear != null || page.eraEndYear != null))
+  for (const era of eraPages) ensureTag(era.title, ["chronology"])
+  const taggedPages = withEraTags(pages, eraPages)
+  return { version: 3, eras, campaigns, categories, tags: [...tagsByName.values()], pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
 }
 
 export function parseList(value: string): string[] {
@@ -244,10 +299,11 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
     return [...merged.values()]
   }
   return {
-    version: 2,
+    version: 3,
     eras: normalizeUniverseEras(remote.updatedAt >= local.updatedAt ? remote.eras ?? local.eras : local.eras ?? remote.eras),
     campaigns: mergeById(local.campaigns, remote.campaigns),
     categories: mergeById(local.categories, remote.categories),
+    tags: mergeById(local.tags, remote.tags),
     pages: mergeById(local.pages, remote.pages),
     deletedIds: [...deletedIds],
     updatedAt: Math.max(local.updatedAt, remote.updatedAt),
@@ -274,10 +330,11 @@ export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unkn
     return [...kept, ...localItems.filter((item) => !backupIds.has(item.id))]
   }
   return {
-    version: 2,
+    version: 3,
     eras: normalizeUniverseEras(backup.eras ?? local.eras),
     campaigns: mergeById(local.campaigns, backup.campaigns),
     categories: mergeById(local.categories, backup.categories),
+    tags: mergeById(local.tags, backup.tags),
     pages: mergeById(local.pages, backup.pages),
     deletedIds: local.deletedIds,
     updatedAt: Date.now(),

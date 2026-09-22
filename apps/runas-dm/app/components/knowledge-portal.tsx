@@ -66,7 +66,7 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 export function KnowledgePortal({ area }: { area: PortalArea }) {
-  const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 2, campaigns: [], categories: [], pages: [], deletedIds: [], updatedAt: 0 }))
+  const [state, setState] = useState<KnowledgeWorkspaceState>(() => ({ version: 3, campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }))
   const [syncState, setSyncState] = useState<SyncState>("loading")
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
   const [cloudBackupRequest, setCloudBackupRequest] = useState(0)
@@ -647,3 +647,4 @@ function PageGrid({ pages, allPages, categories, eras, onOpen, onCreate }: { pag
     </button>
   })}</div>
 }
+

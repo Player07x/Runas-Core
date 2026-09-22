@@ -12,12 +12,12 @@ const GRAPH_GROUPS: Array<{ id: KnowledgePageKind; label: string; color: string 
   { id: "chronology", label: "Cronologia", color: "#f06f78" },
   { id: "geography", label: "Geografia", color: "#58a667" },
   { id: "characters", label: "Personagens", color: "#ff244d" },
-  { id: "fauna", label: "Fauna", color: "#35aaa5" },
-  { id: "monsters", label: "Monstros", color: "#d94343" },
+  { id: "creatures", label: "Criaturas", color: "#35aaa5" },
   { id: "items", label: "Itens", color: "#f2aa17" },
+  { id: "organizations", label: "Organizações", color: "#8d79d6" },
   { id: "mission", label: "Missões", color: "#ad95c6" },
   { id: "event", label: "Eventos", color: "#e4b368" },
-  { id: "gm-note", label: "Notas do mestre", color: "#68babb" },
+  { id: "gm-note", label: "Notas", color: "#68babb" },
 ]
 
 const GROUP_BY_KIND = new Map<KnowledgePageKind, (typeof GRAPH_GROUPS)[number]>(GRAPH_GROUPS.map((group) => [group.id, group]))
@@ -147,6 +147,8 @@ function forceLayout(nodes: KnowledgeGraphNode[], edges: KnowledgeGraphEdge[]): 
 }
 
 export function buildKnowledgeGraph(pages: KnowledgePage[]): { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] } {
+  const known = new Set([...GRAPH_GROUPS.map((group) => group.id), "story", "event", "encounter"])
+  pages = pages.filter((page) => known.has(page.kind))
   const edges = linksForPages(pages)
   const degree = new Map<string, number>()
   for (const edge of edges) {

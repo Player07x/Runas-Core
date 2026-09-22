@@ -125,10 +125,13 @@ export function isIgnoredVaultPath(path: string): boolean {
   return ignoredIndex >= 0 && (sectionIndex < 0 || ignoredIndex < sectionIndex)
 }
 
-function isSynchronizableVaultPath(path: string): boolean {
+export function isSynchronizableVaultPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
-  const isCampaignRoot = normalizedLabel(parts[0] ?? "") === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
-  return isCampaignRoot || !isIgnoredVaultPath(path)
+  const root = normalizedLabel(parts[0] ?? "")
+  const allowedWiki = root === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === root)
+  const allowedCampaign = root === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
+  if (!allowedWiki && !allowedCampaign) return false
+  return !isIgnoredVaultPath(path)
 }
 
 function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: KnowledgePageKind): KnowledgePageKind {
@@ -311,7 +314,6 @@ export function htmlToMarkdown(value: string): string {
 export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceState): string {
   if (page.obsidianSourceMarkdown && page.obsidianFingerprint === pageObsidianFingerprint(page, state)) return page.obsidianSourceMarkdown
   const campaign = campaignFor(page, state.campaigns)
-  const categories = state.categories.filter((category) => page.categoryIds.includes(category.id)).map((category) => category.name)
   const linked = state.pages.filter((candidate) => page.linkedPageIds.includes(candidate.id)).map((candidate) => candidate.title)
   const frontmatter = [
     "---", "runas: true", `runas_id: ${yaml(page.id)}`, `runas_scope: ${yaml(page.scope)}`, `runas_kind: ${yaml(page.kind)}`,
@@ -319,7 +321,7 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     `tipo: ${yaml(kindLabel(page))}`, `status: ${yaml(page.status)}`,
     page.date ? `data: ${yaml(page.date)}` : "", page.date ? `Data: ${yaml(page.date)}` : "", campaign ? `campanha: ${yaml(campaign.title)}` : "",
     campaign ? `runas_campaign_id: ${yaml(campaign.id)}` : "",
-    `tags: [${page.tags.map(yaml).join(", ")}]`, `categorias: [${categories.map(yaml).join(", ")}]`,
+    `tags: [${page.tags.map(yaml).join(", ")}]`,
     `runas_linked_ids: [${page.linkedPageIds.map(yaml).join(", ")}]`,
     page.order ? `ordem: ${yaml(page.order)}` : "",
     page.eraId ? `runas_era: ${yaml(page.eraId)}` : "",
@@ -347,7 +349,11 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
 export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspaceState, rootFolder = ""): string {
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
   const filename = `${filePart(page.title, "Página sem nome")}.md`
-  if (page.scope === "campaign") return pathInsideRoot(filename, rootFolder)
+  if (page.scope === "campaign") {
+    const campaignFolder = folderPart(campaignFor(page, state.campaigns)?.title ?? "", "Sem campanha")
+    const folder = page.kind === "mission" || page.kind === "event" ? "Eventos e Missões" : page.kind === "encounter" ? "Encontros" : "Anotações"
+    return pathInsideRoot(joinVaultPath(CAMPAIGN_VAULT_FOLDER, campaignFolder, folder, filename), rootFolder)
+  }
   // Um evento da Wiki pertence a uma história e mora na pasta dela.
   if (page.kind === "event") return pathInsideRoot(joinVaultPath(STORY_VAULT_FOLDER, storyFolderOf(page, state), filename), rootFolder)
   const section = WIKI_SECTIONS.find((candidate) => candidate.id === page.kind)?.label ?? "Cronologia"
@@ -593,6 +599,10 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
   const importedPages: { pageId: string; markdown: string }[] = []
   let imported = 0
   for (const note of notes) {
+    // A lista de permissão é deliberada: notas de outros universos, arquivos
+    // soltos na raiz e conteúdo do Runas Book jamais entram no workspace,
+    // mesmo que tragam um `runas_id` antigo.
+    if (!isSynchronizableVaultPath(note.path)) continue
     const parsed = parseMarkdownFrontmatter(note.markdown)
     const noteFrontmatter = { ...parsed.frontmatter, ...(note.frontmatter ?? {}) }
     if (noteFrontmatter.runas_system === true) continue

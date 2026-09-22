@@ -119,3 +119,29 @@ export function normalizeUniverseEras(value: unknown): UniverseEra[] {
     return record ? { ...era, name: typeof record.name === "string" && record.name.trim() ? record.name : era.name, startYear: fictionalYear(record.startYear), endYear: fictionalYear(record.endYear), calendar: typeof record.calendar === "string" && record.calendar.trim() ? record.calendar : era.calendar } : { ...era }
   })
 }
+
+/**
+ * Retorna todas as páginas de era cujo intervalo contém o ano. Diferente de
+ * `eraForYear`, esta função não escolhe uma era vencedora: intervalos
+ * sobrepostos marcam o acontecimento com todas as eras correspondentes.
+ */
+export function erasForYear<T extends { eraStartYear?: number | null; eraEndYear?: number | null }>(year: number | null | undefined, eraPages: T[]): T[] {
+  if (year == null) return []
+  return eraPages.filter((era) => {
+    if (era.eraStartYear == null && era.eraEndYear == null) return false
+    if (era.eraStartYear != null && year < era.eraStartYear) return false
+    if (era.eraEndYear != null && year > era.eraEndYear) return false
+    return true
+  })
+}
+
+/** Recalcula somente as tags de era dos acontecimentos da Wiki. */
+export function withEraTags<T extends { scope: string; kind: string; eventYear?: number | null; tags: string[] }>(pages: T[], eraPages: Array<T & { id: string; title: string; eraStartYear?: number | null; eraEndYear?: number | null }>): T[] {
+  const eraNames = new Set(eraPages.map((era) => era.title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")))
+  return pages.map((page) => {
+    if (page.scope !== "wiki" || page.kind !== "event") return page
+    const retained = page.tags.filter((tag) => !eraNames.has(tag.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")))
+    const matches = erasForYear(page.eventYear, eraPages).map((era) => era.title)
+    return { ...page, tags: [...new Set([...retained, ...matches])] }
+  })
+}
