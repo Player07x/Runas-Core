@@ -120,7 +120,14 @@ function vaultPathIdentity(path: string): string {
 export function isIgnoredVaultPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
   const rootLabel = normalizedLabel(parts[0] ?? "")
-  const sectionIndex = rootLabel === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === rootLabel) ? 0 : -1
+  // `Campanhas` entra aqui junto das seções da Wiki. Ela está em
+  // `IGNORED_VAULT_FOLDERS` por herança: a lista nasceu para a importação da
+  // Wiki, quando as campanhas chegavam por outro caminho. Com a lista de
+  // permissão (plano v3, §5.1), `Campanhas/<Campanha>/…` é a casa oficial das
+  // notas de campanha — deixá-la na exclusão descartava todas elas.
+  const sectionIndex = rootLabel === "cronologia geral"
+    || rootLabel === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
+    || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === rootLabel) ? 0 : -1
   const ignoredIndex = parts.findIndex((part) => IGNORED_VAULT_FOLDERS.some((folder) => normalizedLabel(folder) === normalizedLabel(part)))
   return ignoredIndex >= 0 && (sectionIndex < 0 || ignoredIndex < sectionIndex)
 }
@@ -132,6 +139,18 @@ export function isSynchronizableVaultPath(path: string): boolean {
   const allowedCampaign = root === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
   if (!allowedWiki && !allowedCampaign) return false
   return !isIgnoredVaultPath(path)
+}
+
+/**
+ * Páginas já rastreadas cujo `.md` está fora das pastas permitidas — tipicamente
+ * notas de outro universo que a importação antiga trouxe para a Wiki.
+ *
+ * Elas não são removidas pela sincronização (plano v3, §5.1.5): a limpeza é uma
+ * ação explícita do mestre, tira o registro do site e nunca toca no arquivo do
+ * vault.
+ */
+export function pagesOutsideAllowedFolders(state: KnowledgeWorkspaceState): KnowledgePage[] {
+  return state.pages.filter((page) => Boolean(page.obsidianPath) && !isSynchronizableVaultPath(page.obsidianPath as string))
 }
 
 function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: KnowledgePageKind): KnowledgePageKind {
@@ -585,7 +604,11 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
 
 export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: VaultNote[]): { state: KnowledgeWorkspaceState; imported: number } {
   const state = normalizeKnowledgeWorkspace(structuredClone(localState))
-  state.pages = state.pages.filter((page) => !page.obsidianPath || isSynchronizableVaultPath(page.obsidianPath))
+  // Uma página já rastreada fora das pastas permitidas **não** é descartada
+  // aqui: o plano v3 (§5.1.5) manda listá-la e deixar a remoção explícita, com
+  // `pagesOutsideAllowedFolders`. Apagar em silêncio levava junto o que só
+  // precisava ser remanejado — uma página de campanha gravada na raiz do vault
+  // antes da reorganização sumia antes de a própria sincronização movê-la.
   // Uma sincronização anterior a esta correção pode ter rastreado a nota-hub
   // como página. Precisa ser removida aqui, e não só quando a nota é lida de
   // novo, pois o arquivo já pode ter sido apagado direto pelo Obsidian --

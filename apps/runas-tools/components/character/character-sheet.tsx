@@ -29,6 +29,7 @@ import { calculateEquippedArmorDefense, calculateInventoryLoad } from "@runas/co
 import { useCharacter } from "./character-provider"
 import { CharacterActions } from "./character-actions"
 import { SaveIndicator } from "./save-indicator"
+import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
 const CharacterInfo = dynamic(() => import("./character-info").then((module) => module.CharacterInfo))
 const CharacterStats = dynamic(() => import("./character-stats").then((module) => module.CharacterStats))
@@ -184,9 +185,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
           return
         }
 
-        const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `skill-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+        const id = createPrefixedId("skill-import")
         skills.push({
           id,
           name: canonicalName,
@@ -236,9 +235,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
           bonds[existingIndex] = { ...bonds[existingIndex], points: imported.points }
           return
         }
-        const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `bond-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+        const id = createPrefixedId("bond-import")
         bonds.push({ id, category: "", name: imported.name, points: imported.points, modifier: 0 })
       })
       return { ...prev, bonds }
@@ -282,9 +279,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
           abilities[existingIndex] = { ...abilities[existingIndex], ...imported }
           return
         }
-        const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `ability-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+        const id = createPrefixedId("ability-import")
         abilities.push({ id, ...imported })
       })
       const snapshot = calculateCharacterStatSnapshot(prev.attributes, prev.info, prev.stats, prev.skills, abilities)
@@ -341,13 +336,13 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
 
   /** Cria o registro pedido pelo painel de anexos do item e devolve o `id`. */
   function createAbilityForItem(ability: ImportedAbility): string {
-    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ability-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const id = createPrefixedId("ability")
     addAbility({ id, ...ability })
     return id
   }
 
   function createSpellForItem(spell: ImportedSpell): string {
-    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `spell-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const id = createPrefixedId("spell")
     addSpell({ id, ...spell })
     return id
   }
@@ -364,9 +359,7 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
           spells[existingIndex] = { ...spells[existingIndex], ...imported }
           return
         }
-        const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `spell-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+        const id = createPrefixedId("spell-import")
         spells.push({ id, ...imported })
       })
       const snapshot = calculateCharacterStatSnapshot(prev.attributes, prev.info, prev.stats, prev.skills, prev.abilities)
@@ -433,19 +426,19 @@ export function CharacterSheet({ activeTab, onActiveTabChange }: CharacterSheetP
         const spellIds = item.spells.map((imported, spellIndex) => {
           const existing = spells.find((spell) => normalizeSkillName(spell.name) === normalizeSkillName(imported.name))
           if (existing) return existing.id
-          const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `spell-import-${Date.now()}-${index}-${spellIndex}-${Math.random().toString(36).slice(2, 7)}`
+          const id = createPrefixedId("spell-import")
           spells.push({ id, ...imported })
           return id
         })
         const abilityIds = item.abilities.map((imported, abilityIndex) => {
           const existing = abilities.find((ability) => normalizeSkillName(ability.name) === normalizeSkillName(imported.name))
           if (existing) return existing.id
-          const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ability-import-${Date.now()}-${index}-${abilityIndex}-${Math.random().toString(36).slice(2, 7)}`
+          const id = createPrefixedId("ability-import")
           abilities.push({ id, ...imported })
           return id
         })
         return {
-          id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `item-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+          id: createPrefixedId("item-import"),
           usage,
           name: item.name,
           type: item.type,

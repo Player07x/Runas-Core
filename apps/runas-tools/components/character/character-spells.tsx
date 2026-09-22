@@ -11,6 +11,7 @@ import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { exportSpellList, parseSpellListFile, type ImportedSpell } from "@/lib/spellTransfer"
 import { useCharacterPanel } from "@/components/character/character-panel"
 import { CharacterElements } from "@/components/character/character-elements"
+import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -78,9 +79,7 @@ function categoryKey(value: string): string {
 }
 
 function createSpell(): CharacterSpell {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `spell-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const id = createPrefixedId("spell")
   return {
     id,
     category: "",
@@ -233,7 +232,7 @@ export function CharacterSpells({ variant = "runas-blue", characterName, spells,
   function rollTestSource(sourceId: string) {
     close()
     const parameter = sourceId.startsWith("fusion:") || elements.some((element) => element.id === sourceId) ? "element" : "skill"
-    router.push(`/calculadora-testes?${parameter}=${encodeURIComponent(sourceId)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
+    router.push(`/calculadora-testes?${parameter}=${encodeURIComponent(sourceId)}&roll=${encodeURIComponent(createId())}`)
   }
 
   function completeAction(spell: CharacterSpell, amount: number, shouldCast: boolean) {

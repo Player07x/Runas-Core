@@ -61,6 +61,15 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 
 ## Wiki: História
 
+**Pastas permitidas do vault.** A sincronização com o Obsidian usa lista de
+permissão: só entram notas cuja pasta raiz seja uma das sete categorias da
+Wiki (ou o alias `Cronologia Geral`) ou `Campanhas`. Nota solta na raiz, pasta
+de outro universo e `Runas-Book/` nunca viram página, mesmo com `runas_id` no
+frontmatter. Uma página já rastreada fora dessas pastas **não** é apagada em
+silêncio: `pagesOutsideAllowedFolders` a lista para remoção explícita, que tira
+o registro do site e nunca toca no `.md`.
+
+
 - `História` é uma seção da Wiki, ao lado de Cronologia. Uma página de História não é escrita como texto: ela é a sequência ordenada dos seus **acontecimentos**.
 - O nome é `Acontecimento`, e não `Evento`, para não se confundir com os Eventos de campanha. Um acontecimento já ocorreu, então não tem status (`Concluída`, `Em Progresso`).
 - Um acontecimento é o mesmo registro `KnowledgePage` usado nas campanhas (`kind: "event"`), com escopo `wiki`. Ele é criado, editado, movido (`^`/`v`) e excluído dentro da própria página de História.

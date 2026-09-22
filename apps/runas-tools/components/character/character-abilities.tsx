@@ -7,6 +7,7 @@ import { Bolt, ChevronDown, Download, Eye, EyeOff, ListFilter, Plus, Save, Trash
 import type { AbilityCostType, CharacterAbility, CharacterStats } from "@runas/core/types/character"
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { exportAbilityList, parseAbilityListFile, type ImportedAbility } from "@/lib/abilityTransfer"
+import { createPrefixedId } from "@runas/core/lib/ids"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -69,9 +70,7 @@ function loadFilters(): AbilityFilters {
 }
 
 function createAbility(): CharacterAbility {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `ability-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const id = createPrefixedId("ability")
   return {
     id,
     category: "",

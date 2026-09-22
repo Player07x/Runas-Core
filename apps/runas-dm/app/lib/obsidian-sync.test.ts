@@ -38,8 +38,10 @@ describe("Obsidian export", () => {
     updatedAt: 1,
   })
 
-  it("gera caminhos relativos ao vault", () => {
-    expect(obsidianPathForPage(state.pages[0], state, "Ordem x Caos")).toBe("Ordem x Caos/Portoes do Norte.md")
+  it("gera caminhos relativos ao vault, sempre dentro da pasta da campanha", () => {
+    // A exportação nunca grava página de campanha na raiz do vault (plano v3, §5.1.4).
+    expect(obsidianPathForPage(state.pages[0], state, "Ordem x Caos")).toBe("Ordem x Caos/Campanhas/A Queda de Zotera/Eventos e Missões/Portoes do Norte.md")
+    expect(obsidianPathForPage(state.pages[0], state, "")).toBe("Campanhas/A Queda de Zotera/Eventos e Missões/Portoes do Norte.md")
   })
 
   it("organiza páginas da wiki por seção e categoria primária", () => {
@@ -55,7 +57,9 @@ describe("Obsidian export", () => {
   it("preserva metadados, vínculos e fichas do encontro no Markdown", () => {
     const markdown = pageToMarkdown(state.pages[0] as KnowledgePage, state)
     expect(markdown).toContain('status: "Em Progresso"')
-    expect(markdown).toContain('categorias: ["Capítulo Um"]')
+    // A categoria virou tag na v3: `categorias:` ainda é lido, mas nunca escrito.
+    expect(markdown).toContain('tags: ["Zotera", "Capítulo Um"]')
+    expect(markdown).not.toContain("categorias:")
     expect(markdown).toContain("[[Zotera]]")
     expect(markdown).toContain("3× Lobo Rúnico")
   })
@@ -86,13 +90,25 @@ describe("Obsidian export", () => {
     expect(markdown).toContain("3× Lobo Rúnico")
   })
 
-  it("importa Markdown comum do vault sem alterar o conteúdo nem o caminho", () => {
+  it("importa Markdown comum de uma pasta permitida sem alterar o conteúdo nem o caminho", () => {
     const markdown = "# Castelo de Zotera\n\nUm arquivo antigo que precisa continuar intacto.\n\nVeja [[Portões do Norte]].\n"
-    const merged = mergeObsidianNotes(state, [{ path: "Lore/Castelo de Zotera.md", markdown, createdAt: 5, modifiedAt: 10 }])
+    const merged = mergeObsidianNotes(state, [{ path: "Geografia/Castelo de Zotera.md", markdown, createdAt: 5, modifiedAt: 10 }])
     const page = merged.state.pages.find((candidate) => candidate.title === "Castelo de Zotera")
-    expect(page).toMatchObject({ scope: "wiki", kind: "chronology", obsidianPath: "Lore/Castelo de Zotera.md", obsidianSourceMarkdown: markdown })
+    expect(page).toMatchObject({ scope: "wiki", kind: "geography", obsidianPath: "Geografia/Castelo de Zotera.md", obsidianSourceMarkdown: markdown })
     expect(page?.linkedPageIds).toContain("page-1")
     expect(pageToMarkdown(page!, merged.state)).toBe(markdown)
+  })
+
+  /** Lista de permissão do plano v3 (§5.1): fora das sete categorias e de `Campanhas`, nada entra. */
+  it("não importa nota de pasta desconhecida nem arquivo solto na raiz, mesmo com runas_id", () => {
+    const comId = '---\nrunas: true\nrunas_id: "page-1"\n---\n# Contaminada\n\nVeio de outro universo.\n'
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Sagas de Cronos/Heroi.md", markdown: "# Heroi\n", createdAt: 1, modifiedAt: 1 },
+      { path: "Nota solta.md", markdown: "# Nota solta\n", createdAt: 1, modifiedAt: 1 },
+      { path: "Runas-Book/Personagens/Martim.md", markdown: comId, createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.pages).toHaveLength(0)
+    expect(merged.imported).toBe(0)
   })
 
   it("deduz seção e categoria pelas pastas padronizadas", () => {
@@ -144,7 +160,8 @@ describe("Obsidian export", () => {
   })
 
   it("ignora áreas particulares sem confundir categorias da wiki", () => {
-    expect(isIgnoredVaultPath("Campanhas/Anotações/Sessão.md")).toBe(true)
+    // `Campanhas` saiu da exclusão na v3: é a pasta raiz oficial das campanhas.
+    expect(isIgnoredVaultPath("Campanhas/Anotações/Sessão.md")).toBe(false)
     expect(isIgnoredVaultPath("Ordem x Caos/Templates/Modelo.md")).toBe(true)
     expect(isIgnoredVaultPath("Geografia/Campanhas/Cidade.md")).toBe(false)
   })
@@ -164,7 +181,7 @@ describe("Obsidian export", () => {
     expect(blob.size).toBeGreaterThan(0)
   })
 
-  it("lê antes de gravar, cria páginas na raiz e preserva colisões", async () => {
+  it("nunca grava na raiz do vault e deixa intacta a nota solta que já estava lá", async () => {
     const files = new Map<string, string>([["Portoes do Norte.md", "# Documento pessoal\n\nNão substituir sem cópia.\n"]])
     const adapter: VaultAdapter = {
       listMarkdownFiles: async () => [...files.keys()].filter((path) => path.endsWith(".md")),
@@ -173,9 +190,11 @@ describe("Obsidian export", () => {
       writeBinary: async () => undefined,
     }
     const result = await synchronizeWorkspaceWithVault(state, adapter)
+    // A nota solta na raiz não é do Runas DM: continua intacta e não vira página.
     expect(files.get("Portoes do Norte.md")).toBe("# Documento pessoal\n\nNão substituir sem cópia.\n")
-    expect([...files.keys()]).toContain("Portoes do Norte (page-1).md")
-    expect(result.state.pages.some((page) => page.title === "Documento pessoal")).toBe(true)
+    expect(result.state.pages.some((page) => page.title === "Documento pessoal")).toBe(false)
+    // E a página de campanha vai para a pasta da campanha, nunca para a raiz.
+    expect([...files.keys()]).toContain("Campanhas/A Queda de Zotera/Eventos e Missões/Portoes do Norte.md")
   })
 
   it("apaga a nota do vault ao excluir a página, deixando uma cópia de segurança", async () => {
@@ -444,14 +463,14 @@ describe("Obsidian export", () => {
   it("prioriza a edição recém-salva pelo site sobre uma divergência antiga do vault", async () => {
     const local = structuredClone(state)
     const page = local.pages[0]
-    page.obsidianPath = "Portoes.md"
+    page.obsidianPath = "Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md"
     page.obsidianSourceMarkdown = "# Versão inicial\n"
     page.obsidianFingerprint = pageObsidianFingerprint(page, local)
     page.title = "Portões do Norte (revisado no site)"
     page.updatedAt = 100
-    const files = new Map<string, string>([["Portoes.md", "# Alteração feita no Obsidian\n"]])
+    const files = new Map<string, string>([["Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md", "# Alteração feita no Obsidian\n"]])
     const adapter: VaultAdapter = {
-      listMarkdownFiles: async () => ["Portoes.md"],
+      listMarkdownFiles: async () => ["Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md"],
       readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 50 }),
       writeText: async (path, content) => { files.set(path, content) },
       writeBinary: async () => undefined,
@@ -464,14 +483,14 @@ describe("Obsidian export", () => {
   it("cria backup e cópia de conflito quando site e vault mudaram", async () => {
     const local = structuredClone(state)
     const page = local.pages[0]
-    page.obsidianPath = "Portoes.md"
+    page.obsidianPath = "Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md"
     page.obsidianSourceMarkdown = "# Versão inicial\n"
     page.obsidianFingerprint = pageObsidianFingerprint(page, local)
     page.contentHtml = "<p>Alteração local importante.</p>"
     page.updatedAt = 100
-    const files = new Map<string, string>([["Portoes.md", "# Alteração feita no Obsidian\n"]])
+    const files = new Map<string, string>([["Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md", "# Alteração feita no Obsidian\n"]])
     const adapter: VaultAdapter = {
-      listMarkdownFiles: async () => ["Portoes.md"],
+      listMarkdownFiles: async () => ["Campanhas/A Queda de Zotera/Eventos e Missões/Portoes.md"],
       readNote: async (path) => ({ path, markdown: files.get(path)!, createdAt: 1, modifiedAt: 50 }),
       writeText: async (path, content) => { files.set(path, content) },
       writeBinary: async () => undefined,

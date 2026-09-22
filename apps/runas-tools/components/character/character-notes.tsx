@@ -6,6 +6,7 @@ import dynamic from "next/dynamic"
 import { Eye, EyeOff, ListFilter, Plus, Save, Trash2, X } from "lucide-react"
 import type { CharacterNote } from "@runas/core/types/character"
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
+import { createPrefixedId } from "@runas/core/lib/ids"
 
 const RichTextEditor = dynamic(
   () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
@@ -35,9 +36,7 @@ function today(): string {
 }
 
 function createNote(): CharacterNote {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const id = createPrefixedId("note")
   return { id, category: "", name: "Nova anotação", description: "", date: today() }
 }
 

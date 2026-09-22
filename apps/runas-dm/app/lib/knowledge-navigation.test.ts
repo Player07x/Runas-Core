@@ -53,7 +53,7 @@ describe("ordenação e cronologia", () => {
   })
   it("mantém ordem, era e ano em ida e volta pelo Obsidian", () => {
     const state = normalizeKnowledgeWorkspace({ campaigns: [{ id: "campaign", title: "Campanha" }], pages: [mission("1", { title: "Missão" }), mission("zero", { scope: "wiki", campaignId: null, kind: "chronology", title: "Marco zero", order: "", eraId: "monges", eventYear: 0 })] })
-    const notes = state.pages.map((page) => ({ path: page.scope === "wiki" ? "Cronologia/Marco zero.md" : "Missão.md", markdown: pageToMarkdown(page, state), createdAt: 1, modifiedAt: 30 }))
+    const notes = state.pages.map((page) => ({ path: page.scope === "wiki" ? "Cronologia/Marco zero.md" : "Campanhas/Campanha/Eventos e Missões/Missão.md", markdown: pageToMarkdown(page, state), createdAt: 1, modifiedAt: 30 }))
     const restored = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), notes).state
     expect(restored.pages.find((page) => page.id === "1")?.order).toBe("1")
     expect(restored.pages.find((page) => page.id === "zero")).toMatchObject({ eraId: "monges", eventYear: 0 })

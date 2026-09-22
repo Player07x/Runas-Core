@@ -49,6 +49,7 @@ import { exportInventoryList, parseInventoryListFile, type ImportedInventoryItem
 import type { ImportedAbility } from "@runas/core/lib/abilityTransfer"
 import type { ImportedSpell } from "@runas/core/lib/spellTransfer"
 import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
+import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
 interface Props {
   variant?: "runas-blue" | "cronos"
@@ -77,9 +78,7 @@ type ReferencePreview =
   | { type: "skill"; value: CharacterSkill }
 
 function createInventoryItem(): CharacterInventoryItem {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const id = createPrefixedId("item")
   return {
     id,
     usage: "stored",
@@ -303,14 +302,14 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
     const skill = skills.find((candidate) => candidate.id === skillId)
     if (!skill?.attributeKey) return
     close()
-    router.push(`/calculadora-testes?skill=${encodeURIComponent(skill.id)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
+    router.push(`/calculadora-testes?skill=${encodeURIComponent(skill.id)}&roll=${encodeURIComponent(createId())}`)
   }
 
   function rollBond(bondId: string) {
     const bond = bonds.find((candidate) => candidate.id === bondId)
     if (!bond) return
     close()
-    router.push(`/calculadora-testes?bond=${encodeURIComponent(bond.id)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
+    router.push(`/calculadora-testes?bond=${encodeURIComponent(bond.id)}&roll=${encodeURIComponent(createId())}`)
   }
 
   /**
@@ -322,7 +321,7 @@ export function CharacterInventory({ variant = "runas-blue", characterName, item
     if (!item.damage.trim()) return
     close()
     const expression = composeItemDamageExpression(item.damage, calculateItemDamageBonus(item, info.sizeModifier).total)
-    router.push(`/calculadora-dano?damage=${encodeURIComponent(expression)}&roll=${encodeURIComponent(crypto.randomUUID())}`)
+    router.push(`/calculadora-dano?damage=${encodeURIComponent(expression)}&roll=${encodeURIComponent(createId())}`)
   }
 
   function updateShieldPr(itemId: string, value: number | null) {

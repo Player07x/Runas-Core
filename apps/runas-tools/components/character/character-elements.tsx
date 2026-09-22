@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import type { CharacterAttributes, CharacterElementSkill } from "@runas/core/types/character"
 import { availableElementFusions, calculateElementTest, selectableElements } from "@runas/core/lib/elementSkills"
 import { FUSION_ID_PREFIX } from "@runas/core/lib/characterTestSources"
+import { createPrefixedId } from "@runas/core/lib/ids"
 
 /**
  * Elementos, no topo de Magias. É o recorte curto da perícia: nome, nível e
@@ -22,9 +23,7 @@ interface Props {
 }
 
 function newId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? `element-${crypto.randomUUID()}`
-    : `element-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  return createPrefixedId("element")
 }
 
 export function CharacterElements({ attributes, elements, onChange, onRoll }: Props) {

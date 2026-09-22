@@ -1,4 +1,5 @@
 import { fictionalYear, normalizeUniverseEras, withEraTags, type UniverseEra } from "./chronology"
+import { createId } from "@runas/core/lib/ids"
 
 export const CAMPAIGN_STATUSES = [
   "Sem Status",
@@ -163,7 +164,7 @@ export interface KnowledgeWorkspaceState {
 }
 
 export function createKnowledgeId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`
+  return `${prefix}-${createId()}`
 }
 
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {

@@ -49,6 +49,7 @@ import { BackupTokenDialog } from "./backup-token-dialog"
 import { RichTextEditor } from "./rich-text-editor"
 import { exportEncounterMarkdown, importEncounterMarkdown } from "../lib/encounter-notes"
 import { resourceLoss, useVttMesa } from "../lib/vtt-mesa"
+import { createId } from "@runas/core/lib/ids"
 
 type WorkspaceView = "gallery" | "encounter"
 type SaveStatus = "loading" | "saving" | "saved" | "error"
@@ -59,7 +60,7 @@ const secondaryAttributes: Array<{ key: SecondaryAttributeKey; label: string }> 
 )
 
 function id(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`
+  return `${prefix}-${createId()}`
 }
 
 function listFromText(value: string): string[] {
@@ -1056,7 +1057,7 @@ function SimpleItemDetails({ item, character, mutate }: { item: Character["inven
       const entry = draft.inventory.find((candidate) => candidate.id === item.id)
       if (!entry) return
       for (const record of records) {
-        const recordId = `${kind}-${crypto.randomUUID()}`
+        const recordId = `${kind}-${createId()}`
         if (kind === "ability") { draft.abilities.push({ id: recordId, ...(record as ImportedAbility) }); entry.abilityIds.push(recordId) }
         else { draft.spells.push({ id: recordId, ...(record as ImportedSpell) }); entry.spellIds.push(recordId) }
       }

@@ -10,6 +10,7 @@ import { parseBondImport, type ImportedBond } from "@/lib/bondImport"
 import { normalizeSkillName } from "@runas/core/lib/skillCalculations"
 import { SkillIntegerInput } from "@/components/skill-test/skill-integer-input"
 import { useCharacterPanel } from "./character-panel"
+import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
 interface Props {
   attributes: CharacterAttributes
@@ -172,15 +173,13 @@ export function CharacterBonds({ attributes, stats, bonds, onBondChange, onAddBo
   }
 
   function addBond() {
-    const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `bond-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const id = createPrefixedId("bond")
     onAddBond({ id, category: "", name: "Novo vínculo", points: 0, modifier: 0 })
   }
 
   function openBondCalculator(bond: CharacterBond) {
     close()
-    const rollToken = crypto.randomUUID()
+    const rollToken = createId()
     router.push(`/calculadora-testes?bond=${encodeURIComponent(bond.id)}&roll=${encodeURIComponent(rollToken)}`)
   }
 

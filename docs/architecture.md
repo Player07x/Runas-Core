@@ -1,5 +1,16 @@
 # Arquitetura
 
+## Identificadores
+
+Todo id de registro da suíte vem de `createId` / `createPrefixedId`
+(`@runas/core/lib/ids`). Nunca chame `crypto.randomUUID` direto: ela só existe
+em contexto seguro, e o Runas Tools também é servido pelo RunasVTT em
+`http://IP:porta` para o jogador da rede local, onde a função não existe —
+importar, salvar e criar ficha quebravam ali. O helper usa a implementação
+nativa quando há, cai para `crypto.getRandomValues` (disponível fora de
+contexto seguro) e ainda assim devolve um UUID v4 válido.
+
+
 ## Visão geral
 
 ```text

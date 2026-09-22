@@ -11,6 +11,7 @@ import { calculateAttributeTest, calculateSkillLevel, normalizeSkillName } from 
 import { parseSkillImport, type ImportedSkill } from "@/lib/skillImport"
 import { SkillIntegerInput } from "@/components/skill-test/skill-integer-input"
 import { useCharacterPanel } from "./character-panel"
+import { createId, createPrefixedId } from "@runas/core/lib/ids"
 
 interface Props {
   attributes: CharacterAttributes
@@ -154,14 +155,12 @@ export function CharacterSkills({ attributes, skills, onSkillChange, onAddSkill,
   function openSkillCalculator(skill: CharacterSkill) {
     if (!skill.attributeKey) return
     close()
-    const rollToken = crypto.randomUUID()
+    const rollToken = createId()
     router.push(`/calculadora-testes?skill=${encodeURIComponent(skill.id)}&roll=${encodeURIComponent(rollToken)}`)
   }
 
   function addSkill() {
-    const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `skill-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const id = createPrefixedId("skill")
     onAddSkill({ id, name: "Nova perícia", attributeKey: "", points: 0, modifier: 0, locked: false })
   }
 

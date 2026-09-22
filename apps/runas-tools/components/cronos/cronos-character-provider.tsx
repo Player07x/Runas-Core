@@ -6,6 +6,7 @@ import type { CronosCharacter, CronosCharacterGalleryEntry } from "@runas/cronos
 import { createEmptyCronosCharacter } from "@runas/cronos-core/lib/characterStorage"
 import { synchronizeCronosCharacter } from "@runas/cronos-core/lib/characterSynchronization"
 import { loadCronosCharacterDatabase, loadCronosCharacterGalleryDatabase, saveCronosCharacterDatabase, saveCronosCharacterGalleryDatabase } from "@/lib/cronosCharacterDatabase"
+import { createId } from "@runas/core/lib/ids"
 
 type SaveStatus = "idle" | "saving" | "saved"
 
@@ -45,7 +46,7 @@ export function CronosCharacterProvider({ children }: { children: React.ReactNod
       let entries = gallery.entries
       let activeId = gallery.activeId
       if (entries.length === 0 && stored) {
-        activeId = crypto.randomUUID()
+        activeId = createId()
         entries = [{ id: activeId, character: hydrated, updatedAt: Date.now() }]
       }
       setGalleryEntries(entries.map((entry) => entry.id === activeId ? { ...entry, character: hydrated } : entry))
@@ -89,7 +90,7 @@ export function CronosCharacterProvider({ children }: { children: React.ReactNod
 
   const createGalleryCharacter = useCallback(() => {
     if (galleryEntries.length >= 100) return false
-    const id = crypto.randomUUID()
+    const id = createId()
     const next = createEmptyCronosCharacter()
     setGalleryEntries((entries) => [...entries, { id, character: next, updatedAt: Date.now() }])
     setActiveGalleryId(id)
@@ -99,7 +100,7 @@ export function CronosCharacterProvider({ children }: { children: React.ReactNod
 
   const importGalleryCharacter = useCallback((imported: CronosCharacter) => {
     if (galleryEntries.length >= 100) return false
-    setGalleryEntries((entries) => [...entries, { id: crypto.randomUUID(), character: synchronizeCronosCharacter(imported), updatedAt: Date.now() }])
+    setGalleryEntries((entries) => [...entries, { id: createId(), character: synchronizeCronosCharacter(imported), updatedAt: Date.now() }])
     return true
   }, [galleryEntries.length])
 

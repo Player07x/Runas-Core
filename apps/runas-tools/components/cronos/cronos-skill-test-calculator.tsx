@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { NumberInput } from "@/components/ui/number-input"
 import { SelectField } from "@/components/ui/select-field"
 import { useCronosCharacter } from "./cronos-character-provider"
+import { createId } from "@runas/core/lib/ids"
 
 interface DiceResult {
   id: string
@@ -58,14 +59,14 @@ export function CronosSkillTestCalculator() {
   function roll() {
     if (luck) {
       const face: CoinResult["face"] = Math.random() < 0.5 ? "heads" : "tails"
-      setCoinHistory((history) => [{ id: crypto.randomUUID(), choice: coinChoice, face, success: face === coinChoice }, ...history].slice(0, 20))
+      setCoinHistory((history) => [{ id: createId(), choice: coinChoice, face, success: face === coinChoice }, ...history].slice(0, 20))
       return
     }
     const dice: [number, number] = [Math.floor(Math.random() * 10) + 1, Math.floor(Math.random() * 10) + 1]
     const total = dice[0] + dice[1]
     const margin = target - total
     const outcome = dice[0] === 1 && dice[1] === 1 ? "Sucesso Crítico" : dice[0] === 10 && dice[1] === 10 ? "Fracasso Crítico" : margin >= 0 ? "Sucesso" : "Fracasso"
-    setDiceHistory((history) => [{ id: crypto.randomUUID(), dice, total, target, margin, outcome }, ...history].slice(0, 20))
+    setDiceHistory((history) => [{ id: createId(), dice, total, target, margin, outcome }, ...history].slice(0, 20))
   }
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function CronosSkillTestCalculator() {
     const total = dice[0] + dice[1]
     const margin = requestedTarget - total
     const outcome = dice[0] === 1 && dice[1] === 1 ? "Sucesso Crítico" : dice[0] === 10 && dice[1] === 10 ? "Fracasso Crítico" : margin >= 0 ? "Sucesso" : "Fracasso"
-    setDiceHistory((history) => [{ id: crypto.randomUUID(), dice, total, target: requestedTarget, margin, outcome }, ...history].slice(0, 20))
+    setDiceHistory((history) => [{ id: createId(), dice, total, target: requestedTarget, margin, outcome }, ...history].slice(0, 20))
   }, [character.attributes, character.skills, isReady, searchParams])
 
   if (!isReady) return <section className="rounded-[24px] border border-border bg-card p-6 text-sm text-muted-foreground">Carregando dados da ficha de Cronos…</section>

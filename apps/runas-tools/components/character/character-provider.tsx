@@ -9,6 +9,7 @@ import { loadCharacterDatabase, loadCharacterGalleryDatabase, saveCharacterDatab
 import { GALLERY_MAX_CHARACTERS } from "@/lib/galleryLimits"
 import { characterFromVttToken, getRunasVtt, toVttCharacter } from "@runas/vtt-bridge"
 import { isRunasVttSeat } from "@/lib/vttBridge"
+import { createId } from "@runas/core/lib/ids"
 
 type SaveStatus = "idle" | "saving" | "saved"
 
@@ -63,7 +64,7 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
         let entries = gallery.entries
         let activeId = gallery.activeId
         if (entries.length === 0 && stored) {
-          activeId = crypto.randomUUID()
+          activeId = createId()
           entries = [{ id: activeId, character: stored, updatedAt: Date.now() }]
         }
         setStoredGalleryEntries(entries.map((entry) => entry.id === activeId && stored ? { ...entry, character: stored } : entry))
@@ -165,7 +166,7 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
 
   const saveCurrentToGallery = useCallback(() => {
     if (galleryEntries.length >= GALLERY_MAX_CHARACTERS) return false
-    const id = crypto.randomUUID()
+    const id = createId()
     setStoredGalleryEntries((current) => [...current, { id, character, updatedAt: Date.now() }])
     setActiveGalleryId(id)
     return true
@@ -173,7 +174,7 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
 
   const createGalleryCharacter = useCallback(() => {
     if (galleryEntries.length >= GALLERY_MAX_CHARACTERS) return false
-    const id = crypto.randomUUID()
+    const id = createId()
     const next = createEmptyCharacter()
     setStoredGalleryEntries((current) => [
       ...current.map((entry) => entry.id === activeGalleryId ? { ...entry, character, updatedAt: Date.now() } : entry),
@@ -186,7 +187,7 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
 
   const importGalleryCharacter = useCallback((imported: Character) => {
     if (galleryEntries.length >= GALLERY_MAX_CHARACTERS) return false
-    const id = crypto.randomUUID()
+    const id = createId()
     setStoredGalleryEntries((current) => [...current, { id, character: imported, updatedAt: Date.now() }])
     return true
   }, [galleryEntries.length])
@@ -197,7 +198,7 @@ export function CharacterProvider({ children }: { children: React.ReactNode }) {
     const updatedAt = Date.now()
     setStoredGalleryEntries((current) => [
       ...current,
-      ...accepted.map((nextCharacter) => ({ id: crypto.randomUUID(), character: nextCharacter, updatedAt })),
+      ...accepted.map((nextCharacter) => ({ id: createId(), character: nextCharacter, updatedAt })),
     ])
     return accepted.length
   }, [galleryEntries.length])

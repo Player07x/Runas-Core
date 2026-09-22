@@ -35,6 +35,7 @@ import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-atta
 import { RichTextEditor } from "./rich-text-editor"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { TokenEditorDialog } from "./token-editor-dialog"
+import { createId } from "@runas/core/lib/ids"
 
 type AdvancedTab = "information" | "statistics" | "skills" | "bonds" | "abilities" | "inventory" | "spells" | "notes"
 type UpdateCharacter = (mutator: (draft: Character) => void) => void
@@ -61,7 +62,7 @@ const rangeTypes = [
   { value: "targets", label: "Alvo(s)" }, { value: "area", label: "Área" },
 ]
 
-function uid(prefix: string) { return `${prefix}-${crypto.randomUUID()}` }
+function uid(prefix: string) { return `${prefix}-${createId()}` }
 const ITEM_EDITOR_MODE_KEY = "runas-dm:item-editor-mode"
 /** O modo escolhido acompanha o mestre entre itens e sessões. */
 function readItemEditorMode(): "simple" | "advanced" {

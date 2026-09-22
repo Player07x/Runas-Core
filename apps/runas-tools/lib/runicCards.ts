@@ -1,4 +1,5 @@
 import { characterElements } from "@runas/core/data/elements"
+import { createPrefixedId } from "@runas/core/lib/ids"
 
 export const RUNIC_CARD_SCHEMA = "runas-tools/runic-card" as const
 export const RUNIC_CARD_VERSION = 2 as const
@@ -63,7 +64,7 @@ const DEFAULT_RULES = "<p><strong>Habilidade.</strong></p><p>Descreva aqui o efe
 
 export function createEmptyRunicCard(kind: RunicCardKind = "troop"): RunicCard {
   return {
-    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `card-${Date.now()}`,
+    id: createPrefixedId("card"),
     kind,
     name: kind === "adventurer" ? "Novo Aventureiro" : "Nova Carta",
     type: runicCardKinds.find((entry) => entry.value === kind)?.label ?? "Carta",

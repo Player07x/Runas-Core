@@ -33,6 +33,7 @@ import type { ImportedInventoryItem } from "@/lib/inventoryTransfer"
 import type { ImportedSpell } from "@/lib/spellTransfer"
 import { useCronosCharacter } from "./cronos-character-provider"
 import { CharacterPortraitEditor } from "@/components/character/character-portrait-editor"
+import { createPrefixedId } from "@runas/core/lib/ids"
 
 interface Props {
   activeTab: CharacterTab
@@ -129,7 +130,7 @@ function adaptCronosToBlue(character: CronosCharacter): { info: CharacterInfo; a
 }
 
 function randomId(prefix: string): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return createPrefixedId(prefix)
 }
 
 function Section({ children, label }: { children: React.ReactNode; label: string }) {
