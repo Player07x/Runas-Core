@@ -501,3 +501,34 @@ describe("Obsidian export", () => {
     expect(result.state.pages.some((candidate) => candidate.title.includes("cópia local em conflito"))).toBe(true)
   })
 })
+
+/**
+ * Cronologia guarda eras e acontecimentos. A pasta vencia o frontmatter, e
+ * todo acontecimento gravado ali voltava como era.
+ */
+describe("era x acontecimento em Cronologia", () => {
+  it("subpasta Acontecimentos vale como acontecimento, mesmo sem tipo escrito", () => {
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Cronologia/Acontecimentos Regionais/Guerra de Lion Heart.md", markdown: "# Guerra de Lion Heart\n\nCaiu.\n", createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.pages.find((page) => page.title === "Guerra de Lion Heart")?.kind).toBe("event")
+  })
+
+  it("nota solta em Cronologia sem tipo é acontecimento, não era", () => {
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Cronologia/Calendário Logi.md", markdown: "# Calendário Logi\n\nComo se conta o tempo.\n", createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.pages.find((page) => page.title === "Calendário Logi")?.kind).toBe("event")
+  })
+
+  it("respeita o tipo escrito no arquivo, nos dois sentidos", () => {
+    const era = '---\nrunas: true\nrunas_id: "era-monges"\nrunas_kind: "chronology"\nrunas_title: "Era dos Monges"\n---\n# Era dos Monges\n'
+    const acontecimento = '---\nrunas: true\nrunas_id: "ev-1"\nrunas_kind: "event"\nrunas_title: "Guerra Rúnica"\n---\n# Guerra Rúnica\n'
+    const merged = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [
+      { path: "Cronologia/Era dos Monges.md", markdown: era, createdAt: 1, modifiedAt: 1 },
+      { path: "Cronologia/Guerra Rúnica.md", markdown: acontecimento, createdAt: 1, modifiedAt: 1 },
+    ])
+    expect(merged.state.pages.find((page) => page.id === "era-monges")?.kind).toBe("chronology")
+    expect(merged.state.pages.find((page) => page.id === "ev-1")?.kind).toBe("event")
+  })
+})

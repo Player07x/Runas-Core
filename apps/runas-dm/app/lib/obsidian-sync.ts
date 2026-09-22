@@ -161,6 +161,26 @@ function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: Kn
     ?? (scope === "wiki" ? "chronology" : "gm-note")
 }
 
+/**
+ * Cronologia guarda eras **e** acontecimentos, então a pasta sozinha não
+ * decide o tipo — e decidia: `location.kind` vencia o frontmatter, e todo
+ * acontecimento gravado ali voltava como era, inclusive os que traziam
+ * `runas_kind: "event"` escrito.
+ *
+ * A ordem passa a ser: subpasta `Acontecimento…` é sempre acontecimento;
+ * fora dela vale o tipo escrito no arquivo; e uma nota sem tipo nenhum é
+ * acontecimento, porque era nasce do próprio Runas DM e sempre sai com
+ * `runas_kind` preenchido.
+ */
+function chronologyKind(path: string, frontmatter: Record<string, unknown>): KnowledgePageKind {
+  const parts = normalizePath(path).split("/")
+  if (normalizedLabel(parts[1] ?? "").startsWith("acontecimento")) return "event"
+  const declared = normalizedLabel(text(frontmatter.runas_kind ?? frontmatter.tipo))
+  if (declared === "event" || declared === "acontecimento" || declared === "evento") return "event"
+  if (declared === "chronology" || declared === "cronologia" || declared === "era") return "chronology"
+  return "event"
+}
+
 function wikiLocation(path: string): { kind: KnowledgePageKind; category: string } | null {
   const parts = normalizePath(path).split("/")
   const rootLabel = normalizedLabel(parts[0] ?? "")
@@ -568,7 +588,9 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
   const title = text(frontmatter.runas_title) || text(frontmatter.title) || titleFromMarkdown(parsed.body, note.path)
   const summary = text(frontmatter.runas_summary) || text(frontmatter.Resumo) || text(frontmatter.resumo)
   const content = contentMarkdown(parsed.body, title, summary)
-  const kind = location?.kind ?? kindFromValue(frontmatter.runas_kind ?? frontmatter.tipo, scope)
+  const kind = location?.kind === "chronology"
+    ? chronologyKind(note.path, frontmatter)
+    : location?.kind ?? kindFromValue(frontmatter.runas_kind ?? frontmatter.tipo, scope)
   const page: KnowledgePage = {
     id: text(frontmatter.runas_id) || fallback?.id || createKnowledgeId("page"),
     scope,
