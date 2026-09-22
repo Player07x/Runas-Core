@@ -547,25 +547,32 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   function saveTag(values: Pick<KnowledgeTag, "name" | "icon" | "color">) {
     if (!tagEditor || !values.name.trim()) return
     const section = tagEditor.section
+    let next: KnowledgeWorkspaceState | null = null
     if (tagEditor.tag) {
       const original = tagEditor.tag
-      mutate((current) => current.tags.some((tag) => tag.id === original.id)
+      next = mutate((current) => current.tags.some((tag) => tag.id === original.id)
         ? renameTag(current, original.id, values.name, values.icon, values.color)
         : { ...current, tags: [...current.tags, { id: createKnowledgeId("tag"), ...values, pinnedIn: [section] }], pages: current.pages.map((page) => section.startsWith("campaign-notes:") && page.campaignId === section.slice("campaign-notes:".length) && page.kind === "gm-note" ? { ...page, tags: page.tags.map((tag) => normalizedTagName(tag) === normalizedTagName(original.name) ? values.name : tag) } : page) })
     } else {
       const id = createKnowledgeId("tag")
-      mutate((current) => current.tags.some((tag) => normalizedTagName(tag.name) === normalizedTagName(values.name) && (section.startsWith("campaign-notes:") ? tag.pinnedIn.includes(section) : true))
+      next = mutate((current) => current.tags.some((tag) => normalizedTagName(tag.name) === normalizedTagName(values.name) && (section.startsWith("campaign-notes:") ? tag.pinnedIn.includes(section) : true))
         ? { ...current, tags: current.tags.map((tag) => normalizedTagName(tag.name) === normalizedTagName(values.name) && (section.startsWith("campaign-notes:") ? tag.pinnedIn.includes(section) : true) ? { ...tag, pinnedIn: [...new Set([...tag.pinnedIn, section])] } : tag) }
         : { ...current, tags: [...current.tags, { id, name: values.name.trim(), icon: values.icon, color: values.color, pinnedIn: [section] }] })
     }
+    // Renomear sem gravar no vault deixava o `.md` com o nome antigo,
+    // que a sincronização seguinte trazia de volta como tag separada.
+    if (next) syncSavedState(next, values.name)
     setTagEditor(null)
   }
 
   function removeTag(tag: KnowledgeTag, section: string) {
-    if (tag.id === "__no-category__" || !window.confirm(`Remover a tag “${tag.name}” desta categoria?`)) return
-    mutate((current) => tag.id.startsWith("legacy-") && section.startsWith("campaign-notes:")
+    if (tag.id === "__no-category__" || !window.confirm(`Remover a tag “${tag.name}” desta categoria? Ela sai também dos registros que a usam.`)) return
+    const next = mutate((current) => tag.id.startsWith("legacy-") && section.startsWith("campaign-notes:")
       ? { ...current, pages: current.pages.map((page) => page.campaignId === section.slice("campaign-notes:".length) && page.kind === "gm-note" ? { ...page, tags: page.tags.filter((name) => normalizedTagName(name) !== normalizedTagName(tag.name)) } : page) }
       : removeTagFromSection(current, tag.id, section))
+    // Sem isto, o `.md` no vault continua com a tag no frontmatter e a
+    // próxima sincronização a recria — o sintoma de "a tag volta".
+    syncSavedState(next, tag.name)
     if (route.tag && normalizedTagName(route.tag) === normalizedTagName(tag.name)) navigateRoute({ campaignId: section })
   }
 

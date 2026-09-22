@@ -1002,6 +1002,11 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .advanced-filter-chips button.on { border-color: color-mix(in srgb, var(--violet) 55%, transparent); background: color-mix(in srgb, var(--violet) 12%, var(--panel)); color: var(--text); }
 .advanced-filter-categories small { color: var(--muted); font-size: 11px; }
 
+/* Historia: abas de Historias e Acontecimentos soltos. */
+.story-tabs { display: flex; gap: 6px; margin: -4px 0 14px; }
+.story-tabs button { padding: 7px 13px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; }
+.story-tabs button.active { border-color: color-mix(in srgb, var(--violet) 55%, transparent); background: color-mix(in srgb, var(--violet) 13%, var(--panel)); color: var(--text); }
+
 /* Editor de token (RunasVTT) */
 /* O recorte do formato Livre tem a proporcao da imagem, entao a moldura e a
    mascara nao sao mais o palco inteiro: as duas seguem o tamanho do recorte. */
