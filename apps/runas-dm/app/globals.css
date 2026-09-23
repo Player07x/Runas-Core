@@ -950,6 +950,33 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 /* Um acontecimento vindo de uma História se distingue do registro avulso de Cronologia. */
 .chronology-event.from-story .chronology-dot { background: var(--cyan); box-shadow: 0 0 0 2px var(--cyan); }
 .chronology-event.from-story .chronology-created { color: var(--cyan); }
+/* Controle de colunas da linha do tempo: preferência única, repetida em cada
+   cabeçalho de Cronologia (era, História, campanha) para ficar à mão sem
+   competir por espaço com o resto da tela. */
+.chronology-columns-control { display: inline-flex; align-items: center; gap: 4px; }
+.chronology-columns-control button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--muted); cursor: pointer; }
+.chronology-columns-control button:hover, .chronology-columns-control button[aria-pressed="true"] { border-color: var(--violet); background: color-mix(in srgb, var(--violet) 12%, var(--panel)); color: var(--text); }
+.era-page-timeline-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.era-page-timeline-heading h3 { margin: 0; }
+.campaign-chronology-meta { display: flex; align-items: center; gap: 12px; }
+.story-chronology-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+/* Duas ou três colunas trocam a espinha vertical por cartões compactos, com
+   tipografia menor para caber mais acontecimentos na mesma área visível. */
+.chronology-timeline[data-columns="2"], .chronology-timeline[data-columns="3"] { display: grid; max-width: none; gap: 10px; padding: 4px 0; }
+.chronology-timeline[data-columns="2"]::before, .chronology-timeline[data-columns="3"]::before { content: none; }
+.chronology-timeline[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.chronology-timeline[data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.chronology-timeline[data-columns="2"] .chronology-event, .chronology-timeline[data-columns="3"] .chronology-event { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+.chronology-timeline[data-columns="2"] .chronology-dot, .chronology-timeline[data-columns="3"] .chronology-dot { display: none; }
+.chronology-timeline[data-columns="2"] .chronology-year, .chronology-timeline[data-columns="3"] .chronology-year { padding-top: 0; font-size: 10px; }
+.chronology-timeline[data-columns="2"] .chronology-event h2, .chronology-timeline[data-columns="3"] .chronology-event h2 { margin: 2px 0 3px; font-size: 15px; }
+.chronology-timeline[data-columns="2"] .chronology-event p, .chronology-timeline[data-columns="3"] .chronology-event p { display: -webkit-box; overflow: hidden; font-size: 11px; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.chronology-timeline[data-columns="2"] .chronology-created, .chronology-timeline[data-columns="3"] .chronology-created { margin-top: 6px; font-size: 9px; }
+.chronology-timeline[data-columns="3"] .chronology-year { font-size: 9px; }
+.chronology-timeline[data-columns="3"] .chronology-event h2 { font-size: 13px; }
+.chronology-timeline[data-columns="3"] .chronology-event p { font-size: 10px; -webkit-line-clamp: 2; }
+@media (max-width: 700px) { .chronology-timeline[data-columns="3"] { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .chronology-timeline[data-columns="2"], .chronology-timeline[data-columns="3"] { grid-template-columns: minmax(0, 1fr); } }
 .graph-stage { overscroll-behavior: contain; }
 @media (max-width: 560px) {
   .chronology-event { grid-template-columns: 90px 26px minmax(0, 1fr); padding-inline: 0; }
@@ -1121,16 +1148,40 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .era-manager-header .section-title { margin: 0; }
 .knowledge-grid.era-grid { grid-template-columns: repeat(auto-fill, minmax(min(275px, 100%), 1fr)); gap: 9px; }
 
-/* Controles de densidade e cabeçalho visual da História. */
-.grid-size-control { display: flex; align-items: center; gap: 5px; margin: 10px 0 14px; color: var(--muted); font-size: 11px; font-weight: 700; }
-.grid-size-control button { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--muted); cursor: pointer; }
-.grid-size-control button:hover:not(:disabled), .grid-size-control button[aria-pressed="true"] { border-color: var(--violet); background: color-mix(in srgb, var(--violet) 12%, var(--panel)); color: var(--text); }
-.grid-size-control button:disabled { cursor: not-allowed; opacity: .35; }
+/* Controle de densidade da grade, dentro do painel de Configurações (⋯). */
+.topbar-menu-grid { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border-bottom: 1px solid var(--line); color: var(--text); font-size: 13px; }
+.topbar-menu-grid-buttons { display: flex; gap: 4px; }
+.topbar-menu-grid-buttons button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--muted); cursor: pointer; }
+.topbar-menu-grid-buttons button:hover:not(:disabled), .topbar-menu-grid-buttons button[aria-pressed="true"] { border-color: var(--violet); background: color-mix(in srgb, var(--violet) 12%, var(--panel)); color: var(--text); }
+.topbar-menu-grid-buttons button:disabled { cursor: not-allowed; opacity: .35; }
 .knowledge-shell.grid-size-small .knowledge-grid { grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
 .knowledge-shell.grid-size-large .knowledge-grid { grid-template-columns: repeat(auto-fill, minmax(min(410px, 100%), 1fr)); }
 .knowledge-shell.grid-size-small .subpage-grid { grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); }
 .knowledge-shell.grid-size-large .subpage-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 .subpage-card > span { color: var(--muted); font-size: 11px; line-height: 1.4; }
+/* A densidade também escala altura do cartão e tipografia, não só a largura da coluna. */
+.knowledge-shell.grid-size-small .knowledge-card { min-height: 200px; }
+.knowledge-shell.grid-size-small .knowledge-card-image { min-height: 140px; }
+.knowledge-shell.grid-size-small .knowledge-card > header { font-size: 9px; }
+.knowledge-shell.grid-size-small .knowledge-card > header b { font-size: 7px; }
+.knowledge-shell.grid-size-small .knowledge-card h2 { font-size: 17px; }
+.knowledge-shell.grid-size-small .knowledge-card > p, .knowledge-shell.grid-size-small .knowledge-card-copy > p { font-size: 11px; }
+.knowledge-shell.grid-size-small .knowledge-card-meta { font-size: 9px; }
+.knowledge-shell.grid-size-small .knowledge-card footer span, .knowledge-shell.grid-size-small .knowledge-card footer i { font-size: 8px; }
+.knowledge-shell.grid-size-small .subpage-card { min-height: 80px; padding: 12px; }
+.knowledge-shell.grid-size-small .subpage-card strong { font-size: 14px; }
+.knowledge-shell.grid-size-small .subpage-card small, .knowledge-shell.grid-size-small .subpage-count, .knowledge-shell.grid-size-small .subpage-card > span { font-size: 10px; }
+.knowledge-shell.grid-size-large .knowledge-card { min-height: 275px; }
+.knowledge-shell.grid-size-large .knowledge-card-image { min-height: 195px; }
+.knowledge-shell.grid-size-large .knowledge-card > header { font-size: 11px; }
+.knowledge-shell.grid-size-large .knowledge-card > header b { font-size: 9px; }
+.knowledge-shell.grid-size-large .knowledge-card h2 { font-size: 23px; }
+.knowledge-shell.grid-size-large .knowledge-card > p, .knowledge-shell.grid-size-large .knowledge-card-copy > p { font-size: 14.5px; }
+.knowledge-shell.grid-size-large .knowledge-card-meta { font-size: 11px; }
+.knowledge-shell.grid-size-large .knowledge-card footer span, .knowledge-shell.grid-size-large .knowledge-card footer i { font-size: 10px; }
+.knowledge-shell.grid-size-large .subpage-card { min-height: 110px; padding: 18px; }
+.knowledge-shell.grid-size-large .subpage-card strong { font-size: 18px; }
+.knowledge-shell.grid-size-large .subpage-card small, .knowledge-shell.grid-size-large .subpage-count, .knowledge-shell.grid-size-large .subpage-card > span { font-size: 12px; }
 .story-heading { position: relative; isolation: isolate; overflow: hidden; }
 .story-heading.has-cover { min-height: 260px; background: var(--panel-2); }
 .story-heading-cover, .story-heading-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

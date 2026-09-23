@@ -1,8 +1,62 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
+import { Columns2, Columns3, List } from "lucide-react"
 import { formatCalendarYears, parseCalendarYear, type UniverseEra } from "../lib/chronology"
 import { plainTextFromHtml, type KnowledgePage } from "../lib/knowledge-model"
+
+export type ChronologyColumns = 1 | 2 | 3
+
+const COLUMNS_STORAGE_KEY = "runas-dm.chronology-columns"
+const columnListeners = new Set<() => void>()
+let cachedColumns: ChronologyColumns | null = null
+
+function readStoredColumns(): ChronologyColumns {
+  const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY)
+  return raw === "2" ? 2 : raw === "3" ? 3 : 1
+}
+
+function subscribeColumns(listener: () => void) {
+  columnListeners.add(listener)
+  return () => columnListeners.delete(listener)
+}
+
+function getColumnsSnapshot(): ChronologyColumns {
+  if (cachedColumns == null) cachedColumns = readStoredColumns()
+  return cachedColumns
+}
+
+function getServerColumnsSnapshot(): ChronologyColumns {
+  return 1
+}
+
+export function setChronologyColumns(value: ChronologyColumns) {
+  cachedColumns = value
+  window.localStorage.setItem(COLUMNS_STORAGE_KEY, String(value))
+  columnListeners.forEach((listener) => listener())
+}
+
+/**
+ * Preferência compartilhada por toda a Wiki e Campanhas: mudar aqui muda
+ * todas as linhas cronológicas ao mesmo tempo, sem precisar repassar prop
+ * pelos quatro lugares que renderizam `ChronologyTimeline`.
+ */
+export function useChronologyColumns(): ChronologyColumns {
+  return useSyncExternalStore(subscribeColumns, getColumnsSnapshot, getServerColumnsSnapshot)
+}
+
+const COLUMN_OPTIONS: Array<{ value: ChronologyColumns; icon: typeof List; label: string }> = [
+  { value: 1, icon: List, label: "1 coluna" },
+  { value: 2, icon: Columns2, label: "2 colunas" },
+  { value: 3, icon: Columns3, label: "3 colunas" },
+]
+
+export function ChronologyColumnsControl() {
+  const columns = useChronologyColumns()
+  return <div className="chronology-columns-control" aria-label="Colunas da linha do tempo">
+    {COLUMN_OPTIONS.map(({ value, icon: Icon, label }) => <button key={value} type="button" title={label} aria-label={label} aria-pressed={columns === value} onClick={() => setChronologyColumns(value)}><Icon size={13} /></button>)}
+  </div>
+}
 
 export function EraHeading({ era, onChange }: { era: UniverseEra; onChange: (era: UniverseEra) => void }) {
   const [editing, setEditing] = useState(false)
@@ -24,8 +78,9 @@ export function EraHeading({ era, onChange }: { era: UniverseEra; onChange: (era
 
 /** `stories` traz as Histórias para identificar de qual delas cada acontecimento veio. */
 export function ChronologyTimeline({ pages, era, stories = [], onOpen }: { pages: KnowledgePage[]; era?: UniverseEra; stories?: KnowledgePage[]; onOpen: (page: KnowledgePage) => void }) {
+  const columns = useChronologyColumns()
   if (!pages.length) return <div className="knowledge-empty"><strong>Nenhum acontecimento nesta seleção.</strong><p>Crie um acontecimento ou ajuste a era e os filtros.</p></div>
-  return <div className="chronology-timeline">{pages.map((page) => {
+  return <div className="chronology-timeline" data-columns={columns}>{pages.map((page) => {
     const story = stories.find((candidate) => candidate.storyEventIds.includes(page.id))
     return <button className={`chronology-event ${story ? "from-story" : ""}`} key={page.id} onClick={() => onOpen(page)}><span className="chronology-year">{formatCalendarYears(page.eventYear, era?.calendar)}</span><span className="chronology-dot" /><div><small>{page.tags.slice(0, 2).map((tag) => `#${tag}`).join(" ")}</small><h2>{page.title}</h2><p>{page.summary || plainTextFromHtml(page.contentHtml).slice(0, 220) || "Sem descrição."}</p><small className="chronology-created">{story ? `História: ${story.title || "sem nome"}` : `Criado em ${new Date(page.createdAt).toLocaleDateString("pt-BR")}`}</small></div></button>
   })}</div>

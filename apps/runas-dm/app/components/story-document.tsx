@@ -9,7 +9,7 @@ import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { KnowledgeImagePicker } from "./knowledge-image-picker"
 import { RichTextView } from "./rich-text-editor"
-import { ChronologyTimeline } from "./chronology-timeline"
+import { ChronologyColumnsControl, ChronologyTimeline } from "./chronology-timeline"
 
 /** O acontecimento é datado pelo calendário fictício, nunca pela data real de criação do arquivo. */
 function fictionalDate(event: KnowledgePage, eras: UniverseEra[]): { ce: string; logi: string; era: string } {
@@ -108,6 +108,7 @@ export function StoryDocument({
     </header>
 
     <div className="story-events">
+      {viewMode === "chronology" && chronologicalEvents.length > 0 && <div className="story-chronology-toolbar"><ChronologyColumnsControl /></div>}
       {viewMode === "chronology" && <ChronologyTimeline pages={chronologicalEvents} era={undefined} stories={[story]} onOpen={onOpenPage ?? (() => undefined)} />}
       {viewMode === "chronology" && chronologicalEvents.length === 0 && !editing && <div className="knowledge-empty story-empty"><strong>Esta história ainda não tem acontecimentos.</strong><button className="primary-button" onClick={createEvent}><Plus size={16} /> Criar acontecimento</button></div>}
       {viewMode === "chronology" ? null : <>
