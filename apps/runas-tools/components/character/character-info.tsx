@@ -209,16 +209,10 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
           </span>
       </div>
 
-      {/* Retrato e token ficam lado a lado. Empilhados, a coluna da esquerda
-          ficava muito mais alta que os campos e sobrava um bloco vazio enorme
-          à direita; assim as duas alturas se aproximam e os campos ocupam a
-          largura inteira logo abaixo. */}
-      <div className="grid grid-cols-1 items-start gap-4 @min-[44rem]:grid-cols-[minmax(0,25rem)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-wrap items-start gap-4">
-          <CharacterPortraitEditor value={portraitDataUrl} onChange={onPortraitChange} />
-          <CharacterTokenEditor image={tokenImageDataUrl} size={tokenSize} onChange={onTokenChange} />
-        </div>
-        <div className="field-stack min-w-0">
+      <div className="grid grid-cols-2 items-start gap-3 @min-[40rem]:grid-cols-[10rem_10rem_minmax(0,1fr)] @min-[48rem]:grid-cols-[11rem_11rem_minmax(0,1fr)]">
+        <CharacterPortraitEditor value={portraitDataUrl} onChange={onPortraitChange} />
+        <CharacterTokenEditor image={tokenImageDataUrl} size={tokenSize} onChange={onTokenChange} />
+        <div className="field-stack col-span-2 min-w-0 @min-[40rem]:col-span-1">
           <Field label="Nome" value={name} onChange={onNameChange} maxLength={80} required />
 
           <div className="grid min-w-0 grid-rows-[1.5rem_auto] gap-0.5">
@@ -258,7 +252,7 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
         </div>
       </div>
 
-      <div className="field-stack mt-2 grid-cols-1 gap-x-4 sm:grid-cols-2">
+      <div className="field-stack mt-3 grid-cols-1 gap-x-3 @min-[34rem]:grid-cols-2 @min-[46rem]:grid-cols-3">
         <Field label="Região" value={info.region} onChange={(value) => onInfoChange("region", value)} maxLength={40} />
 
         <Select
@@ -292,7 +286,7 @@ export function CharacterInfo({ name, info, onNameChange, onInfoChange, portrait
           <Field label="Pontos" value={info.legacyPoints} onChange={(value) => onInfoChange("legacyPoints", value)} inputMode="numeric" min={0} step={1} required />
         </div>
 
-        <div className="space-y-2.5 rounded-[22px] border border-border bg-muted/25 p-2.5 sm:col-span-2">
+        <div className="space-y-2.5 rounded-[22px] border border-border bg-muted/25 p-2.5 @min-[34rem]:col-span-2 @min-[46rem]:col-span-3">
           <p className="px-2 text-sm font-semibold text-foreground">Escala, dimensões e peso</p>
 
           <div className="aligned-field-grid grid grid-cols-1 gap-x-2.5 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">

@@ -16,7 +16,7 @@ export function CharacterPortraitEditor({ value, onChange }: Props) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <div className="flex justify-start self-start">
+      <div className="w-full max-w-[12.5rem] self-start">
         <div className="group relative aspect-[2/3] w-full max-w-[12.5rem] overflow-hidden rounded-[22px] border border-border bg-gradient-to-b from-primary/15 via-panel to-panel text-panel-muted shadow-lg">
           {value ? <Image src={value} alt="Retrato do personagem" fill sizes="200px" unoptimized className="object-cover" /> : <button type="button" onClick={() => setOpen(true)} className="grid size-full place-items-center text-center transition hover:text-panel-foreground"><span><UserRound className="mx-auto size-14 opacity-75" /><span className="mt-3 inline-flex items-center gap-2 px-2 text-xs font-bold"><ImagePlus className="size-4" /> Adicionar retrato</span></span></button>}
           {value && <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-gradient-to-t from-black/80 via-black/45 to-transparent p-5 pt-16 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"><Button type="button" size="sm" variant="secondary" onClick={() => setOpen(true)}><Pencil /> Editar</Button><Button type="button" size="sm" variant="destructive" onClick={() => onChange(undefined)}><Trash2 /> Remover</Button></div>}

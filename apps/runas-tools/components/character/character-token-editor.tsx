@@ -24,12 +24,12 @@ export function CharacterTokenEditor({ image, size, onChange }: Props) {
   const input = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   return (
-    <div className="mt-3 flex w-full max-w-[12.5rem] flex-col gap-2 rounded-[18px] border border-border bg-muted/30 p-3">
-      <div className="flex items-center gap-3">
-        <span className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full bg-[repeating-conic-gradient(#0000000f_0_25%,transparent_0_50%)] bg-[length:12px_12px]">
-          {image ? <Image src={image} alt="Token do personagem" width={56} height={56} unoptimized className="size-full object-contain" /> : <span className="text-xs text-muted-foreground">Token</span>}
+    <div className="flex w-full max-w-[12.5rem] flex-col gap-2 rounded-[18px] border border-border bg-muted/30 p-3">
+      <div className="flex items-center gap-2">
+        <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[repeating-conic-gradient(#0000000f_0_25%,transparent_0_50%)] bg-[length:12px_12px]">
+          {image ? <Image src={image} alt="Token do personagem" width={48} height={48} unoptimized className="size-full object-contain" /> : <span className="text-xs text-muted-foreground">Token</span>}
         </span>
-        <div className="min-w-0 text-xs leading-snug text-muted-foreground"><strong className="block text-sm text-foreground">Token</strong>{image ? "Usado no mapa do RunasVTT." : "Sem token, o RunasVTT usa o retrato."}</div>
+        <div className="min-w-0 text-xs leading-snug text-muted-foreground"><strong className="block text-sm text-foreground">Token</strong>{image ? "Usado no mapa." : "Sem token, usa o retrato."}</div>
       </div>
       <div className="flex gap-2">
         <Button type="button" size="sm" variant="secondary" className="flex-1" onClick={() => input.current?.click()}><ImagePlus /> {image ? "Trocar" : "Escolher"}</Button>
