@@ -150,18 +150,21 @@ describe("knowledge model", () => {
     expect(state.tags.map((tag) => tag.name).sort()).toEqual(["Fauna", "Monstros", "Sessões"])
   })
 
-  it("mostra as dez eras na interface sem adicionar páginas ao vault e preserva edições e exclusões", () => {
+  it("começa sem eras pré-criadas e preserva eras configuradas pelo mestre", () => {
     const empty = createEmptyKnowledgeWorkspace()
     expect(empty.pages).toHaveLength(0)
-    const projected = chronologyEraPages(empty)
-    expect(projected).toHaveLength(10)
+    expect(empty.eras).toHaveLength(0)
+    expect(chronologyEraPages(empty)).toHaveLength(0)
+    const configured = normalizeKnowledgeWorkspace({ ...empty, eras: [{ id: "pre-runas", name: "Pré-Runas", startYear: null, endYear: null, calendar: "C.E." }] })
+    const projected = chronologyEraPages(configured)
+    expect(projected).toHaveLength(1)
     expect(projected.map((page) => page.title)).toContain("Pré-Runas")
-    expect(projected.map((page) => page.title)).toContain("Era dos Titãs")
-    const edited = { ...projected.find((page) => page.id === "era-monges")!, title: "Era dos Sábios", eraEndYear: 1500 }
+    expect(projected.map((page) => page.title)).not.toContain("Era dos Titãs")
+    const edited = { ...projected.find((page) => page.id === "era-pre-runas")!, title: "Era dos Sábios", eraEndYear: 1500 }
     const restored = normalizeKnowledgeWorkspace({ ...empty, pages: [edited], deletedIds: ["era-magos"] })
     expect(restored.pages).toHaveLength(1)
-    expect(chronologyEraPages(restored)).toHaveLength(9)
-    expect(chronologyEraPages(restored).find((page) => page.id === "era-monges")).toMatchObject({ title: "Era dos Sábios", eraEndYear: 1500 })
+    expect(chronologyEraPages(restored)).toHaveLength(1)
+    expect(chronologyEraPages(restored).find((page) => page.id === "era-pre-runas")).toMatchObject({ title: "Era dos Sábios", eraEndYear: 1500 })
     expect(chronologyEraPages(restored).some((page) => page.id === "era-magos")).toBe(false)
   })
 

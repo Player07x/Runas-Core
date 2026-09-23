@@ -10,8 +10,9 @@ const allowedTags = new Set([
 const FONT_SIZE_STYLE = /^font-size:\s*(?:[1-9]|[1-6]\d|70)px\s*;?$/i
 const TEXT_ALIGN_STYLE = /^text-align:\s*(left|center|right|justify)\s*;?$/i
 const IMAGE_WIDTH_STYLE = /^width:\s*(?:100|[2-9]\d)%\s*;?$/i
-const ALIGNABLE_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "BLOCKQUOTE", "LI"])
+const ALIGNABLE_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "BLOCKQUOTE", "LI", "TD", "TH"])
 const WIKI_TITLE_ATTRIBUTE = /data-wiki-title/i
+const TABLE_STYLE_ATTRIBUTE = /^(plain|striped|accent|compact)$/
 
 function safeImageSource(value: string): boolean {
   return value.startsWith("data:image/") || value.startsWith("blob:") || (value.startsWith("/") && !value.startsWith("//"))
@@ -34,7 +35,8 @@ export function sanitizeRichText(value: string): string {
       const keepImage = element.tagName === "IMG" && ((attribute.name === "src" && safeImageSource(attribute.value)) || attribute.name === "alt" || attribute.name === "data-align" || attribute.name === "data-width" || keepImageStyle)
       const keepFontSize = element.tagName === "SPAN" && attribute.name === "style" && FONT_SIZE_STYLE.test(attribute.value)
       const keepAlign = attribute.name === "style" && ALIGNABLE_TAGS.has(element.tagName) && TEXT_ALIGN_STYLE.test(attribute.value)
-      if (!keepLink && !keepImage && !keepFontSize && !keepAlign) element.removeAttribute(attribute.name)
+      const keepTableStyle = element.tagName === "TABLE" && attribute.name === "data-style" && TABLE_STYLE_ATTRIBUTE.test(attribute.value)
+      if (!keepLink && !keepImage && !keepFontSize && !keepAlign && !keepTableStyle) element.removeAttribute(attribute.name)
     }
     if (element.tagName === "A") {
       if (element.hasAttribute("data-wiki-title")) {

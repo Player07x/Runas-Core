@@ -1,4 +1,4 @@
-import { fictionalYear, normalizeUniverseEras, withEraTags, type UniverseEra } from "./chronology"
+import { fictionalYear, UNIVERSE_ERAS, withEraTags, type UniverseEra } from "./chronology"
 import { createId } from "@runas/core/lib/ids"
 
 export const CAMPAIGN_STATUSES = [
@@ -61,6 +61,7 @@ export type WikiSection = typeof WIKI_SECTIONS[number]["id"]
 export type CampaignPageKind = typeof CAMPAIGN_PAGE_KINDS[number]["id"]
 export type CampaignMainSection = typeof CAMPAIGN_MAIN_SECTIONS[number]["id"]
 export type KnowledgePageKind = WikiSection | CampaignPageKind | "fauna" | "monsters" | "session-note"
+export type CharacterStatus = "alive" | "dead" | "unknown"
 
 export interface CampaignRecord {
   id: string
@@ -136,6 +137,9 @@ export interface KnowledgePage {
   backgroundColor?: string
   textColor?: string
   backgroundImageDataUrl?: string
+  /** Desfoque aplicado à imagem de capa da História. */
+  imageBlur?: number
+  characterStatus?: CharacterStatus
   tags: string[]
   categoryIds: string[]
   linkedPageIds: string[]
@@ -177,8 +181,31 @@ export function createKnowledgeId(prefix: string): string {
   return `${prefix}-${createId()}`
 }
 
+/**
+ * A Wiki nova começa vazia. As eras canônicas continuam disponíveis para
+ * normalizar/importar um estado que já as tenha, mas não são projetadas em um
+ * workspace que ainda não contém configuração do mestre.
+ */
+function configuredUniverseEras(value: unknown): UniverseEra[] {
+  if (!Array.isArray(value) || value.length === 0) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || typeof (item as UniverseEra).id !== "string") return []
+    const record = item as Partial<UniverseEra>
+    const id = record.id as string
+    const preset = UNIVERSE_ERAS.find((era) => era.id === id)
+    return [{
+      id,
+      name: typeof record.name === "string" && record.name.trim() ? record.name : preset?.name ?? "Nova era",
+      startYear: fictionalYear(record.startYear ?? preset?.startYear),
+      endYear: fictionalYear(record.endYear ?? preset?.endYear),
+      calendar: typeof record.calendar === "string" && record.calendar.trim() ? record.calendar : preset?.calendar ?? "C.E.",
+      note: typeof record.note === "string" ? record.note : preset?.note ?? "",
+    }]
+  })
+}
+
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
-  return { version: 3, eras: normalizeUniverseEras(undefined), campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }
+  return { version: 3, eras: [], campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
@@ -190,7 +217,7 @@ export function createKnowledgePage(scope: "wiki" | "campaign", kind: KnowledgeP
   const now = Date.now()
   return {
     id: createKnowledgeId("page"), scope, campaignId, kind,
-    title: kind === "encounter" ? "Novo encontro" : kind === "story" ? "Nova história" : kind === "event" && scope === "wiki" ? "Novo acontecimento" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "",
+    title: kind === "encounter" ? "Novo encontro" : kind === "story" ? "Nova história" : kind === "event" && scope === "wiki" ? "Novo acontecimento" : "Nova página", summary: "", contentHtml: "", status: "Sem Status", date: "", order: "", accentColor: "", backgroundColor: "", textColor: "", backgroundImageDataUrl: "", imageBlur: 8, characterStatus: kind === "characters" ? "unknown" : undefined,
     tags: [], categoryIds: [], linkedPageIds: [], bestiaryEntryId: null, encounterCreatures: [], storyEventIds: [], storyViewMode: "tale",
     obsidianPath: "", obsidianExtraFrontmatter: {}, obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0,
     createdAt: now, updatedAt: now,
@@ -203,7 +230,7 @@ export function chronologyEraPages(state: Pick<KnowledgeWorkspaceState, "eras" |
   const used = new Set<string>()
   const deleted = new Set(state.deletedIds)
   const normalizedTitle = (title: string) => title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR")
-  const presets = normalizeUniverseEras(state.eras).flatMap((era) => {
+  const presets = configuredUniverseEras(state.eras).flatMap((era) => {
     const id = `era-${era.id}`
     const saved = actual.find((page) => page.id === id || normalizedTitle(page.title) === normalizedTitle(era.name))
     if (saved) { used.add(saved.id); return [saved] }
@@ -264,7 +291,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       campaignId: typeof page.campaignId === "string" ? page.campaignId : null, kind: page.kind,
       title: typeof page.title === "string" ? page.title : "Página sem nome", summary: typeof page.summary === "string" ? page.summary : "",
       contentHtml: typeof page.contentHtml === "string" ? page.contentHtml : "", status: validStatuses.has(page.status) ? page.status : "Sem Status",
-      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), eraStartYear: fictionalYear(page.eraStartYear), eraEndYear: fictionalYear(page.eraEndYear), eraCalendar: typeof page.eraCalendar === "string" ? page.eraCalendar : "C.E.", icon: typeof page.icon === "string" ? page.icon : "🕰️", accentColor: page.kind === "chronology" && typeof page.accentColor === "string" ? page.accentColor : undefined, order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
+      date: typeof page.date === "string" ? page.date : "", eraId: typeof page.eraId === "string" ? page.eraId : "", eventYear: fictionalYear(page.eventYear), eraStartYear: fictionalYear(page.eraStartYear), eraEndYear: fictionalYear(page.eraEndYear), eraCalendar: typeof page.eraCalendar === "string" ? page.eraCalendar : "C.E.", icon: typeof page.icon === "string" ? page.icon : "🕰️", accentColor: page.kind === "chronology" && typeof page.accentColor === "string" ? page.accentColor : undefined, order: normalizeMissionOrder(page.order), backgroundImageDataUrl: typeof page.backgroundImageDataUrl === "string" ? page.backgroundImageDataUrl : "", imageBlur: typeof page.imageBlur === "number" && Number.isFinite(page.imageBlur) ? Math.min(24, Math.max(0, page.imageBlur)) : 8, characterStatus: page.characterStatus === "alive" || page.characterStatus === "dead" || page.characterStatus === "unknown" ? page.characterStatus : page.kind === "characters" ? "unknown" : undefined, tags: strings(page.tags), categoryIds: strings(page.categoryIds), linkedPageIds: strings(page.linkedPageIds),
       bestiaryEntryId: typeof page.bestiaryEntryId === "string" ? page.bestiaryEntryId : null,
       storyEventIds: [...new Set(strings(page.storyEventIds))], storyViewMode: page.storyViewMode === "chronology" ? "chronology" as const : "tale" as const,
       encounterCreatures: Array.isArray(page.encounterCreatures) ? page.encounterCreatures.flatMap((reference) => reference && typeof reference.entryId === "string" ? [{ entryId: reference.entryId, name: typeof reference.name === "string" ? reference.name : "Criatura", quantity: Math.max(1, Math.min(99, Math.trunc(Number(reference.quantity) || 1))) }] : []) : [],
@@ -287,7 +314,7 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     page.kind = migratedKind as KnowledgePageKind
     if (page.scope === "wiki" && page.kind === "chronology" && page.eraStartYear == null && page.eraEndYear == null && page.eventYear != null) page.kind = "event"
   }
-  const eras = normalizeUniverseEras(candidate.eras)
+  const eras = configuredUniverseEras(candidate.eras)
   // Páginas de era antigas são migradas uma vez; eras padrão que ainda não
   // foram editadas são projetadas apenas na interface de Cronologia.
   if ((candidate.version ?? 2) < 3 && Array.isArray(candidate.eras)) {
@@ -332,7 +359,7 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
   }
   return {
     version: 3,
-    eras: normalizeUniverseEras(remote.updatedAt >= local.updatedAt ? remote.eras ?? local.eras : local.eras ?? remote.eras),
+    eras: configuredUniverseEras(remote.updatedAt >= local.updatedAt ? remote.eras ?? local.eras : local.eras ?? remote.eras),
     campaigns: mergeById(local.campaigns, remote.campaigns),
     categories: mergeById(local.categories, remote.categories),
     tags: mergeById(local.tags, remote.tags),
@@ -363,7 +390,7 @@ export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unkn
   }
   return {
     version: 3,
-    eras: normalizeUniverseEras(backup.eras ?? local.eras),
+    eras: configuredUniverseEras(backup.eras ?? local.eras),
     campaigns: mergeById(local.campaigns, backup.campaigns),
     categories: mergeById(local.categories, backup.categories),
     tags: mergeById(local.tags, backup.tags),
@@ -461,7 +488,7 @@ export function withRefreshedStories(pages: KnowledgePage[], eventId: string): K
 export type PageSort = "recent" | "oldest" | "order"
 
 export function sortKnowledgePages(pages: KnowledgePage[], sort: PageSort): KnowledgePage[] {
-  const timestamp = (page: KnowledgePage) => isChronologyPage(page) ? page.eventYear ?? null : (page.date && Number.isFinite(Date.parse(page.date)) ? Date.parse(page.date) : page.createdAt)
+  const timestamp = (page: KnowledgePage) => isChronologyPage(page) ? page.eventYear ?? null : page.createdAt
   return [...pages].sort((a, b) => {
     if (sort === "order") {
       const left = normalizeMissionOrder(a.order), right = normalizeMissionOrder(b.order)

@@ -89,7 +89,9 @@ export function StoryDocument({
   }
 
   return <article className="story-document">
-    <header className="story-heading">
+    <header className={`story-heading ${story.backgroundImageDataUrl ? "has-cover" : ""}`}>
+      {story.backgroundImageDataUrl && <img className="story-heading-cover" src={story.backgroundImageDataUrl} alt="" style={{ filter: `blur(${story.imageBlur ?? 8}px)` }} />}
+      <div className="story-heading-overlay" aria-hidden="true" />
       <button className="secondary-button" onClick={onBack}><ArrowLeft size={16} /> Voltar às histórias</button>
       <div className="story-heading-copy">
         <p className="eyebrow">História · {events.length === 1 ? "1 acontecimento" : `${events.length} acontecimentos`}</p>
@@ -99,9 +101,9 @@ export function StoryDocument({
         <div className="story-image-control">
           <span>Imagem da história</span>
           <KnowledgeImagePicker value={story.backgroundImageDataUrl || ""} onChange={(backgroundImageDataUrl) => onChangeStory({ backgroundImageDataUrl })} />
+          <label className="story-blur-control"><span>Desfoque</span><input type="range" min="0" max="24" value={story.imageBlur ?? 8} onChange={(event) => onChangeStory({ imageBlur: Number(event.target.value) })} /><output>{story.imageBlur ?? 8}px</output></label>
         </div>
       </div>
-      {story.backgroundImageDataUrl && <img className="story-heading-image" src={story.backgroundImageDataUrl} alt="" />}
       <button className="icon-button danger-icon" title="Excluir história" aria-label="Excluir história" onClick={onDeleteStory}><Trash2 size={17} /></button>
     </header>
 

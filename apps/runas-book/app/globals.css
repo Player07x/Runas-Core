@@ -217,9 +217,31 @@ kbd { padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; color
 .rich-text-block-select, .rich-text-size-select { height: 31px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font-size: 12px; }
 .rich-text-image-tools { display: flex; min-width: 250px; flex: 1; align-items: center; gap: 3px; }
 .rich-text-image-tools button[aria-pressed="true"] { background: color-mix(in srgb, var(--cyan) 22%, transparent); color: var(--cyan); }
+.rich-text-table-tools { display: flex; min-width: 300px; flex: 1; align-items: center; gap: 3px; }
+.rich-text-table-tools select { min-height: 31px; max-width: 155px; padding: 0 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font-size: 11px; }
+.rich-text-table-tools button:hover { background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan); }
+.rich-text-table-picker { display: grid; min-width: 178px; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 26px rgb(0 0 0 / .25); }
+.rich-text-table-picker-heading { display: flex; align-items: baseline; gap: 5px; color: var(--muted); font-size: 10px; }
+.rich-text-table-picker-heading strong { color: var(--book-accent); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rich-text-table-grid { display: grid; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); }
+.rich-text-table-grid > div { display: grid; grid-template-columns: repeat(8, 16px); gap: 2px; }
+.rich-text-table-grid button { width: 16px; height: 16px; padding: 0; border: 1px solid color-mix(in srgb, var(--book-accent) 25%, var(--line)); border-radius: 2px; background: rgb(255 255 255 / .025); cursor: pointer; }
+.rich-text-table-grid button:hover, .rich-text-table-grid button:focus-visible, .rich-text-table-grid button.active { border-color: var(--book-accent); background: color-mix(in srgb, var(--book-accent) 44%, var(--panel)); outline: 0; }
+.rich-text-table-picker-hint { color: var(--muted); font-size: 9px; line-height: 1.25; }
 .rich-text-image-size { display: grid; min-width: 160px; flex: 1; grid-template-columns: auto minmax(70px, 1fr) 36px; align-items: center; gap: 7px; padding-inline: 6px; color: var(--muted); font-size: 10px; font-weight: 750; }
 .rich-text-image-size input { width: 100%; accent-color: var(--cyan); }
 .rich-text-image-size output { color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
+.rich-text-content-wrap { position: relative; }
+.rt-table-handles { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.rt-row-handle, .rt-col-handle { position: absolute; padding: 0; border: 0; background: transparent; cursor: pointer; pointer-events: auto; }
+.rt-row-handle { width: 9px; border-radius: 3px 0 0 3px; }
+.rt-col-handle { height: 9px; border-radius: 3px 3px 0 0; }
+.rt-row-handle:hover, .rt-col-handle:hover { background: color-mix(in srgb, var(--book-accent) 35%, transparent); }
+.rt-row-handle.active, .rt-col-handle.active { background: var(--book-accent); }
+.rich-text-content td.rt-cell-selected, .rich-text-content th.rt-cell-selected { background: color-mix(in srgb, var(--book-accent) 24%, transparent) !important; }
+.rt-selection-badge { display: flex; align-items: center; gap: 5px; padding: 0 4px 0 9px; border-radius: 7px; background: color-mix(in srgb, var(--book-accent) 16%, transparent); color: var(--book-accent); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.rt-selection-badge button { display: grid; width: 20px; height: 20px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
+.rt-selection-badge button:hover { background: color-mix(in srgb, var(--book-accent) 30%, transparent); }
 .rich-text-content { display: flow-root; min-height: 200px; padding: 14px; color: var(--ink); font-size: 14px; line-height: 1.7; outline: none; }
 .page-copy.rich-text-content { min-height: 0; padding: 0; color: #cdd1cf; font-size: 15.5px; }
 .rich-text-content p, .rich-text-content > div { margin: 0 0 12px; }
@@ -241,6 +263,10 @@ kbd { padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; color
 .rich-text-content table { width: 100%; margin: 14px 0; border-collapse: collapse; font-size: 13.5px; }
 .rich-text-content th, .rich-text-content td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
 .rich-text-content th { background: rgb(255 255 255 / .05); font-weight: 700; }
+.rich-text-content table[data-style="striped"] tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--book-accent) 7%, transparent); }
+.rich-text-content table[data-style="accent"] { border: 1px solid color-mix(in srgb, var(--book-accent) 45%, var(--line)); }
+.rich-text-content table[data-style="accent"] th { background: color-mix(in srgb, var(--book-accent) 20%, var(--panel-2)); color: var(--book-accent); }
+.rich-text-content table[data-style="compact"] th, .rich-text-content table[data-style="compact"] td { padding: 4px 7px; font-size: 12px; }
 .content-source { color: #7d8280; font-size: 12.5px; }
 .resource-add-row + .content-source { margin-top: 10px; }
 .import-message { color: var(--cyan); }

@@ -234,6 +234,7 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
     title: page.title, scope: page.scope, campaign: campaignFor(page, state.campaigns)?.title ?? "", kind: page.kind,
     summary: page.summary, contentHtml: page.contentHtml, status: page.status, date: page.date,
     tags: [...page.tags].sort(), links, bestiaryEntryId: page.bestiaryEntryId,
+    ...(page.kind === "characters" ? { characterStatus: page.characterStatus ?? "unknown" } : {}),
     encounterCreatures: page.encounterCreatures,
     ...(page.order ? { order: page.order } : {}),
     ...(page.eraId ? { eraId: page.eraId } : {}),
@@ -357,6 +358,7 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     "---", "runas: true", `runas_id: ${yaml(page.id)}`, `runas_scope: ${yaml(page.scope)}`, `runas_kind: ${yaml(page.kind)}`,
     `runas_title: ${yaml(page.title)}`, `runas_summary: ${yaml(page.summary)}`, `Resumo: ${yaml(page.summary)}`, `runas_created_at: ${page.createdAt}`, `runas_updated_at: ${page.updatedAt}`,
     `tipo: ${yaml(kindLabel(page))}`, `status: ${yaml(page.status)}`,
+    page.kind === "characters" ? `status_personagem: ${yaml(page.characterStatus ?? "unknown")}` : "",
     page.date ? `data: ${yaml(page.date)}` : "", page.date ? `Data: ${yaml(page.date)}` : "", campaign ? `campanha: ${yaml(campaign.title)}` : "",
     campaign ? `runas_campaign_id: ${yaml(campaign.id)}` : "",
     `tags: [${page.tags.map(yaml).join(", ")}]`,
@@ -557,7 +559,7 @@ function statusFromValue(value: unknown): KnowledgePage["status"] {
 /** Chaves que `pageToMarkdown` já escreve; qualquer outra propriedade do Obsidian é preservada como extra. */
 const KNOWN_FRONTMATTER_KEYS = new Set([
   "runas", "runas_id", "runas_scope", "runas_kind", "runas_title", "runas_summary", "Resumo", "runas_created_at", "runas_updated_at",
-  "tipo", "status", "data", "Data", "campanha", "runas_campaign_id", "tags", "categorias", "runas_linked_ids",
+  "tipo", "status", "status_personagem", "data", "Data", "campanha", "runas_campaign_id", "tags", "categorias", "runas_linked_ids",
   "ordem", "runas_era", "ano_evento", "ficha_bestiario", "runas_story_events",
 ])
 
@@ -607,6 +609,7 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     eraId: text(frontmatter.runas_era ?? fallback?.eraId),
     eventYear: fictionalYear(frontmatter.ano_evento ?? fallback?.eventYear),
     backgroundImageDataUrl: fallback?.backgroundImageDataUrl ?? "",
+    characterStatus: kind === "characters" && ["alive", "dead", "unknown"].includes(text(frontmatter.status_personagem)) ? text(frontmatter.status_personagem) as KnowledgePage["characterStatus"] : kind === "characters" ? "unknown" : undefined,
     tags: [...new Set([...stringArray(frontmatter.tags), ...stringArray(frontmatter.categorias), ...(wikiLocationMatch?.category ? [wikiLocationMatch.category] : [])])],
     categoryIds: [],
     linkedPageIds: stringArray(frontmatter.runas_linked_ids),

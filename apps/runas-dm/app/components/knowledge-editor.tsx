@@ -70,6 +70,7 @@ export function KnowledgeEditor({
   const showTags = draft.kind !== "story" && !isStoryEvent
   const availableTags = useMemo(() => tags.filter((tag) => tag.id !== "__no-category__" && (tag.name.toLocaleLowerCase("pt-BR").includes(tagSearch.trim().toLocaleLowerCase("pt-BR")) || draft.tags.includes(tag.name))).sort((a, b) => Number(draft.tags.includes(b.name)) - Number(draft.tags.includes(a.name)) || a.name.localeCompare(b.name, "pt-BR")), [tags, tagSearch, draft.tags])
   const supportsSheet = draft.scope === "wiki" && ["characters", "creatures"].includes(draft.kind)
+  const isCharacter = draft.scope === "wiki" && draft.kind === "characters"
   // Um acontecimento já aconteceu: status ("Concluída", "Em Progresso") só
   // faz sentido para missões e eventos de campanha.
   const hasStatus = draft.scope === "campaign" && ["mission", "event"].includes(draft.kind)
@@ -164,9 +165,10 @@ export function KnowledgeEditor({
               {draft.kind === "chronology" && <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>}
               <label><span>Era (pelo ano)</span><input readOnly value={detectedEra?.name ?? "Sem era definida"} /></label>
               <label><span>Ano do acontecimento</span><input value={yearText} onChange={(event) => setYearText(event.target.value)} placeholder="Ex.: -4725, 4027 C.E. ou 0 Logi" /><small className="field-hint">{yearHint}</small></label>
-            </> : <label><span>Data</span><input type="date" value={draft.date} onChange={(event) => patch({ date: event.target.value })} /></label>}
+            </> : <label><span>Data de criação</span><input readOnly value={new Date(draft.createdAt).toLocaleDateString("pt-BR")} /></label>}
             {draft.scope === "campaign" && ["mission", "event"].includes(draft.kind) && <label><span>Ordem</span><input value={draft.order || ""} onChange={(event) => patch({ order: event.target.value })} placeholder="3.1" /></label>}
             {hasStatus && <label><span>Status</span><select value={draft.status} onChange={(event) => patch({ status: event.target.value as KnowledgePage["status"] })}>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>}
+            {isCharacter && <label><span>Status do personagem</span><select value={draft.characterStatus ?? "unknown"} onChange={(event) => patch({ characterStatus: event.target.value as KnowledgePage["characterStatus"] })}><option value="alive">Vivo</option><option value="dead">Morto</option><option value="unknown">Desconhecido</option></select></label>}
             {!isEncounter && <label className="wide"><span>Resumo</span><ExpandableTextarea resizeKey={draft.id} value={draft.summary} onChange={(event) => patch({ summary: event.target.value })} placeholder="Uma visão rápida para encontrar esta página depois." /></label>}
           </div>
 

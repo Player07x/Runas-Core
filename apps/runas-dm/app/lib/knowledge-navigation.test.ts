@@ -29,8 +29,8 @@ describe("ordem narrativa", () => {
 })
 
 describe("ordenação e cronologia", () => {
-  it("alterna datas reais em ambas as direções e usa criação na ausência de data", () => {
-    const pages = [mission("1", { date: "2020-01-01" }), mission("2", { date: "2026-09-07" }), mission("3", { createdAt: Date.parse("2023-01-01") })]
+  it("ordena pela data de criação do documento em ambas as direções", () => {
+    const pages = [mission("1", { createdAt: Date.parse("2020-01-01") }), mission("2", { createdAt: Date.parse("2026-09-07") }), mission("3", { createdAt: Date.parse("2023-01-01") })]
     expect(sortKnowledgePages(pages, "recent").map((page) => page.id)).toEqual(["2", "3", "1"])
     expect(sortKnowledgePages(pages, "oldest").map((page) => page.id)).toEqual(["1", "3", "2"])
     expect(sortKnowledgePages([mission("3.10"), mission("3.2"), mission("2")], "order").map((page) => page.id)).toEqual(["2", "3.2", "3.10"])
