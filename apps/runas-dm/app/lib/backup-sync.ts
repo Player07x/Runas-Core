@@ -72,18 +72,31 @@ export function synchronizeRunasDmState(local: RunasDmState, backup: RunasDmStat
 }
 
 /**
+ * O backup guarda somente o Bestiário: fichas e tabelas de maestria. A Mesa
+ * (atores do encontro, iniciativa e notas da sessão) é estado de sessão e nunca
+ * sai do dispositivo — nem para a nuvem, nem para o vault. O formato continua
+ * sendo o de `RunasDmState`, só com essas coleções vazias, para que qualquer
+ * leitor existente (`normalizeRunasDmState`, `parseRunasImport`) o entenda.
+ */
+export function bestiaryBackupPayload(state: RunasDmState): RunasDmState {
+  return { ...state, encounter: [], initiative: [], workspaceNotesHtml: "" }
+}
+
+/**
  * Monta o snapshot remoto com todas as fichas já armazenadas e todas as fichas
- * locais. Em conflitos por nome + raça + elemento, a versão local vence.
+ * locais. Em conflitos por nome + raça + elemento, a versão local vence. A Mesa
+ * não entra (ver `bestiaryBackupPayload`).
  */
 export function createRunasDmBackup(local: RunasDmState, remote: RunasDmState | null, now = Date.now()): RunasDmState {
-  if (!remote) return { ...normalizeRunasDmState(local), updatedAt: now }
+  const normalizedLocal = normalizeRunasDmState(local)
+  if (!remote) return bestiaryBackupPayload({ ...normalizedLocal, updatedAt: now })
 
   const normalizedRemote = normalizeRunasDmState(remote)
-  const masteryTables = mergeMasteryTables(normalizedRemote.masteryTables, local.masteryTables)
-  return normalizeRunasDmState({
-    ...local,
-    entries: mergeBestiaryEntries(normalizedRemote.entries, local.entries, "incoming"),
+  const masteryTables = mergeMasteryTables(normalizedRemote.masteryTables, normalizedLocal.masteryTables)
+  return bestiaryBackupPayload(normalizeRunasDmState({
+    ...normalizedLocal,
+    entries: mergeBestiaryEntries(normalizedRemote.entries, normalizedLocal.entries, "incoming"),
     masteryTables,
     updatedAt: now,
-  })
+  }))
 }

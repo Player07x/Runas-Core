@@ -29,13 +29,17 @@ Consulte `../../docs/offline-pwa.md` para as regras de cache e validação.
 
 O navegador pede o token uma vez por sessão por meio de um campo compatível com o gerenciador de senhas. O aplicativo mantém o segredo apenas em `sessionStorage`; quando o usuário aceita salvá-lo, a persistência e o autopreenchimento ficam sob proteção do navegador. `Backup` combina as fichas locais com as já armazenadas e faz a versão local vencer conflitos por nome, raça e elemento. `Sincronizar` faz a versão remota vencer os mesmos conflitos sem apagar fichas que existem somente no navegador. Consulte `../../docs/deployment.md` para publicação, segredo e acesso privado.
 
+O backup na nuvem é **versionado** e guarda só o Bestiário (fichas e tabelas de maestria; a Mesa não entra) e Campanhas/Wiki. Cada gravação informa a versão que o dispositivo conhece: se a nuvem já mudou, ou se o envio apagaria dados demais, o servidor recusa (`409`) e nada é sobrescrito. As tabelas `cloud_backups` e `cloud_backup_chunks` são criadas sob demanda, sem migração; as tabelas antigas viram a "versão 1" somente leitura. Ver `../../docs/data-sync.md`.
+
 ## Campanhas, Wiki e Obsidian
 
 `/campaigns` e `/wiki` compartilham um arquivo local-first independente das fichas. O conteúdo é salvo no IndexedDB e abre sem login. O mesmo token de backup do Bestiário, informado pelo menu `⋯`, ativa o envio automático para um snapshot privado do D1; sem ele, tudo continua apenas local. O preview em `localhost` usa somente o armazenamento local.
 
 Encontros não são páginas de texto: cada encontro salva apenas nome, data, tags, notas breves do mestre e uma composição de fichas do Bestiário com quantidades. A ação de abrir na Mesa cria cópias independentes desse conjunto e leva as notas junto.
 
-A integração com o Obsidian usa o plugin local **Local REST API with MCP**. A URL e a pasta relativa ao vault podem ser lembradas no navegador; a chave da API permanece apenas no `sessionStorage`. A sincronização gera Markdown com frontmatter e links `[[Wiki]]`, e a alternativa ZIP não precisa do plugin.
+A integração com o Obsidian usa a **pasta local** do vault (File System Access API do Chrome/Edge, sem plugin e sem rede). A sincronização gera Markdown com frontmatter e links `[[Wiki]]` só nas sete seções da Wiki e em `Campanhas`, e a alternativa ZIP não precisa de acesso à pasta.
+
+Tudo o que as notas não guardam — estilo e organizador das campanhas, tags com ícone e cor, eras com anos, exclusões, preferências de interface e o Bestiário — é gravado em `Runas DM/` dentro do vault (`wiki-e-campanhas.json`, `bestiario.json`, `versoes/`). Ao conectar o vault num computador novo, esses dados voltam sozinhos. A estrutura e os nomes das notas seguem `../../docs/obsidian-vault-organization.md`.
 
 ## Cloudflare Pages
 

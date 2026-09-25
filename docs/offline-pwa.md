@@ -16,9 +16,10 @@ Depois do primeiro acesso online e da conclusão do cache, cálculos, fichas, te
 - `/_next/static/` é servido pelo cache antes da rede: o nome do arquivo carrega o hash do conteúdo, então ele nunca muda.
 - O service worker nunca resolve `respondWith` com `undefined`. Sem resposta e sem cache, ele devolve `504`, que a interface trata; `respondWith(undefined)` lança e transforma um recurso ausente em falha da página inteira.
 - Toda parte carregada sob demanda fica dentro de um limite de erro (`LazyBoundary`), com opção de tentar de novo. Uma falha de `import()` não pode derrubar o que já estava aberto.
-- IndexedDB guarda fichas e configurações locais.
+- IndexedDB guarda fichas e configurações locais; `localStorage` guarda as preferências de interface (tema, tamanho da grade, colunas da cronologia, modo do editor de itens), a versão-base da nuvem e as preferências do Obsidian.
 - D1 é backup remoto opcional e não participa da inicialização nem dos cálculos.
-- `/api/backup`, autenticação e rotas `/cdn-cgi/` nunca entram no cache.
+- O vault do Obsidian é o backup completo dos dados do mestre: `Runas DM/wiki-e-campanhas.json` e `Runas DM/bestiario.json`. Limpar os dados do site não os perde: reconectar o vault os restaura sem rede.
+- `/api/backup`, `/api/campaign-data`, autenticação e rotas `/cdn-cgi/` nunca entram no cache.
 - `navigator.storage.persist()` é solicitado após a instalação aceita para reduzir remoções automáticas.
 
 ## Atualizações
@@ -37,7 +38,8 @@ Antes de publicar:
 4. Desative a rede, recarregue e valide criação/edição de ficha, teste, dano e exportação.
 5. Confirme que Backup e Sincronizar falham de forma informativa e não alteram os dados locais.
 6. Reative a rede e confirme a atualização do backup.
+7. Com o vault conectado, confirme que `Runas DM/wiki-e-campanhas.json` foi gravado e limpe os dados do site: ao reconectar o vault, campanhas, estilo, tags, eras e preferências devem voltar sem nenhuma chamada à nuvem.
 
 ## Limites
 
-Uma PWA precisa de um primeiro acesso HTTPS para ser instalada. Limpar os dados do site ou remover o perfil do navegador pode apagar IndexedDB e caches; por isso exportação JSON e D1 continuam necessários.
+Uma PWA precisa de um primeiro acesso HTTPS para ser instalada. Limpar os dados do site ou remover o perfil do navegador pode apagar IndexedDB e caches; por isso o vault (`Runas DM/`), a exportação JSON e o D1 continuam necessários. Nenhum deles é requisito de uso: sem vault e sem nuvem o site funciona normalmente, só que sem cópia.

@@ -3,29 +3,14 @@
 import { useEffect, useState } from "react"
 import { Check, Download, FolderOpen, FolderPlus, Power, RefreshCw, Settings2, X } from "lucide-react"
 import type { KnowledgeWorkspaceState } from "../lib/knowledge-model"
-import { exportKnowledgeZip, type VaultSyncResult } from "../lib/obsidian-sync"
+import { exportKnowledgeZip, type VaultSyncResult, type ZipEntry } from "../lib/obsidian-sync"
 import { localVaultName, selectLocalVault, supportsLocalVault, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
+import { OBSIDIAN_PREFERENCES_KEY, readObsidianPreferences, type ObsidianPreferences } from "../lib/obsidian-preferences"
+import { VaultDataPanel, type VaultDataPanelProps } from "./vault-data-panel"
 
-export interface ObsidianPreferences {
-  enabled: boolean
-  automatic: boolean
-}
-
-const defaults: ObsidianPreferences = { enabled: true, automatic: true }
-
-export function readObsidianPreferences(): ObsidianPreferences {
-  if (typeof window === "undefined") return defaults
-  try {
-    const value = JSON.parse(localStorage.getItem("runas-dm.obsidian-preferences") ?? "null") as Partial<ObsidianPreferences> | null
-    return {
-      enabled: value?.enabled !== false,
-      // A sincronização bidirecional é o comportamento padrão; o usuário
-      // ainda pode desligá-la explicitamente nas preferências.
-      automatic: value?.automatic !== false,
-    }
-  } catch { return defaults }
-}
+export { readObsidianPreferences }
+export type { ObsidianPreferences }
 
 function resultMessage(result: VaultSyncResult): string {
   const parts = [`${result.imported} importada${result.imported === 1 ? "" : "s"}`, `${result.exported} atualizada${result.exported === 1 ? "" : "s"}`]
@@ -33,7 +18,7 @@ function resultMessage(result: VaultSyncResult): string {
   return `Sincronização concluída: ${parts.join(", ")}.`
 }
 
-export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateChange }: { state: KnowledgeWorkspaceState; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void }) {
+export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateChange, vaultData, onVaultConnected, zipDataFiles }: { state: KnowledgeWorkspaceState; zipDataFiles?: () => ZipEntry[]; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void; vaultData?: Omit<VaultDataPanelProps, "connected">; onVaultConnected?: () => void }) {
   useEscapeToClose(onClose)
   const [preferences, setPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
   const [message, setMessage] = useState("")
@@ -44,7 +29,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
   useEffect(() => { void localVaultName().then(setFolderName) }, [])
 
   useEffect(() => {
-    localStorage.setItem("runas-dm.obsidian-preferences", JSON.stringify(preferences))
+    localStorage.setItem(OBSIDIAN_PREFERENCES_KEY, JSON.stringify(preferences))
     onPreferencesChange(preferences)
   }, [onPreferencesChange, preferences])
 
@@ -66,6 +51,8 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
       setFolderName(handle.name)
       setPreferences((current) => ({ ...current, enabled: true }))
       setMessage(`Vault “${handle.name}” conectado. Assets e as preferências ausentes foram configurados sem substituir arquivos existentes.`)
+      // Um vault que já tem os dados do Runas DM (de outro computador) é reconhecido agora, antes de qualquer sincronização de notas.
+      onVaultConnected?.()
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") setMessage("Seleção cancelada; nenhuma pasta foi alterada.")
       else setMessage(error instanceof Error ? error.message : "Não foi possível acessar a pasta.")
@@ -79,10 +66,11 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
       <label className="obsidian-auto obsidian-enabled"><input type="checkbox" checked={preferences.enabled} onChange={(event) => setPreferences((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong><Power size={14} /> Integração com Obsidian ativa</strong><small>Desative para impedir completamente leitura, gravação e sincronização automática.</small></span></label>
       {preferences.enabled && <>
         <div className="local-vault-panel wide"><div><FolderOpen size={20} /><span><strong>{folderName ? `Vault selecionado: ${folderName}` : "Nenhum vault selecionado"}</strong><small>{localFolderSupported ? "Funciona diretamente no Chrome/Edge, mesmo com o Obsidian fechado." : "Acesso direto a pastas não está disponível neste navegador."}</small></span></div><div><button className="secondary-button" disabled={working || !localFolderSupported} onClick={() => void chooseFolder("existing")}><FolderOpen size={16} /> Selecionar existente</button><button className="secondary-button" disabled={working || !localFolderSupported} onClick={() => void chooseFolder("new")}><FolderPlus size={16} /> Criar novo vault</button></div></div>
+        {vaultData && <VaultDataPanel {...vaultData} connected={Boolean(folderName)} />}
         <label className="obsidian-auto"><input type="checkbox" checked={preferences.automatic} onChange={(event) => setPreferences((current) => ({ ...current, automatic: event.target.checked }))} /><span><strong>Sincronizar automaticamente</strong><small>Ao entrar e ao salvar, importa alterações do vault antes de atualizar os arquivos.</small></span></label>
       </>}
     </div>
     {message && <p className="obsidian-message"><Check size={15} /> {message}</p>}
-    <footer><button className="secondary-button" onClick={() => exportKnowledgeZip(state)}><Download size={16} /> Exportar ZIP</button><span /><button className="primary-button" disabled={working || !preferences.enabled || !folderName} onClick={() => void synchronize()}><RefreshCw className={working ? "spin" : ""} size={16} /> Importar e sincronizar</button></footer>
+    <footer><button className="secondary-button" onClick={() => exportKnowledgeZip(state, zipDataFiles?.() ?? [])}><Download size={16} /> Exportar ZIP</button><span /><button className="primary-button" disabled={working || !preferences.enabled || !folderName} onClick={() => void synchronize()}><RefreshCw className={working ? "spin" : ""} size={16} /> Importar e sincronizar</button></footer>
   </section></div>
 }

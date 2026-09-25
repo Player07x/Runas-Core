@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Plus, RefreshCw,
-  Search, Send, Shield, Sparkles, Swords, Trash2, Upload, X,
+  Save, Search, Send, Shield, Sparkles, Swords, Trash2, Upload, X,
 } from "lucide-react"
 import type { VttLogEntry } from "@runas/vtt-bridge"
 import { attributeGroups } from "@runas/core/data/attributes"
@@ -38,12 +38,17 @@ import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-atta
 import { AttributeBands } from "./attribute-bands"
 import { PwaInstallCard } from "./pwa-install-card"
 import { ThemeToggle } from "./theme-toggle"
-import { TopbarMenu } from "./topbar-menu"
+import { TopbarMenu, type TopbarDetail } from "./topbar-menu"
 import { clampSimpleSheetWidth, plainTextSummary } from "../lib/simple-sheet"
 import { BatchExportDialog } from "./batch-export-dialog"
 import { TokenEditorDialog } from "./token-editor-dialog"
 import { exportCharacterJson } from "../lib/export"
 import { createRunasDmBackup, synchronizeRunasDmState } from "../lib/backup-sync"
+import { bestiaryStats } from "../lib/bestiary-scope"
+import { clearBackupToken, fetchCloudBackup, putCloudBackup, readBackupToken, saveBackupToken, writeCloudBase, type CloudPutResult } from "../lib/cloud-backup"
+import { describeStats } from "../lib/snapshot-policy"
+import { readObsidianPreferences } from "../lib/obsidian-preferences"
+import type { VaultStatus } from "../lib/vault-status"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { BackupTokenDialog } from "./backup-token-dialog"
 import { RichTextEditor } from "./rich-text-editor"
@@ -88,6 +93,7 @@ export function DmDashboard() {
   const [syncMessage, setSyncMessage] = useState("")
   const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus>({ phase: "no-vault", message: "", attention: false })
   const importRef = useRef<HTMLInputElement>(null)
   // Dentro do RunasVTT, a Mesa opera sobre os tokens da cena aberta nele.
   const vttMesa = useVttMesa(setSyncMessage)
@@ -123,6 +129,24 @@ export function DmDashboard() {
     }, 250)
     return () => clearTimeout(timeout)
   }, [ready, state])
+
+  // O bestiário também vai para o vault (`Runas DM/bestiario.json`), em silêncio: sem permissão de
+  // escrita ele não pede sozinho; e nunca sobrescreve um arquivo que este navegador não conhece.
+  const saveBestiaryToVault = useCallback(async (current: RunasDmState, prompt: boolean): Promise<VaultStatus> => {
+    if (!readObsidianPreferences().enabled) return { phase: "off", message: "", attention: false }
+    try {
+      const [{ saveDataToLocalVault }, { bestiaryVaultInput }, { describeSaveOutcome }] = await Promise.all([import("../lib/local-vault"), import("../lib/bestiary-scope"), import("../lib/vault-status")])
+      return describeSaveOutcome(await saveDataToLocalVault("bestiary", bestiaryVaultInput(normalizeRunasDmState(current)), { requestPermission: prompt }))
+    } catch (error) {
+      return { phase: "error", message: `Vault: ${error instanceof Error ? error.message : "não foi possível gravar o bestiário."}`, attention: true }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    const timeout = window.setTimeout(() => { void saveBestiaryToVault(state, false).then(setVaultStatus) }, 5000)
+    return () => window.clearTimeout(timeout)
+  }, [ready, saveBestiaryToVault, state])
 
   const galleryCategoryOptions = useMemo(() => [...new Set(state.entries.map(({ character }) => character.info.race.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, "pt-BR")), [state.entries])
   const galleryElementOptions = useMemo(() => [...new Set(state.entries.map(({ character }) => character.stats.elementId).filter((value) => value && value !== "none"))].map((id) => ({ id, name: getCharacterElement(id)?.name ?? id })).sort((left, right) => left.name.localeCompare(right.name, "pt-BR")), [state.entries])
@@ -282,7 +306,7 @@ export function DmDashboard() {
   }
 
   function requestCloudAction(action: CloudAction) {
-    const token = sessionStorage.getItem("runas-dm.backup-token") ?? ""
+    const token = readBackupToken()
     if (!token) {
       setPendingCloudAction(action)
       return
@@ -304,44 +328,57 @@ export function DmDashboard() {
 
   function submitBackupToken(token: string) {
     const action = pendingCloudAction
-    sessionStorage.setItem("runas-dm.backup-token", token)
+    saveBackupToken(token)
     setPendingCloudAction(null)
     if (action === "backup") void backupToCloud(token)
     if (action === "synchronize") void synchronizeFromCloud(token)
   }
 
+  /** Traduz um envio recusado ou falho em uma mensagem que diz o que realmente aconteceu. */
+  function cloudFailureMessage(result: Exclude<CloudPutResult, { ok: true }>): string {
+    if (result.reason === "unauthorized") clearBackupToken()
+    if (result.reason === "stale") return "A nuvem mudou enquanto o backup era enviado. Nada foi sobrescrito; tente de novo."
+    return result.message
+  }
+
   async function backupToCloud(token: string) {
     setSyncMessage("Enviando backup…")
-    try {
-      const currentResponse = await fetch("/api/backup", { headers: { authorization: `Bearer ${token}` } })
-      if (currentResponse.status === 401) sessionStorage.removeItem("runas-dm.backup-token")
-      if (!currentResponse.ok) throw new Error()
-      const currentBackup = await currentResponse.json() as { state: RunasDmState | null }
-      const completeBackup = createRunasDmBackup(state, currentBackup.state)
-      const response = await fetch("/api/backup", { method: "PUT", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(completeBackup) })
-      if (response.status === 401) sessionStorage.removeItem("runas-dm.backup-token")
-      if (!response.ok) throw new Error()
-      setSyncMessage("Backup remoto atualizado")
-    } catch {
-      setSyncMessage("Backup remoto indisponível neste ambiente")
+    // Traz a cópia que a nuvem já tem, une com as fichas locais (a local vence conflitos) e envia
+    // com a versão lida como base: nada que está na nuvem se perde, e uma gravação concorrente de
+    // outro dispositivo é recusada em vez de sobrescrita. Só fichas e tabelas de maestria vão à
+    // nuvem; a Mesa (encontro, iniciativa, notas) é estado de sessão e fica no dispositivo.
+    const current = await fetchCloudBackup<RunasDmState>("bestiary", token)
+    if (!current.ok) {
+      if (current.reason === "unauthorized") clearBackupToken()
+      setSyncMessage(current.message)
+      return
     }
+    if (!current.empty) writeCloudBase("bestiary", current.head.version)
+    const completeBackup = createRunasDmBackup(state, current.empty ? null : current.data)
+    const stats = bestiaryStats(completeBackup)
+    let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats })
+    if (!result.ok && result.reason === "shrink" && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
+      result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true })
+    }
+    if (result.ok) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
+    else setSyncMessage(cloudFailureMessage(result))
   }
 
   async function synchronizeFromCloud(token: string) {
     setSyncMessage("Consultando backup remoto…")
-    try {
-      const response = await fetch("/api/backup", { headers: { authorization: `Bearer ${token}` } })
-      if (response.status === 401) sessionStorage.removeItem("runas-dm.backup-token")
-      if (!response.ok) throw new Error()
-      const payload = await response.json() as { state: RunasDmState | null; updatedAt: number | null }
-      if (!payload.state) { setSyncMessage("Ainda não existe backup remoto"); return }
-      const date = payload.updatedAt ? new Date(payload.updatedAt).toLocaleString("pt-BR") : "data desconhecida"
-      if (!window.confirm(`Sincronizar as fichas deste dispositivo com o backup de ${date}? Fichas com o mesmo nome, raça e elemento serão atualizadas pelo backup; as demais serão preservadas.`)) { setSyncMessage("Sincronização cancelada"); return }
-      setState((current) => synchronizeRunasDmState(current, payload.state as RunasDmState))
-      setSyncMessage(`Fichas sincronizadas com o backup de ${date}`)
-    } catch {
-      setSyncMessage("Não foi possível sincronizar o backup remoto")
+    const result = await fetchCloudBackup<RunasDmState>("bestiary", token)
+    if (!result.ok) {
+      if (result.reason === "unauthorized") clearBackupToken()
+      setSyncMessage(result.message)
+      return
     }
+    if (result.empty) { setSyncMessage("Ainda não existe backup remoto"); return }
+    const date = result.head.updatedAt ? new Date(result.head.updatedAt).toLocaleString("pt-BR") : "data desconhecida"
+    if (!window.confirm(`Sincronizar as fichas deste dispositivo com o backup de ${date}? Fichas com o mesmo nome, raça e elemento serão atualizadas pelo backup; as demais serão preservadas.`)) { setSyncMessage("Sincronização cancelada"); return }
+    setState((current) => synchronizeRunasDmState(current, result.data))
+    // A partir daqui este dispositivo conhece essa versão da nuvem, e o próximo backup pode declará-la.
+    writeCloudBase("bestiary", result.head.version)
+    setSyncMessage(`Fichas sincronizadas com o backup de ${date}`)
   }
 
   return (
@@ -358,9 +395,10 @@ export function DmDashboard() {
           <a href="/wiki"><LibraryBig size={17} /> Wiki</a>
         </nav>
         <div className="top-actions">
-          <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }}>
+          <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }} details={vaultStatus.message ? [{ text: vaultStatus.message, attention: vaultStatus.attention } satisfies TopbarDetail] : []}>
             {(close) => <>
               <ThemeToggle variant="menu" />
+              <button className="topbar-menu-item" onClick={() => { close(); void saveBestiaryToVault(state, true).then((status) => { setVaultStatus(status); setSyncMessage(status.message || "Conecte um vault em Wiki › ⋯ › Obsidian para salvar o bestiário nele.") }) }}><Save size={18} /><span>Salvar bestiário no vault</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); exportWorkspace() }}><Download size={18} /><span>Exportar backup</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); importRef.current?.click() }}><Upload size={18} /><span>Importar fichas JSON ou ZIP</span></button>
               <a className="topbar-menu-item" href="https://runas-book.pages.dev/dm" onClick={close}><BookOpenText size={18} /><span>Runas Book DM</span></a>

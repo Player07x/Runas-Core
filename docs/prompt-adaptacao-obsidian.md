@@ -9,7 +9,7 @@ As regras foram extraídas de `apps/runas-dm/app/lib/obsidian-sync.ts` e `apps/r
 1. Abra uma conversa com uma IA que aceite anexos e cole **todo o bloco “Prompt”** abaixo (ou anexe este arquivo).
 2. Preencha os **Parâmetros** no topo do prompt (tag da obra, calendário, módulos).
 3. Anexe o documento de origem e envie.
-4. Grave os arquivos entregues na **raiz do vault**, mantendo as pastas (`Personagens/Runilitas/…`, `História/<História>/…`).
+4. Grave os arquivos entregues na **raiz do vault**, mantendo as pastas (`Personagens/…` sem subpastas, `Geografia/Assentamentos/…`, `História/<História>/…`).
 5. Sincronize com o Obsidian **uma única vez, depois de gravar o lote inteiro**. O site só liga uma nota às outras (`[[links]]`) no momento em que a lê; uma nota importada antes de suas vizinhas existirem fica sem esses vínculos até ser editada.
 
 ## Prompt
@@ -122,7 +122,7 @@ Resumo: "<uma frase, texto puro>"
 ## Tags e pastas
 
 - `tags` tem de 1 a 4 itens, em Title Case, sem `#`, incluindo a **tag da obra** dos parâmetros.
-- A **primeira tag é a subpasta física** e o nome da pasta é igual a ela: `Personagens/Runilitas/Luís Lionhart.md` leva `tags: ["Runilitas", …]`. Use pasta-tag existente antes de criar outra; crie uma nova só se ao menos 3 notas a compartilharem. Sem subpasta cabível, coloque o arquivo direto na pasta da categoria.
+- A **primeira tag é a subpasta física** e o nome da pasta é igual a ela: `Geografia/Assentamentos/Cidade do Destino.md` leva `tags: ["Assentamentos", …]`. Use pasta-tag existente antes de criar outra; crie uma nova só se ao menos 3 notas a compartilharem. Sem subpasta cabível, coloque o arquivo direto na pasta da categoria. **Exceção: `Personagens` é plana** — as notas ficam direto em `Personagens/` e as tags (`Runilitas`, `Divindades`…) só aparecem no frontmatter.
 - **Uma subpasta nunca contém outra subpasta** (exceção: `História`, ver módulo).
 - **Não escreva tags de era** (“Era dos Monges” etc.): o site as deduz do ano.
 
@@ -311,7 +311,7 @@ Parte do [[Reino de Lion Heart]].
 
 ## 4. Personagens
 
-- **Pasta:** `Personagens/<Divindades | Runilitas>/` (ou direto em `Personagens/`). Divindades: deuses, demônios, santos. Runilitas: mortais.
+- **Pasta:** direto em `Personagens/`, **sem subpasta**. Use as tags `Divindades` (deuses, demônios, santos) ou `Runilitas` (mortais) no frontmatter; a tag não vira pasta.
 - **tipo:** `"Personagens"`.
 - **Propriedade especial `status_personagem`:** exatamente `"alive"`, `"dead"` ou `"unknown"`. Use `"dead"` **só** se o documento diz que morreu; `"alive"` se está claramente vivo; na dúvida, `"unknown"`. (Selado, desaparecido = `"unknown"`.)
 - **Propriedades extras (use os rótulos do documento):** `Raça`, `Classe`, `Alinhamento`, `Elementos` (lista), `Nascimento`, `Morte`, `Título`, além de outras que o documento trouxer. Datas dessas propriedades são **texto**, como aparecem no documento. Se o formato de data for ambíguo (dia/mês/ano ou ano/mês/dia), copie como está e registre no relatório.
@@ -515,7 +515,7 @@ Fale com o Médico Gary, investigue a caverna e o galpão abandonado do ferreiro
 - [ ] `tipo` tem o valor exato do módulo (Cronologia usa `"Acontecimento"`).
 - [ ] `# Título` é idêntico ao nome do arquivo e único no lote; sem `: / \ ? * " < > | # ^ [ ]`.
 - [ ] `Resumo` tem até 280 caracteres, texto puro, e é idêntico ao primeiro parágrafo.
-- [ ] A primeira tag é o nome da subpasta; nenhuma tag de era; tag da obra presente.
+- [ ] A primeira tag é o nome da subpasta (exceto em `Personagens`, que é plana); nenhuma tag de era; tag da obra presente.
 - [ ] O corpo não tem tabela, `####`, lista aninhada, callout, `_itálico_`, HTML ou imagem inventada.
 - [ ] Todo `[[link]]` aponta para o título exato de uma nota do lote.
 - [ ] `## Páginas relacionadas` é a última seção, sem texto depois (notas de História não a têm).

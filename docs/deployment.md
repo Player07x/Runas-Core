@@ -27,6 +27,8 @@ Variáveis de produção:
 
 - `RUNAS_DM_BACKUP_TOKEN`: segredo; nunca registrar no Git, logs ou arquivos `.env` versionados.
 
+Tabelas do backup versionado: `cloud_backups` e `cloud_backup_chunks` são criadas pelo próprio Worker na primeira gravação (`CREATE TABLE IF NOT EXISTS`, o mesmo precedente de `book_workspace_chunks`), **sem migração e sem depender do segredo `CLOUDFLARE_D1_API_TOKEN`**. As tabelas antigas `backup_snapshots` e `knowledge_snapshots` continuam no banco, somente para leitura: seu conteúdo aparece como a "versão 1" de cada backup e nunca é apagado. O backup guarda o Bestiário e Campanhas/Wiki; o `PUT` recusa mais de 32 MB (`413`).
+
 O Cloudflare Access deve proteger `runas-dm.pages.dev`, com o proprietário e somente os e-mails explicitamente autorizados. A URL legada `runas-dm.player-7x.chatgpt.site` é contingência temporária; não deve ser divulgada como endereço canônico.
 
 ## Ordem de uma publicação
@@ -35,7 +37,7 @@ O Cloudflare Access deve proteger `runas-dm.pages.dev`, com o proprietário e so
 2. Testes e typecheck de `@runas/core`.
 3. Lint e build dos dois consumidores.
 4. Publicar Runas Tools no Cloudflare Pages.
-5. Gerar/aplicar todas as migrações D1 antes de publicar código que dependa delas, incluindo o snapshot de campanhas/wiki.
+5. Gerar/aplicar todas as migrações D1 antes de publicar código que dependa delas. O backup versionado não precisa de migração.
 6. Publicar Runas DM no Cloudflare Pages com segredo e política de acesso já configurados.
 7. Verificar as duas URLs e o modo offline.
 
@@ -44,6 +46,10 @@ Se uma publicação falhar, a versão anterior deve continuar ativa. Nunca publi
 ## Preparação de novos dispositivos
 
 O usuário abre o endereço autorizado, instala o aplicativo pela tela inicial e espera o indicador `Offline pronto`. Depois pode trabalhar sem rede; o botão Backup volta a funcionar quando a conexão retornar.
+
+Um computador novo **não** deve tentar "salvar" antes de receber os dados: conecte o vault do Obsidian (a pasta `Runas DM/` restaura tudo sozinha num dispositivo vazio) ou use "Importar da nuvem". Um dispositivo vazio nunca envia backup, e um dispositivo que não recebeu a versão atual da nuvem não a sobrescreve.
+
+**Publicar antes de padronizar o vault.** Versões antigas do Runas DM reintroduzem nomes sem colchetes (`O&C] …`) e reescrevem notas de outras pastas. Publique a versão corrigida antes de abrir no site um vault padronizado (`docs/obsidian-vault-organization.md`).
 
 ## Runas Book
 

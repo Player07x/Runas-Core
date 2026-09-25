@@ -10,6 +10,12 @@ export interface TopbarStatus {
   label: string
 }
 
+/** Linha extra do painel (nuvem, vault…); `attention` pede uma ação do usuário. */
+export interface TopbarDetail {
+  text: string
+  attention?: boolean
+}
+
 /**
  * A barra superior carrega somente marca, navegação e este botão. Todo o
  * resto (tema, backup, importação, Obsidian) vive no painel, que mantém a
@@ -18,7 +24,7 @@ export interface TopbarStatus {
  * colorido: num aplicativo local-first, saber que a alteração foi gravada
  * não pode depender de abrir um menu.
  */
-export function TopbarMenu({ status, label = "Ações", children }: { status: TopbarStatus; label?: string; children: (close: () => void) => ReactNode }) {
+export function TopbarMenu({ status, details = [], label = "Ações", children }: { status: TopbarStatus; details?: TopbarDetail[]; label?: string; children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -52,6 +58,7 @@ export function TopbarMenu({ status, label = "Ações", children }: { status: To
     </button>
     {open && <div className="topbar-menu-panel" role="menu">
       <p className="topbar-menu-status"><span className={`topbar-status-dot ${status.tone}`} aria-hidden="true" />{status.label}</p>
+      {details.length > 0 && <div className="topbar-menu-details">{details.map((detail) => <p key={detail.text} className={`topbar-menu-detail ${detail.attention ? "attention" : ""}`}>{detail.text}</p>)}</div>}
       {children(() => setOpen(false))}
     </div>}
   </div>

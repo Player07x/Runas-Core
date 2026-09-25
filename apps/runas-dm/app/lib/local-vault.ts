@@ -1,5 +1,7 @@
-import { deleteCampaignHubNotes, deleteVaultNote, IGNORED_VAULT_FOLDERS, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncPriority, type VaultSyncResult } from "./obsidian-sync"
+import { deleteCampaignHubNotes, deleteVaultNote, isSynchronizableRootFolder, WIKI_VAULT_FOLDERS, parseMarkdownFrontmatter, synchronizeWorkspaceWithVault, type VaultAdapter, type VaultSyncPriority, type VaultSyncResult } from "./obsidian-sync"
 import type { KnowledgePage, KnowledgeWorkspaceState } from "./knowledge-model"
+import { getDeviceId } from "./cloud-backup"
+import { inspectVaultData, knownRevisionOf, loadVaultData, saveVaultData, type KnownRevision, type VaultDataAdapter, type VaultDataHeader, type VaultDataKind, type VaultInspection, type VaultLoadResult, type VaultSaveInput, type VaultSaveOutcome } from "./vault-data"
 
 const DATABASE_NAME = "runas-dm-local-vault"
 const STORE_NAME = "handles"
@@ -107,7 +109,7 @@ export async function prepareLocalVault(handle: DirectoryHandle): Promise<void> 
     await writeFile(handle, ".obsidian/app.json", JSON.stringify({ newFileLocation: "root", attachmentFolderPath: "Assets" }, null, 2))
   }
   if (!await fileExists(handle, "LEIA-ME Runas DM.md")) {
-    await writeFile(handle, "LEIA-ME Runas DM.md", "---\nrunas_system: true\n---\n\n# Vault do Runas DM\n\nA Wiki usa Cronologia, Geografia, Personagens, Fauna, Monstros e Itens. A primeira categoria define a subpasta; as demais ficam no frontmatter. Anexos ficam em `Assets` e dados auxiliares em `Bases`.\n")
+    await writeFile(handle, "LEIA-ME Runas DM.md", "---\nrunas_system: true\n---\n\n# Vault do Runas DM\n\nA Wiki usa Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações; as campanhas ficam em `Campanhas/<Campanha>`. Personagens não tem subpastas; nas demais seções a primeira tag define a subpasta e as outras ficam no frontmatter. Anexos ficam em `Assets`, arquivos `.base` em `Bases`, documentos particulares em `Outros Documentos` e os dados do site (campanhas, estilo, tags, eras, bestiário) em `Runas DM`.\n")
   }
 }
 
@@ -124,7 +126,9 @@ async function listMarkdownFiles(handle: DirectoryHandle, path = ""): Promise<st
   const directory = path ? await directoryAt(handle, path, false) : handle
   const files: string[] = []
   for await (const entry of directory.values()) {
-    if (!path && IGNORED_VAULT_FOLDERS.some((folder) => folder.localeCompare(entry.name, "pt-BR", { sensitivity: "base" }) === 0) && entry.name.localeCompare("Campanhas", "pt-BR", { sensitivity: "base" }) !== 0) continue
+    // Na raiz só se desce nas pastas do Runas DM (as sete seções da Wiki, o alias legado e
+    // Campanhas). Runas Book, Templates, arquivo morto, notas soltas… nunca são lidos nem tocados.
+    if (!path && !(entry.kind === "directory" && isSynchronizableRootFolder(entry.name))) continue
     const childPath = [path, entry.name].filter(Boolean).join("/")
     if (entry.kind === "directory") files.push(...await listMarkdownFiles(handle, childPath))
     else if (entry.name.toLocaleLowerCase("pt-BR").endsWith(".md")) files.push(childPath)
@@ -144,7 +148,8 @@ async function listAllFiles(handle: DirectoryHandle, path: string): Promise<stri
   return files
 }
 
-function createLocalVaultAdapter(handle: DirectoryHandle): VaultAdapter {
+/** Exportado para os testes: é ele que decide o que o site lê e onde escreve dentro do vault. */
+export function createLocalVaultAdapter(handle: DirectoryHandle): VaultAdapter {
   return {
     listMarkdownFiles: () => listMarkdownFiles(handle),
     listBaseFiles: async () => (await listAllFiles(handle, "Bases")).filter((path) => path.toLocaleLowerCase("pt-BR").endsWith(".base")),
@@ -189,4 +194,91 @@ export async function deleteCampaignHubNotesFromLocalVault(campaignTitle: string
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   return deleteCampaignHubNotes(campaignTitle, createLocalVaultAdapter(handle), "")
+}
+
+// ---- arquivos de dados do site (Runas DM/*.json) ----
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === "NotFoundError" || error.name === "TypeMismatchError")
+}
+
+async function fileOrNull(handle: DirectoryHandle, path: string): Promise<File | null> {
+  try { return await (await fileAt(handle, path, false)).getFile() } catch (error) { if (isNotFound(error)) return null; throw error }
+}
+
+function createVaultDataAdapter(handle: DirectoryHandle): VaultDataAdapter {
+  return {
+    async readText(path) { const file = await fileOrNull(handle, path); return file ? file.text() : null },
+    async readTextPrefix(path, bytes) { const file = await fileOrNull(handle, path); return file ? file.slice(0, bytes).text() : null },
+    writeText: (path, content) => writeFile(handle, path, content),
+    async remove(path) { try { await deleteFileAt(handle, path) } catch (error) { if (!isNotFound(error)) throw error } },
+    async list(folder) {
+      let directory: DirectoryHandle
+      try { directory = await directoryAt(handle, folder, false) } catch (error) { if (isNotFound(error)) return []; throw error }
+      const names: string[] = []
+      for await (const entry of directory.values()) if (entry.kind === "file") names.push(entry.name)
+      return names
+    },
+  }
+}
+
+/** Serializa as gravações entre abas do mesmo navegador (Web Locks); sem a API, segue direto. */
+async function withCrossTabLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { locks?: LockManager }).locks
+  return locks ? locks.request("runas-dm-vault-data", task) : task()
+}
+
+const knownKey = (vaultName: string, kind: VaultDataKind) => `runas-dm.vault-data.${vaultName}.${kind}`
+
+/** A revisão do arquivo que este navegador escreveu ou leu por último, por vault e por arquivo. */
+export function readKnownVaultRevision(vaultName: string, kind: VaultDataKind): KnownRevision | null {
+  try {
+    const raw = localStorage.getItem(knownKey(vaultName, kind))
+    const value = raw ? JSON.parse(raw) as Partial<KnownRevision> : null
+    return value && Number.isInteger(value.revision) && typeof value.writerId === "string" ? { revision: value.revision as number, writerId: value.writerId } : null
+  } catch {
+    return null
+  }
+}
+
+export function writeKnownVaultRevision(vaultName: string, kind: VaultDataKind, known: KnownRevision): void {
+  try { localStorage.setItem(knownKey(vaultName, kind), JSON.stringify(known)) } catch { /* no máximo uma pergunta a mais */ }
+}
+
+export type VaultDataAccess = { status: "no-vault" } | { status: "permission" }
+
+async function openVaultData(requestPermission: boolean): Promise<{ status: "ok"; name: string; adapter: VaultDataAdapter } | VaultDataAccess> {
+  const handle = await readLocalVaultHandle()
+  if (!handle) return { status: "no-vault" }
+  if (!await ensureWritePermission(handle, requestPermission)) return { status: "permission" }
+  return { status: "ok", name: handle.name, adapter: createVaultDataAdapter(handle) }
+}
+
+/** Grava o arquivo de dados. Sem permissão de escrita ele não pede sozinho (só com `requestPermission`, a partir de um clique). */
+export async function saveDataToLocalVault(kind: VaultDataKind, input: VaultSaveInput, options: { requestPermission?: boolean; force?: boolean } = {}): Promise<VaultSaveOutcome | VaultDataAccess> {
+  const opened = await openVaultData(options.requestPermission === true)
+  if (opened.status !== "ok") return opened
+  return withCrossTabLock(async () => {
+    const outcome = await saveVaultData(opened.adapter, kind, input, { writerId: getDeviceId(), known: readKnownVaultRevision(opened.name, kind), force: options.force })
+    if (outcome.status === "saved" || outcome.status === "unchanged") writeKnownVaultRevision(opened.name, kind, outcome.known)
+    return outcome
+  })
+}
+
+export async function inspectLocalVaultData(kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultInspection | VaultDataAccess> {
+  const opened = await openVaultData(options.requestPermission === true)
+  if (opened.status !== "ok") return opened
+  return inspectVaultData(opened.adapter, kind, readKnownVaultRevision(opened.name, kind))
+}
+
+export async function loadDataFromLocalVault<T = unknown>(kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultLoadResult<T> | VaultDataAccess> {
+  const opened = await openVaultData(options.requestPermission === true)
+  if (opened.status !== "ok") return opened
+  return loadVaultData<T>(opened.adapter, kind)
+}
+
+/** Depois de aplicar um arquivo neste dispositivo, a revisão dele passa a ser "conhecida": as próximas gravações continuam dele, sem conflito. */
+export async function adoptVaultDataRevision(kind: VaultDataKind, header: VaultDataHeader): Promise<void> {
+  const name = await localVaultName()
+  if (name) writeKnownVaultRevision(name, kind, knownRevisionOf(header))
 }

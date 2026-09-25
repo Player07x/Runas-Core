@@ -16,7 +16,20 @@ describe("Runas DM production navigation contract", () => {
     const source = await readFile(new URL("./knowledge-portal.tsx", import.meta.url), "utf8")
     expect(source).not.toContain("/api/campaign-auth")
     expect(source).not.toContain("AccessScreen")
-    expect(source).toContain("authorization: `Bearer ${token}`")
+    // O envio passa pelo cliente versionado, que é quem monta o cabeçalho com o token.
+    expect(source).toContain('from "../lib/cloud-backup"')
+    const client = await readFile(new URL("../lib/cloud-backup.ts", import.meta.url), "utf8")
+    expect(client).toContain("authorization: `Bearer ${token}`")
+  })
+
+  it("never writes to the cloud without going through the versioned client", async () => {
+    // Foi um PUT direto, sem versão-base, que deixou um computador novo apagar um backup bom.
+    for (const file of ["./knowledge-portal.tsx", "./dm-dashboard.tsx"]) {
+      const source = await readFile(new URL(file, import.meta.url), "utf8")
+      expect(source, file).not.toContain('method: "PUT"')
+      expect(source, file).not.toContain('fetch("/api/')
+      expect(source, file).toContain("putCloudBackup")
+    }
   })
 
   it("versions every deployed cache and never stores RSC payloads", async () => {

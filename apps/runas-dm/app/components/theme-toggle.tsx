@@ -2,10 +2,10 @@
 
 import { Moon, Sun } from "lucide-react"
 import { useSyncExternalStore } from "react"
+import { THEME_STORAGE_KEY } from "../lib/ui-preferences"
 
 export type Theme = "dark" | "light"
 
-const THEME_STORAGE_KEY = "runas-dm.theme"
 const listeners = new Set<() => void>()
 
 export function applyTheme(theme: Theme) {

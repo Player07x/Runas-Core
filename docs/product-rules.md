@@ -58,16 +58,42 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - O estado de salvamento continua fora do painel, reduzido a um ponto colorido no próprio botão: num aplicativo local-first, saber que a alteração foi gravada não pode depender de abrir um menu.
 - A barra do arquivo do mestre (Campanhas e Wiki) exibe o selo `DM` e a navegação completa.
 - Campanhas e Wiki abrem sem login nem senha. O token de backup apenas ativa a cópia na nuvem; sem ele, tudo continua local.
+- O painel também mostra, com honestidade, o estado da cópia: `Nuvem: enviado às 15:03`, `Nuvem: ação necessária`, `Nuvem: falhou — <motivo>` e `Vault: …`. Um backup que falhou nunca aparece como "salvo".
+
+## Backup e dados do mestre
+
+- **Nada se perde depois de um backup.** Uma gravação de backup nunca substitui uma cópia sem saber qual cópia está substituindo, nunca a substitui por algo muito menor sem confirmação explícita, e a versão anterior continua recuperável. Vale para a nuvem e para os arquivos do vault.
+- O backup guarda **somente** Bestiário (fichas e tabelas de maestria), Campanhas e Wiki. Mesa (encontro, iniciativa e notas da Mesa), notas do Livro Vermelho e qualquer nota fora das pastas permitidas nunca entram, na nuvem ou no vault.
+- Um dispositivo sem dado algum do mestre (por exemplo, um computador novo) nunca envia nem grava nada: o backup só sai de quem tem o que salvar.
+- Um dispositivo que ainda não recebeu a versão atual da nuvem não a sobrescreve. O mestre escolhe entre **Importar e mesclar**, **Substituir a nuvem por este dispositivo** (com confirmação) e **Cancelar**.
+- Toda gravação na nuvem passa por `lib/cloud-backup.ts`; nenhum componente faz `fetch("/api/…")` nem `PUT` direto.
+- Tudo o que o site sabe e as notas não guardam — estilo e organizador das campanhas, tags com ícone e cor, eras com anos, exclusões, preferências de interface e o Bestiário — vive também em `Runas DM/*.json` dentro do vault. Ao conectar o vault num computador novo, esses dados voltam sozinhos; se o dispositivo já tem dados, o mestre escolhe **Mesclar**, **Substituir tudo** ou **Manter**.
+- Um arquivo de dados do vault que este navegador não conhece (outro computador, cópia, edição à mão) nunca é sobrescrito sem decisão do mestre.
+- O mestre pode exportar e importar esses dados em JSON, sem vault e sem nuvem.
+
+## Nomes que nunca perdem colchetes
+
+- Nomes de campanha e tags podem começar com `[`, como `[O&C] Lion Heart pt. II`. Importar, exportar, restaurar ou mesclar nunca remove, divide nem move esses colchetes. Um valor só é lista quando não tem aspas e o primeiro `[` fecha no último caractere.
+- Nunca use `.replace(/^\[/…` ou `.replace(/\]$/…` sobre nomes; use `referenceList`, `tagList` e `stringList` (`lib/frontmatter-values.ts`). `bracket-safety.test.ts` protege isso.
 
 ## Wiki: História
 
 **Pastas permitidas do vault.** A sincronização com o Obsidian usa lista de
 permissão: só entram notas cuja pasta raiz seja uma das sete categorias da
 Wiki (ou o alias `Cronologia Geral`) ou `Campanhas`. Nota solta na raiz, pasta
-de outro universo e `Runas-Book/` nunca viram página, mesmo com `runas_id` no
-frontmatter. Uma página já rastreada fora dessas pastas **não** é apagada em
-silêncio: `pagesOutsideAllowedFolders` a lista para remoção explícita, que tira
-o registro do site e nunca toca no `.md`.
+de outro universo, `Runas Book/`, `Runas DM/`, `Outros Documentos/` e
+`_Arquivo morto/` nunca viram página, mesmo com `runas_id` no frontmatter, e a
+sincronização de notas **nunca as reescreve** nem cria backup delas (`Runas DM/`
+só recebe os arquivos de dados do site). Uma página já rastreada fora
+dessas pastas **não** é apagada em silêncio: `pagesOutsideAllowedFolders` a
+lista para remoção explícita, uma a uma ou todas de uma vez
+(`removePagesOutsideAllowedFolders`), que tira o registro do site e nunca toca
+no `.md`.
+
+**Nomes e estrutura.** O arquivo de uma nota nova tem o título exato como nome
+(`noteFileName`). `Personagens` é uma seção plana, sem subpastas de categoria;
+uma era nova mora na própria pasta (`Cronologia/<Era>/<Era>.md`). A norma
+completa está em `docs/obsidian-vault-organization.md`.
 
 
 - `História` é uma seção da Wiki, ao lado de Cronologia. Uma página de História não é escrita como texto: ela é a sequência ordenada dos seus **acontecimentos**.

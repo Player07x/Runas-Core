@@ -191,3 +191,27 @@ describe("knowledge model", () => {
     expect(normalized.campaigns[0].organizer).toMatchObject({ nodes: [{ id: "n1" }], edges: [{ id: "valid" }] })
   })
 })
+
+describe("nomes com colchetes no modelo", () => {
+  it("reconhece vínculos para páginas cujo nome começa com colchete", () => {
+    expect(wikiLinkTitles("Veja [[[O&C] Lion Heart]], [[[nome]]] e [[Zotera]].")).toEqual(["[O&C] Lion Heart", "[nome]", "Zotera"])
+    expect(wikiLinkTitles("[[[O&C] Lion Heart pt. II (Campanha)|a campanha]] e [[[nome] Foo#Origem]]")).toEqual(["[O&C] Lion Heart pt. II (Campanha)", "[nome] Foo"])
+  })
+
+  it("não confunde texto solto com colchetes com um vínculo", () => {
+    expect(wikiLinkTitles("[nome] resto, [outro] e [[ ]]")).toEqual([])
+  })
+
+  it("duas tags que só diferem na pontuação nunca compartilham o mesmo id", () => {
+    const state = normalizeKnowledgeWorkspace({
+      pages: [
+        { id: "p1", scope: "wiki", kind: "geography", title: "A", tags: ["[O&C] Foo"], createdAt: 1, updatedAt: 1 },
+        { id: "p2", scope: "wiki", kind: "geography", title: "B", tags: ["O&C] Foo"], createdAt: 1, updatedAt: 1 },
+      ],
+    })
+    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["O&C] Foo", "[O&C] Foo"])
+    expect(new Set(state.tags.map((tag) => tag.id)).size).toBe(2)
+    // Ids que já eram únicos não mudam: normalizar de novo devolve o mesmo resultado.
+    expect(normalizeKnowledgeWorkspace(state).tags.map((tag) => tag.id)).toEqual(state.tags.map((tag) => tag.id))
+  })
+})

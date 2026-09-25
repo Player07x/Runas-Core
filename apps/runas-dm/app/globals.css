@@ -61,6 +61,9 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .topbar-status-dot.idle { background: var(--muted); box-shadow: none; }
 .topbar-menu-panel { position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; display: grid; width: 244px; gap: 2px; padding: 7px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--panel); box-shadow: var(--shadow); }
 .topbar-menu-status { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 9px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.topbar-menu-details { display: grid; gap: 4px; margin: 0; padding: 6px 9px 8px; border-bottom: 1px solid var(--line); }
+.topbar-menu-detail { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.topbar-menu-detail.attention { color: var(--red); }
 .topbar-menu-item { display: flex; width: 100%; align-items: center; gap: 10px; padding: 9px; border: 0; border-radius: 9px; background: transparent; color: var(--text); cursor: pointer; font-size: 13px; text-align: left; text-decoration: none; }
 .topbar-menu-item:hover { background: var(--panel-2); }
 .topbar-menu-item svg { flex: 0 0 auto; color: var(--muted); }
@@ -1000,6 +1003,10 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .knowledge-warning > header { display: grid; gap: 4px; }
 .knowledge-warning > header strong { font-size: 14px; }
 .knowledge-warning > header p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.outside-pages-notice > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.outside-pages-notice > header p { margin: 4px 0 0; }
+.outside-pages-notice .outside-remove-all { flex-shrink: 0; min-height: 34px; padding: 0 13px; border: 1px solid var(--red, #c76561); border-radius: 8px; background: transparent; color: var(--red, #c76561); cursor: pointer; font-size: 12px; font-weight: 800; }
+.outside-pages-notice .outside-remove-all:hover { background: var(--red, #c76561); color: #fff; }
 .outside-pages-notice ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .outside-pages-notice li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
 .outside-pages-notice li span { display: grid; min-width: 0; gap: 2px; }
@@ -1220,3 +1227,14 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .era-card > footer { position: absolute; right: 6px; bottom: 5px; display: flex; gap: 1px; min-height: 0; margin: 0; padding: 0; border: 0; }
 .era-card > footer button { display: grid; width: 25px; height: 25px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .era-card > footer button:hover { background: var(--panel-hover); color: var(--text); }
+.vault-data-panel { flex-wrap: wrap; align-items: flex-start; }
+.vault-data-panel > div:first-child { flex: 1 1 320px; align-items: flex-start; }
+.vault-data-panel > div:last-child { flex-wrap: wrap; }
+.vault-data-panel strong { white-space: normal; }
+.vault-data-panel small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.vault-data-files { display: grid; gap: 3px; margin: 6px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.vault-data-files b { color: var(--text); font-weight: 700; }
+.vault-data-message { flex: 1 1 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.vault-data-message.attention { color: var(--red); }
+.vault-data-import { position: relative; overflow: hidden; }
+.vault-data-import input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }

@@ -1,7 +1,9 @@
-import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKI_NESTED_KINDS, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, pageKindLabel, wikiLinkTitles, withStoryEvents, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
+import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKILINK_TARGET_SOURCE, WIKI_NESTED_KINDS, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, pageKindLabel, wikiLinkTitles, withStoryEvents, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
+import { parseYamlScalar, referenceList, restoreStrippedBracket, stringList, tagList } from "./frontmatter-values"
+import { hashText } from "./snapshot-policy"
 import { createTextZip, downloadBlob, safeFilename } from "./export"
 import { cacheVaultAsset, readCachedVaultAsset } from "./vault-assets"
-import { fictionalYear } from "./chronology"
+import { UNIVERSE_ERAS, fictionalYear } from "./chronology"
 import { normalizeMissionOrder } from "./knowledge-model"
 
 export const WIKI_VAULT_FOLDERS = WIKI_SECTIONS.map((section) => section.label)
@@ -12,8 +14,15 @@ export const STORY_VAULT_FOLDER = WIKI_SECTIONS.find((section) => section.id ===
 // organização física das novas notas. Runas-Book é a pasta raiz de outro app
 // (@runas/book) que pode compartilhar o mesmo vault; seu conteúdo nunca
 // pertence à Wiki/Campanhas do Runas DM.
-export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Campanhas", "Runas-Book"]
+// `Runas Book`/`Runas-Book` são a mesma pasta em duas grafias; `Runas DM` guarda
+// os arquivos de dados do próprio site e `Outros Documentos` é a área particular
+// (antiga `Histórias`) — nenhuma delas jamais é lida como página nem reescrita.
+export const IGNORED_VAULT_FOLDERS = [".obsidian", ".trash", "Assets", "Bases", "Templates", "Notas", "Histórias", "Historias", "Outros Documentos", "Campanhas", "Runas-Book", "Runas Book", "Runas DM", "_Arquivo morto"]
 export const CAMPAIGN_VAULT_FOLDER = "Campanhas"
+/** Seções da Wiki sem subpasta por tag. */
+const FLAT_WIKI_KINDS: ReadonlySet<string> = new Set(["characters"])
+/** Pastas de tipo dentro de uma campanha (e do formato antigo, sem pasta por campanha). */
+const CAMPAIGN_TYPE_FOLDERS = ["Eventos e Missões", "Anotações", "Encontros", "Sessões"].map((name) => name.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLocaleLowerCase("pt-BR"))
 
 export interface VaultNote {
   path: string
@@ -58,19 +67,24 @@ function extraFrontmatterLines(extra: Record<string, unknown>): string[] {
   })
 }
 
-function stringArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String).map((item) => item.trim().replace(/^#/, "")).filter(Boolean)
-  if (typeof value !== "string") return []
-  const source = value.trim().replace(/^\[/, "").replace(/\]$/, "")
-  return source.split(/[,\n]/).map((item) => item.trim().replace(/^['"]|['"]$/g, "").replace(/^#/, "")).filter(Boolean)
-}
-
 function text(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : typeof value === "number" ? String(value) : fallback
 }
 
 function filePart(value: string, fallback: string): string {
   return safeFilename(value, fallback).replace(/_/g, " ")
+}
+
+/**
+ * Nome do arquivo de uma nota: o título exato — acentos, vírgulas e parênteses
+ * incluídos —, só sem o que o sistema de arquivos ou os links do Obsidian não
+ * aceitam (`<>:"/\\|?*#^[]`). Antes o nome era ASCII e sem pontuação
+ * (`Batalha de Mefise.md` para "Batalha de Méfise"), então os vínculos
+ * `[[Batalha de Méfise]]` nunca achavam a nota no Obsidian.
+ */
+export function noteFileName(title: string, fallback: string): string {
+  const name = title.normalize("NFC").replace(/[<>:"/\\|?*#^[\]\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 150).replace(/[. ]+$/, "")
+  return name || fallback
 }
 
 function folderPart(value: string, fallback: string): string {
@@ -132,12 +146,20 @@ export function isIgnoredVaultPath(path: string): boolean {
   return ignoredIndex >= 0 && (sectionIndex < 0 || ignoredIndex < sectionIndex)
 }
 
+/**
+ * Só as sete seções da Wiki (com o alias legado `Cronologia Geral`) e
+ * `Campanhas` pertencem ao Runas DM. É a única lista de permissão: a leitura do
+ * vault, a importação e a exportação a consultam, então nenhuma outra pasta
+ * (Livro Vermelho, Templates, arquivo morto, notas soltas…) é lida ou tocada.
+ */
+export function isSynchronizableRootFolder(name: string): boolean {
+  const root = normalizedLabel(name)
+  return root === "cronologia geral" || root === normalizedLabel(CAMPAIGN_VAULT_FOLDER) || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === root)
+}
+
 export function isSynchronizableVaultPath(path: string): boolean {
   const parts = normalizePath(path).split("/")
-  const root = normalizedLabel(parts[0] ?? "")
-  const allowedWiki = root === "cronologia geral" || WIKI_SECTIONS.some((section) => normalizedLabel(section.label) === root)
-  const allowedCampaign = root === normalizedLabel(CAMPAIGN_VAULT_FOLDER)
-  if (!allowedWiki && !allowedCampaign) return false
+  if (!isSynchronizableRootFolder(parts[0] ?? "")) return false
   return !isIgnoredVaultPath(path)
 }
 
@@ -151,6 +173,29 @@ export function isSynchronizableVaultPath(path: string): boolean {
  */
 export function pagesOutsideAllowedFolders(state: KnowledgeWorkspaceState): KnowledgePage[] {
   return state.pages.filter((page) => Boolean(page.obsidianPath) && !isSynchronizableVaultPath(page.obsidianPath as string))
+}
+
+/**
+ * Tira do site todos os registros de `pagesOutsideAllowedFolders`. É a ação explícita do mestre: só o
+ * registro sai, o `.md` do vault nunca é tocado. Os ids viram lápides para que um backup antigo — da
+ * época em que esses registros existiam — não os devolva numa mesclagem, e as referências a eles
+ * (vínculos, tópicos de história, páginas do Mundo) são limpas.
+ */
+export function removePagesOutsideAllowedFolders(state: KnowledgeWorkspaceState): KnowledgeWorkspaceState {
+  const outside = new Set(pagesOutsideAllowedFolders(state).map((page) => page.id))
+  if (outside.size === 0) return state
+  const references = (ids: string[] | undefined) => Boolean(ids?.some((id) => outside.has(id)))
+  const without = (ids: string[]) => ids.filter((id) => !outside.has(id))
+  return {
+    ...state,
+    pages: state.pages.filter((page) => !outside.has(page.id)).map((page) => references(page.linkedPageIds) || references(page.storyEventIds)
+      ? { ...page, linkedPageIds: without(page.linkedPageIds), storyEventIds: without(page.storyEventIds) }
+      : page),
+    campaigns: state.campaigns.map((campaign) => references(campaign.worldPageIds) || references(campaign.storyIds)
+      ? { ...campaign, worldPageIds: without(campaign.worldPageIds), ...(campaign.storyIds ? { storyIds: without(campaign.storyIds) } : {}) }
+      : campaign),
+    deletedIds: [...new Set([...state.deletedIds, ...outside])],
+  }
 }
 
 function kindFromValue(value: unknown, scope: "wiki" | "campaign", fallback?: KnowledgePageKind): KnowledgePageKind {
@@ -205,7 +250,12 @@ function campaignLocation(path: string, campaigns: CampaignRecord[] = []): { cat
   const parts = normalizePath(path).split("/")
   if (normalizedLabel(parts[0] ?? "") !== normalizedLabel(CAMPAIGN_VAULT_FOLDER)) return null
   const campaignSegment = parts[1] ?? ""
+  // A pasta da campanha se reconhece pelo título de uma campanha conhecida OU
+  // pela própria estrutura `Campanhas/<campanha>/<tipo>/<arquivo>`. Só o
+  // primeiro critério fazia a primeira importação de uma campanha (que ainda não
+  // existia) tratar o nome dela como categoria, e o nome virava tag da página.
   const isCampaignFolder = campaigns.some((campaign) => normalizedLabel(folderPart(campaign.title, "")) === normalizedLabel(campaignSegment))
+    || (parts.length >= 4 && !CAMPAIGN_TYPE_FOLDERS.includes(normalizedLabel(campaignSegment)))
   const category = parts[isCampaignFolder ? 2 : 1] ?? ""
   return { category: category && !category.toLocaleLowerCase("pt-BR").endsWith(".md") ? category : "" }
 }
@@ -220,9 +270,11 @@ function campaignFor(page: KnowledgePage, campaigns: CampaignRecord[]): Campaign
  * vault real para apontar a campanha de origem de uma nota.
  */
 function referencedCampaignTitle(frontmatter: Record<string, unknown>): string {
-  const references = [...stringArray(frontmatter.campanha), ...stringArray(frontmatter.Campanha), ...stringArray(frontmatter["Obra de Origem"])]
+  // `referenceList` nunca divide nem mexe nos colchetes: `[O&C] Lion Heart pt. II`
+  // é o nome da campanha inteiro. Só um `[[wikilink]]` é desembrulhado.
+  const references = [...referenceList(frontmatter.campanha), ...referenceList(frontmatter.Campanha), ...referenceList(frontmatter["Obra de Origem"])]
   for (const reference of references) {
-    const title = (wikiLinkTitles(reference)[0] ?? reference).replace(/\s*\(campanha\)$/i, "").trim()
+    const title = restoreStrippedBracket((wikiLinkTitles(reference)[0] ?? reference).replace(/\s*\(campanha\)$/i, "").trim())
     if (title) return title
   }
   return ""
@@ -256,7 +308,7 @@ function renderInlineMarkdown(value: string): string {
   }
   let rendered = value
     .replace(/!\[\[([^\]]+)\]\]/g, (_match, target: string) => token(`<span data-obsidian-embed="${escapeHtml(target.trim())}">![[${escapeHtml(target.trim())}]]</span>`))
-    .replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, title: string, alias?: string) => token(`<a href="#wiki:${encodeURIComponent(title.trim())}" data-wiki-title="${escapeHtml(title.trim())}">${escapeHtml((alias || title).trim())}</a>`))
+    .replace(new RegExp(String.raw`\[\[(${WIKILINK_TARGET_SOURCE})(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]`, "g"), (_match, title: string, alias?: string) => token(`<a href="#wiki:${encodeURIComponent(title.trim())}" data-wiki-title="${escapeHtml(title.trim())}">${escapeHtml((alias || title).trim())}</a>`))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|obsidian:[^\s)]+|#[^\s)]+)\)/g, (_match, label: string, href: string) => token(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`))
   rendered = escapeHtml(rendered)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -273,6 +325,10 @@ export function markdownToHtml(markdown: string): string {
   let paragraph: string[] = []
   let list: { ordered: boolean; items: string[] } | null = null
   let code: string[] | null = null
+  // Linhas `>` seguidas formam UMA citação: é assim que o Obsidian desenha um callout (`> [!tipo] Título` + `> texto`).
+  // Uma linha em branco separa citações diferentes. Uma citação por linha quebrava o callout ao regravar a nota.
+  let quote: string[] | null = null
+  const flushQuote = () => { if (quote) output.push(`<blockquote>${quote.map(renderInlineMarkdown).join("<br>")}</blockquote>`); quote = null }
   const flushParagraph = () => { if (paragraph.length) output.push(`<p>${renderInlineMarkdown(paragraph.join(" ").trim())}</p>`); paragraph = [] }
   const flushList = () => {
     if (!list) return
@@ -281,6 +337,7 @@ export function markdownToHtml(markdown: string): string {
     list = null
   }
   for (const line of lines) {
+    if (code || !/^>\s?/.test(line)) flushQuote()
     if (line.startsWith("```")) {
       flushParagraph(); flushList()
       if (code) { output.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`); code = null } else code = []
@@ -299,14 +356,15 @@ export function markdownToHtml(markdown: string): string {
       list ??= { ordered: isOrdered, items: [] }
       list.items.push((unordered?.[1] ?? ordered?.[1] ?? "").trim())
     } else if (/^>\s?/.test(line)) {
-      flushParagraph(); flushList(); output.push(`<blockquote>${renderInlineMarkdown(line.replace(/^>\s?/, ""))}</blockquote>`)
+      flushParagraph(); flushList()
+      ;(quote ??= []).push(line.replace(/^>\s?/, ""))
     } else if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) {
       flushParagraph(); flushList(); output.push("<hr>")
     } else if (!line.trim()) {
       flushParagraph(); flushList()
     } else paragraph.push(line.trim())
   }
-  flushParagraph(); flushList()
+  flushParagraph(); flushList(); flushQuote()
   if (code) output.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`)
   return output.join("")
 }
@@ -332,7 +390,8 @@ export function htmlToMarkdown(value: string): string {
       case "STRONG": case "B": return `**${children}**`
       case "EM": case "I": return `*${children}*`
       case "U": return `<u>${children}</u>`
-      case "BLOCKQUOTE": return children.split("\n").filter(Boolean).map((line) => `> ${line}`).join("\n") + "\n\n"
+      // Cada linha da citação (`<br>`) volta como `> linha`, contíguas: `> [!tipo] Título` + `> texto` continua um callout.
+      case "BLOCKQUOTE": return `${children.replace(/^\n+|\n+$/g, "").split("\n").map((line) => line ? `> ${line}` : ">").join("\n")}\n\n`
       case "UL": return `${[...node.children].map((child) => `- ${render(child).trim()}`).join("\n")}\n\n`
       case "OL": return `${[...node.children].map((child, index) => `${index + 1}. ${render(child).trim()}`).join("\n")}\n\n`
       case "LI": return children
@@ -348,6 +407,15 @@ export function htmlToMarkdown(value: string): string {
     }
   }
   return [...documentValue.body.childNodes].map(render).join("").replace(/\n{3,}/g, "\n\n").trim()
+}
+
+/**
+ * O corpo já abre com o resumo? A comparação ignora quebras de linha e espaços repetidos, porque o
+ * resumo derivado de um callout (`> [!tipo] Título > texto`) sai numa linha só e o corpo em várias.
+ */
+export function bodyStartsWithSummary(body: string, summary: string): boolean {
+  const flatten = (value: string) => value.replace(/\s+/g, " ").trim()
+  return Boolean(summary.trim()) && flatten(body).startsWith(flatten(summary))
 }
 
 export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceState): string {
@@ -382,13 +450,18 @@ export function pageToMarkdown(page: KnowledgePage, state: KnowledgeWorkspaceSta
     return event ? [`- [[${event.title || "Evento sem nome"}]]`] : []
   }).join("\n")
   const body = page.kind === "encounter" ? "" : page.kind === "story" ? storyBody : htmlToMarkdown(page.contentHtml)
-  return `${frontmatter}\n\n# ${page.title}\n\n${page.summary ? `${page.kind === "encounter" ? "## Notas do mestre\n\n" : ""}${page.summary}\n\n` : ""}${body}${relations}${encounter}\n`
+  // Uma nota sem `runas_summary` ganha, na importação, um resumo tirado do primeiro bloco do texto.
+  // Se o corpo ainda começa com esse trecho, escrevê-lo de novo como parágrafo duplicava o começo
+  // da nota (e achatava callouts); ele continua no frontmatter, que é onde o resumo mora.
+  const summaryAlreadyInBody = page.kind !== "encounter" && bodyStartsWithSummary(body, page.summary)
+  const summaryParagraph = page.summary && !summaryAlreadyInBody ? `${page.kind === "encounter" ? "## Notas do mestre\n\n" : ""}${page.summary}\n\n` : ""
+  return `${frontmatter}\n\n# ${page.title}\n\n${summaryParagraph}${body}${relations}${encounter}\n`
 }
 
 /** Wiki usa pasta por seção e, quando presente, a primeira tag como subpasta. */
 export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspaceState, rootFolder = ""): string {
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
-  const filename = `${filePart(page.title, "Página sem nome")}.md`
+  const filename = `${noteFileName(page.title, "Página sem nome")}.md`
   if (page.scope === "campaign") {
     const campaignFolder = folderPart(campaignFor(page, state.campaigns)?.title ?? "", "Sem campanha")
     const folder = page.kind === "mission" || page.kind === "event" ? "Eventos e Missões" : page.kind === "encounter" ? "Encontros" : "Anotações"
@@ -401,14 +474,19 @@ export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspa
   // categoria legada apenas para calcular o caminho físico. Novas páginas
   // sempre chegam aqui com tags.
   const legacyPrimaryCategory = state.categories.find((category) => page.categoryIds.includes(category.id) && category.scope === "wiki")?.name
-  const primaryTag = page.tags[0] ?? legacyPrimaryCategory
+  // Personagens não se divide em pastas de categoria: as notas ficam na raiz da seção e as tags só
+  // aparecem no frontmatter (decisão do mestre; a Wiki as agrupa por tag de qualquer forma).
+  // Uma era nova ganha a própria pasta (`Cronologia/<Era>/<Era>.md`), como as que o vault já tem; sem isso ela
+  // caía solta em `Cronologia/` e o vault ficava metade em pastas, metade não.
+  const primaryTag = FLAT_WIKI_KINDS.has(page.kind) ? undefined
+    : page.tags[0] ?? (page.kind === "chronology" ? page.title : legacyPrimaryCategory)
   return pathInsideRoot(joinVaultPath(section, primaryTag ? folderPart(primaryTag, "Tag") : "", filename), rootFolder)
 }
 
 /** Organização usada quando o vault possui pelo menos um arquivo `.base`. */
 export function organizedObsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspaceState, rootFolder = ""): string {
   if (page.obsidianPath) return normalizePath(page.obsidianPath)
-  const filename = `${filePart(page.title, "Página sem nome")}.md`
+  const filename = `${noteFileName(page.title, "Página sem nome")}.md`
   if (page.scope === "wiki") return obsidianPathForPage(page, state, rootFolder)
   // Cada campanha ganha sua própria subpasta: sem isso, missões, anotações e
   // encontros de campanhas diferentes cairiam todos nas mesmas pastas
@@ -422,29 +500,31 @@ export function organizedObsidianPathForPage(page: KnowledgePage, state: Knowled
   return pathInsideRoot(joinVaultPath(CAMPAIGN_VAULT_FOLDER, campaignFolder, folder, filename), rootFolder)
 }
 
-export function exportKnowledgeZip(state: KnowledgeWorkspaceState): void {
+export interface ZipEntry { name: string; content: string }
+
+/**
+ * Arquivos do ZIP de exportação: uma nota por página do escopo do site, o LEIA-ME e os `extraFiles`
+ * (o chamador acrescenta os dados de `Runas DM/`; este módulo não os importa para não criar ciclo).
+ * Registros de notas de outros apps (`pagesOutsideAllowedFolders`) não entram.
+ */
+export function buildKnowledgeZipFiles(state: KnowledgeWorkspaceState, extraFiles: ZipEntry[] = []): ZipEntry[] {
   const used = new Set<string>()
-  const files = state.pages.map((page) => {
+  const outside = new Set(pagesOutsideAllowedFolders(state).map((page) => page.id))
+  const files: ZipEntry[] = state.pages.filter((page) => !outside.has(page.id)).map((page) => {
     let name = obsidianPathForPage({ ...page, obsidianPath: "" }, state, "")
     if (used.has(normalizedLabel(name))) name = name.replace(/\.md$/i, ` (${page.id.slice(-8)}).md`)
     used.add(normalizedLabel(name))
     return { name, content: pageToMarkdown(page, state) }
   })
-  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações. Cada história é uma subpasta de História, com um arquivo por acontecimento. A primeira tag define a subpasta física; todas as tags ficam no frontmatter. Anexos ficam em `Assets`.\n" })
-  const zip = createTextZip(files)
+  files.push({ name: "LEIA-ME Runas DM.md", content: "---\nrunas_system: true\n---\n\n# Arquivo Runas DM\n\nA Wiki usa as pastas Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações; as campanhas ficam em `Campanhas/<Campanha>`. Cada história é uma subpasta de História, com um arquivo por acontecimento. Personagens não tem subpastas; nas demais seções a primeira tag define a subpasta física. Todas as tags ficam no frontmatter. Anexos ficam em `Assets`, documentos particulares em `Outros Documentos` e os dados do site (campanhas, estilo, tags, eras, bestiário) em `Runas DM`.\n" })
+  return [...files, ...extraFiles]
+}
+
+export function exportKnowledgeZip(state: KnowledgeWorkspaceState, extraFiles: ZipEntry[] = []): void {
+  const zip = createTextZip(buildKnowledgeZipFiles(state, extraFiles))
   const buffer = new ArrayBuffer(zip.byteLength)
   new Uint8Array(buffer).set(zip)
   downloadBlob(new Blob([buffer], { type: "application/zip" }), `runas-dm-obsidian-${new Date().toISOString().slice(0, 10)}.zip`)
-}
-
-function parseYamlScalar(value: string): unknown {
-  const trimmed = value.trim()
-  if (!trimmed) return ""
-  try { return JSON.parse(trimmed) } catch { /* YAML simples continua abaixo. */ }
-  if (trimmed === "true") return true
-  if (trimmed === "false") return false
-  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed)
-  return trimmed.replace(/^['"]|['"]$/g, "")
 }
 
 export function parseMarkdownFrontmatter(markdown: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -560,7 +640,7 @@ function statusFromValue(value: unknown): KnowledgePage["status"] {
 const KNOWN_FRONTMATTER_KEYS = new Set([
   "runas", "runas_id", "runas_scope", "runas_kind", "runas_title", "runas_summary", "Resumo", "runas_created_at", "runas_updated_at",
   "tipo", "status", "status_personagem", "data", "Data", "campanha", "runas_campaign_id", "tags", "categorias", "runas_linked_ids",
-  "ordem", "runas_era", "ano_evento", "ficha_bestiario", "runas_story_events",
+  "ordem", "runas_era", "ano_evento", "ficha_bestiario", "runas_story_events", "runas_story_view",
 ])
 
 function extraFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {
@@ -609,12 +689,20 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     eraId: text(frontmatter.runas_era ?? fallback?.eraId),
     eventYear: fictionalYear(frontmatter.ano_evento ?? fallback?.eventYear),
     backgroundImageDataUrl: fallback?.backgroundImageDataUrl ?? "",
+    // Campos que só existem no site (o Markdown não os guarda): reler a nota não pode apagá-los.
+    // Sem isto, editar no Obsidian uma página de era zerava o intervalo de anos dela.
+    eraStartYear: fallback?.eraStartYear ?? null,
+    eraEndYear: fallback?.eraEndYear ?? null,
+    eraCalendar: fallback?.eraCalendar ?? "C.E.",
+    icon: fallback?.icon,
+    accentColor: fallback?.accentColor,
+    imageBlur: fallback?.imageBlur,
     characterStatus: kind === "characters" && ["alive", "dead", "unknown"].includes(text(frontmatter.status_personagem)) ? text(frontmatter.status_personagem) as KnowledgePage["characterStatus"] : kind === "characters" ? "unknown" : undefined,
-    tags: [...new Set([...stringArray(frontmatter.tags), ...stringArray(frontmatter.categorias), ...(wikiLocationMatch?.category ? [wikiLocationMatch.category] : [])])],
+    tags: [...new Set([...tagList(frontmatter.tags), ...tagList(frontmatter.categorias), ...(wikiLocationMatch?.category ? [wikiLocationMatch.category] : [])])],
     categoryIds: [],
-    linkedPageIds: stringArray(frontmatter.runas_linked_ids),
+    linkedPageIds: stringList(frontmatter.runas_linked_ids),
     bestiaryEntryId: text(frontmatter.ficha_bestiario) || null,
-    storyEventIds: kind === "story" ? stringArray(frontmatter.runas_story_events) : [],
+    storyEventIds: kind === "story" ? stringList(frontmatter.runas_story_events) : [],
     storyViewMode: text(frontmatter.runas_story_view) === "chronology" ? "chronology" : "tale",
     encounterCreatures: fallback?.encounterCreatures ?? [],
     obsidianPath: normalizePath(note.path),
@@ -625,8 +713,24 @@ function noteToPage(note: VaultNote, state: KnowledgeWorkspaceState, fallback?: 
     createdAt: Number(frontmatter.runas_created_at) || fallback?.createdAt || note.createdAt,
     updatedAt: Number(frontmatter.runas_updated_at) || note.modifiedAt,
   }
-  page.categoryIds = ensureCategories(state.categories, [...new Set([...(location?.category ? [location.category] : []), ...(locationCampaign?.category && scope === "campaign" ? [locationCampaign.category] : [])])], scope, page.campaignId)
+  // Recalculada só agora, com a campanha já criada: o nome da pasta da campanha
+  // nunca pode virar categoria (e, portanto, tag) da página.
+  const campaignFolder = scope === "campaign" ? campaignLocation(note.path, state.campaigns) : locationCampaign
+  page.categoryIds = ensureCategories(state.categories, [...new Set([...(location?.category ? [location.category] : []), ...(campaignFolder?.category && scope === "campaign" ? [campaignFolder.category] : [])])], scope, page.campaignId)
   return page
+}
+
+/**
+ * O Markdown de uma era não guarda os anos dela. Uma era canônica (`era-<id>`, das
+ * tabelas de `[O&C] História do Universo`) que chega ao dispositivo pela primeira
+ * vez sem anos recebe os do documento; o que o mestre editou depois só volta com os
+ * arquivos de dados do vault. Nunca sobrescreve anos já conhecidos.
+ */
+function withCanonicalEraYears(page: KnowledgePage): KnowledgePage {
+  if (page.scope !== "wiki" || page.kind !== "chronology" || !page.id.startsWith("era-") || page.eraStartYear != null || page.eraEndYear != null) return page
+  const preset = UNIVERSE_ERAS.find((era) => `era-${era.id}` === page.id)
+  if (!preset || (preset.startYear == null && preset.endYear == null)) return page
+  return { ...page, eraStartYear: preset.startYear, eraEndYear: preset.endYear, eraCalendar: preset.calendar, icon: page.icon || "🕰️" }
 }
 
 export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: VaultNote[]): { state: KnowledgeWorkspaceState; imported: number } {
@@ -716,7 +820,7 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
         state.pages[existingIndex] = retained
       }
     } else {
-      state.pages.push(remote)
+      state.pages.push(withCanonicalEraYears(remote))
       imported += 1
     }
     if (adoptedRemote) importedPages.push({ pageId: existingIndex >= 0 ? state.pages[existingIndex].id : remote.id, markdown: note.markdown })
@@ -879,12 +983,17 @@ async function pageWithVaultAttachments(page: KnowledgePage, adapter: VaultAdapt
   return { ...page, contentHtml: documentValue.body.innerHTML }
 }
 
-function backupPath(path: string, rootFolder: string): string {
+/**
+ * O nome carrega o caminho e o **conteúdo** (não a hora): a mesma cópia gravada
+ * de novo cai no mesmo arquivo. Com carimbo de data, um laço de sincronização
+ * (como o que reescrevia as notas do Livro Vermelho) gerava centenas de cópias
+ * idênticas.
+ */
+function backupPath(path: string, rootFolder: string, markdown: string): string {
   const filename = filePart(path.split("/").pop()?.replace(/\.md$/i, "") ?? "Documento", "Documento")
   let pathHash = 0
   for (const character of normalizePath(path)) pathHash = (pathHash * 31 + character.charCodeAt(0)) >>> 0
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  return pathInsideRoot(`Assets/Runas DM Backups/${filename}-${pathHash.toString(36)}-${stamp}.md`, rootFolder)
+  return pathInsideRoot(`Assets/Runas DM Backups/${filename}-${pathHash.toString(36)}-${hashText(markdown).replace(":", "")}.md`, rootFolder)
 }
 
 /**
@@ -899,7 +1008,7 @@ export async function deleteVaultNote(page: KnowledgePage, adapter: VaultAdapter
   try {
     markdown = (await adapter.readNote(page.obsidianPath)).markdown
   } catch { /* o arquivo já pode ter sido removido fora do site; usa a última cópia conhecida */ }
-  if (markdown) await adapter.writeText(backupPath(page.obsidianPath, rootFolder), markdown).catch(() => undefined)
+  if (markdown) await adapter.writeText(backupPath(page.obsidianPath, rootFolder, markdown), markdown).catch(() => undefined)
   await adapter.deleteFile(page.obsidianPath)
 }
 
@@ -918,7 +1027,7 @@ export async function deleteCampaignHubNotes(campaignTitle: string, adapter: Vau
     const match = filename.match(/^(.+?)\s*\(Campanha\)$/i)
     if (!match || !campaignTitleMatches(campaignTitle, match[1].trim())) continue
     const note = await adapter.readNote(path).catch(() => null)
-    if (note) await adapter.writeText(backupPath(path, rootFolder), note.markdown).catch(() => undefined)
+    if (note) await adapter.writeText(backupPath(path, rootFolder, note.markdown), note.markdown).catch(() => undefined)
     await adapter.deleteFile(path)
     deleted += 1
   }
@@ -956,6 +1065,17 @@ export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspa
   let backups = 0
   let done = 0
   for (const originalPage of state.pages) {
+    // Uma página rastreada fora das pastas do Runas DM (resíduo de importações
+    // antigas, como as notas do Livro Vermelho) nunca é regravada, nem movida, nem
+    // gera "backup": o arquivo não é do site. Só o usuário remove o registro. A
+    // única exceção é a migração de uma página de campanha que o próprio Runas DM
+    // gravou na raiz do vault, que a sincronização leva para `Campanhas/…`.
+    const isLegacyRootCampaignPage = originalPage.scope === "campaign" && !normalizePath(originalPage.obsidianPath).includes("/") && isManagedByRunasDm(originalPage)
+    if (originalPage.obsidianPath && !isSynchronizableVaultPath(originalPage.obsidianPath) && !isLegacyRootCampaignPage) {
+      done += 1
+      onProgress?.(done, state.pages.length)
+      continue
+    }
     const unchangedSinceLastSync = Boolean(originalPage.obsidianSourceMarkdown)
       && originalPage.obsidianFingerprint === pageObsidianFingerprint(originalPage, state)
     const page = unchangedSinceLastSync ? originalPage : await pageWithVaultAttachments(originalPage, adapter, rootFolder)
@@ -983,7 +1103,7 @@ export async function synchronizeWorkspaceWithVault(stateValue: KnowledgeWorkspa
       ? originalPage.obsidianSourceMarkdown
       : pageToMarkdown(page, state)
     if (existing?.markdown !== desired) {
-      if (existing) { await adapter.writeText(backupPath(path, rootFolder), existing.markdown); backups += 1 }
+      if (existing) { await adapter.writeText(backupPath(path, rootFolder, existing.markdown), existing.markdown); backups += 1 }
       await adapter.writeText(path, desired)
       exported += 1
     }

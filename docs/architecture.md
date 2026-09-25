@@ -64,8 +64,9 @@ A galeria do Runas Tools usa o limite de produto `GALLERY_MAX_CHARACTERS = 100`,
 - Vinext/React publicado como Pages Function em `runas-dm.pages.dev`.
 - Interface client-side para resposta imediata.
 - IndexedDB salva bestiário, encontro e tabelas customizadas.
-- `/api/backup` guarda o snapshot privado de fichas no D1.
-- `/api/campaign-data` guarda o snapshot privado e normalizado de Campanhas e Wiki no D1; o estado primário continua no IndexedDB. É só backup de saída: o `PUT` grava exatamente o que o cliente envia, sem mesclar, e o cliente nunca busca o remoto sozinho (nem ao abrir, nem entre edições) — cada mudança local (criar, editar, remover) dispara um novo `PUT` do estado local inteiro, pouco depois. O único caminho de volta da nuvem para o dispositivo é a ação manual "Importar da nuvem", que aplica `applyCloudBackup` no modo `"merge"` (reescreve por `id` o que existe no backup, cria o que só existe nele, preserva o que só existe localmente, respeitando `deletedIds`) ou `"replace"` (descarta o local e adota o backup por inteiro).
+- `/api/backup` guarda o backup privado do Bestiário (fichas e tabelas de maestria; nunca a Mesa) e `/api/campaign-data` guarda o de Campanhas e Wiki. As duas rotas são o mesmo contrato versionado (`lib/server/backup-routes.ts`): o servidor guarda os bytes (gzip do cliente) em blocos no D1, sem interpretá-los; cada `PUT` informa a versão-base que o dispositivo conhece e recebe `409` se a nuvem já mudou (`stale`) ou se o envio encolheria demais os dados (`shrink`); o histórico guarda a versão atual e até 10 checkpoints. As tabelas `cloud_backups` e `cloud_backup_chunks` são criadas sob demanda (`CREATE TABLE IF NOT EXISTS`); as tabelas antigas (`backup_snapshots`, `knowledge_snapshots`) viram a "versão 1" somente leitura. O estado primário continua no IndexedDB.
+- O cliente é único: `lib/cloud-backup.ts` (`putCloudBackup`, `fetchCloudBackup`, `fetchCloudMeta`). O Runas DM nunca busca o remoto sozinho para aplicá-lo: o caminho de volta é a ação manual "Importar da nuvem", que escolhe uma versão e aplica `applyCloudBackup` no modo `"merge"` (reescreve por `id` o que existe no backup, cria o que só existe nele, preserva o que só existe localmente, respeitando `deletedIds`) ou `"replace"` (descarta o local e adota o backup por inteiro). Ver `docs/data-sync.md`.
+- Os dados do mestre também vivem no vault: `Runas DM/wiki-e-campanhas.json` e `Runas DM/bestiario.json` (`lib/vault-data.ts`), com a mesma política de versões e as mesmas travas da nuvem. O vault é o backup **completo** (estilo, tags, eras, preferências); a nuvem é a cópia remota.
 - A sincronização com o Obsidian usa somente a File System Access API (pasta local); a política de *Private Network Access* do Chrome torna a API REST local do plugin inviável para um site público, então esse modo não existe.
 - O banco remoto não participa dos cálculos nem bloqueia o uso offline.
 - As rotas reais do Runas DM usam navegação de documento por âncoras HTML. O Vinext beta não oferece transições RSC confiáveis em produção; por isso `next/link` e `useRouter` não podem controlar Bestiário, Mesa, Campanhas ou Wiki. Campanhas e Wiki não têm tela de login; o token de backup só ativa a cópia na nuvem.
@@ -89,6 +90,14 @@ Wiki e as Campanhas; a normalização de snapshots antigos permanece em
   `c` identifica campanha ou seção, `p` a página principal, `s` a subpágina e
   `t` a tag. `useKnowledgeRoute` sincroniza `pushState`, `replaceState` e
   `popstate`; a troca entre áreas continua sendo uma âncora HTML.
+- Política e escopo do backup (módulos puros, cada um com teste):
+  `snapshot-policy.ts` (encolhimento, checkpoints, hash), `knowledge-scope.ts`
+  e `bestiary-scope.ts` (o que entra no backup e o que é "virgem"),
+  `server/versioned-backup.ts` (versões e blocos, sobre um `BackupStore`
+  injetável: D1 em produção, memória nos testes), `cloud-backup.ts` (cliente),
+  `vault-data.ts` e `vault-restore.ts` (arquivos do vault), `ui-preferences.ts`
+  (as preferências de interface e suas chaves, importadas pelos componentes) e
+  `frontmatter-values.ts` (leitura de listas e nomes sem perder colchetes).
 - `knowledge-portal.tsx` mantém hidratação, IndexedDB, nuvem e Obsidian. A
   apresentação é dividida entre `CampaignPortal`, `CampaignWorld`,
   `CampaignAdventure`, `CampaignStory`, `CampaignOrganizer` e `WikiPortal`.

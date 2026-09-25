@@ -327,7 +327,24 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
   const eraPages = pages.filter((page) => page.scope === "wiki" && page.kind === "chronology" && (page.eraStartYear != null || page.eraEndYear != null))
   for (const era of eraPages) ensureTag(era.title, ["chronology"])
   const taggedPages = withEraTags(pages, eraPages)
-  return { version: 3, eras, campaigns, categories, tags: [...tagsByName.values()], pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+  return { version: 3, eras, campaigns, categories, tags: withUniqueTagIds([...tagsByName.values()]), pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+}
+
+/**
+ * O id de uma tag derivada do nome guarda só letras e números, então
+ * `[O&C] Lion Heart` e `O&C] Lion Heart` (dois nomes diferentes) chegavam ao
+ * mesmo id. Ids repetidos quebram renomear e remover por id; o segundo ganha
+ * um sufixo. Ids que já são únicos nunca mudam.
+ */
+function withUniqueTagIds(tags: KnowledgeTag[]): KnowledgeTag[] {
+  const used = new Set<string>()
+  return tags.map((tag) => {
+    if (typeof tag.id !== "string") return tag
+    let id = tag.id
+    for (let suffix = 2; used.has(id); suffix += 1) id = `${tag.id}-${suffix}`
+    used.add(id)
+    return id === tag.id ? tag : { ...tag, id }
+  })
 }
 
 export function parseList(value: string): string[] {
@@ -339,8 +356,16 @@ export function plainTextFromHtml(value: string): string {
   return new DOMParser().parseFromString(value, "text/html").body.textContent?.replace(/\s+/g, " ").trim() ?? ""
 }
 
+/**
+ * Alvo de um `[[wikilink]]`: qualquer texto sem `[`, `]`, `|` ou `#`, aceitando
+ * pares de colchetes dentro dele. O nome de uma campanha como
+ * `[O&C] Lion Heart` continua sendo um alvo válido (`[[[O&C] Lion Heart]]`),
+ * em vez de o vínculo ser ignorado por causa do `[` inicial.
+ */
+export const WIKILINK_TARGET_SOURCE = String.raw`(?:[^\[\]|#]|\[[^\[\]]*\])+`
+
 export function wikiLinkTitles(value: string): string[] {
-  return [...value.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((match) => match[1].trim()).filter(Boolean)
+  return [...value.matchAll(new RegExp(String.raw`\[\[(${WIKILINK_TARGET_SOURCE})(?:[|#][^\]]*)?\]\]`, "g"))].map((match) => match[1].trim()).filter(Boolean)
 }
 
 export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote: KnowledgeWorkspaceState): KnowledgeWorkspaceState {

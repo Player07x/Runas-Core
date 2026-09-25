@@ -4,15 +4,15 @@ import { useState, useSyncExternalStore } from "react"
 import { Columns2, Columns3, List } from "lucide-react"
 import { formatCalendarYears, parseCalendarYear, type UniverseEra } from "../lib/chronology"
 import { plainTextFromHtml, type KnowledgePage } from "../lib/knowledge-model"
+import { CHRONOLOGY_COLUMNS_STORAGE_KEY } from "../lib/ui-preferences"
 
 export type ChronologyColumns = 1 | 2 | 3
 
-const COLUMNS_STORAGE_KEY = "runas-dm.chronology-columns"
 const columnListeners = new Set<() => void>()
 let cachedColumns: ChronologyColumns | null = null
 
 function readStoredColumns(): ChronologyColumns {
-  const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY)
+  const raw = window.localStorage.getItem(CHRONOLOGY_COLUMNS_STORAGE_KEY)
   return raw === "2" ? 2 : raw === "3" ? 3 : 1
 }
 
@@ -32,7 +32,7 @@ function getServerColumnsSnapshot(): ChronologyColumns {
 
 export function setChronologyColumns(value: ChronologyColumns) {
   cachedColumns = value
-  window.localStorage.setItem(COLUMNS_STORAGE_KEY, String(value))
+  window.localStorage.setItem(CHRONOLOGY_COLUMNS_STORAGE_KEY, String(value))
   columnListeners.forEach((listener) => listener())
 }
 

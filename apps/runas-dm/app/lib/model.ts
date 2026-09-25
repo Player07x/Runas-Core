@@ -77,19 +77,26 @@ function sampleAshBeast(): Character {
   return synchronizeCharacterDerivedValues(character, character)
 }
 
+/** Ids das duas fichas de exemplo que um bestiário novo recebe; só elas = dispositivo ainda sem dados do mestre. */
+export const SAMPLE_ENTRY_IDS: readonly string[] = ["sentinela-vidro", "fera-cinzas"]
+
+export function defaultMasteryTables(): MasteryTable[] {
+  return [
+    { id: "default", name: "Padrão", multiplier: 1 },
+    { id: "double", name: "Pontos dobrados", multiplier: 2 },
+  ]
+}
+
 export function createInitialState(): RunasDmState {
   const now = Date.now()
   return {
     version: 2,
     entries: [
-      { id: "sentinela-vidro", character: sampleSentinel(), masteryTableId: "default", updatedAt: now },
-      { id: "fera-cinzas", character: sampleAshBeast(), masteryTableId: "default", updatedAt: now },
+      { id: SAMPLE_ENTRY_IDS[0], character: sampleSentinel(), masteryTableId: "default", updatedAt: now },
+      { id: SAMPLE_ENTRY_IDS[1], character: sampleAshBeast(), masteryTableId: "default", updatedAt: now },
     ],
     encounter: [],
-    masteryTables: [
-      { id: "default", name: "Padrão", multiplier: 1 },
-      { id: "double", name: "Pontos dobrados", multiplier: 2 },
-    ],
+    masteryTables: defaultMasteryTables(),
     workspaceNotesHtml: "",
     initiative: [],
     updatedAt: now,
@@ -98,11 +105,15 @@ export function createInitialState(): RunasDmState {
 
 /** Normaliza dados antigos/importados com as regras atuais sem restaurar recursos gastos. */
 export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
-  const masteryTableIds = new Set(state.masteryTables.map((table) => table.id))
+  // O backup da nuvem e o arquivo do vault não levam a Mesa (encounter, iniciativa, notas),
+  // então qualquer coleção pode faltar; sem tabelas de maestria valem as padrão.
+  const masteryTables = Array.isArray(state.masteryTables) ? state.masteryTables : defaultMasteryTables()
+  const masteryTableIds = new Set(masteryTables.map((table) => table.id))
   const normalizeMasteryTableId = (value: unknown) => typeof value === "string" && masteryTableIds.has(value) ? value : "default"
   return {
     ...state,
     version: 2,
+    masteryTables,
     workspaceNotesHtml: typeof state.workspaceNotesHtml === "string" ? state.workspaceNotesHtml : "",
     initiative: Array.isArray(state.initiative) ? state.initiative.flatMap((entry, index) => {
       if (!entry || typeof entry !== "object") return []
@@ -111,12 +122,12 @@ export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
       if (!name) return []
       return [{ id: typeof candidate.id === "string" && candidate.id ? candidate.id : `initiative-${index + 1}`, actorId: typeof candidate.actorId === "string" ? candidate.actorId : null, name, value: typeof candidate.value === "number" && Number.isFinite(candidate.value) ? Math.trunc(candidate.value) : null }]
     }) : [],
-    entries: state.entries.map((entry) => ({
+    entries: (Array.isArray(state.entries) ? state.entries : []).map((entry) => ({
       ...entry,
       character: normalizeCharacter(entry.character),
       masteryTableId: normalizeMasteryTableId(entry.masteryTableId),
     })),
-    encounter: state.encounter.map((actor) => ({
+    encounter: (Array.isArray(state.encounter) ? state.encounter : []).map((actor) => ({
       ...actor,
       character: normalizeCharacter(actor.character),
       masteryTableId: normalizeMasteryTableId(actor.masteryTableId),

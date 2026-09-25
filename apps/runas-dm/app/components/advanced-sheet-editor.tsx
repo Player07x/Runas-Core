@@ -37,6 +37,7 @@ import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { TokenEditorDialog } from "./token-editor-dialog"
 import { createId } from "@runas/core/lib/ids"
 import { AdvancedSectionToolbar, advancedCategories, advancedCategoryKey, advancedCollator, advancedMatches, useAdvancedToolbar, type AdvancedSort } from "./advanced-section-toolbar"
+import { ITEM_EDITOR_MODE_STORAGE_KEY as ITEM_EDITOR_MODE_KEY } from "../lib/ui-preferences"
 
 type AdvancedTab = "information" | "statistics" | "skills" | "bonds" | "abilities" | "inventory" | "spells" | "notes"
 type UpdateCharacter = (mutator: (draft: Character) => void) => void
@@ -64,7 +65,6 @@ const rangeTypes = [
 ]
 
 function uid(prefix: string) { return `${prefix}-${createId()}` }
-const ITEM_EDITOR_MODE_KEY = "runas-dm:item-editor-mode"
 /** O modo escolhido acompanha o mestre entre itens e sessões. */
 function readItemEditorMode(): "simple" | "advanced" {
   if (typeof window === "undefined") return "simple"
