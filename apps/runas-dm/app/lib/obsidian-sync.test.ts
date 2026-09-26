@@ -58,7 +58,7 @@ describe("Obsidian export", () => {
     const markdown = pageToMarkdown(state.pages[0] as KnowledgePage, state)
     expect(markdown).toContain('status: "Em Progresso"')
     // A categoria virou tag na v3: `categorias:` ainda é lido, mas nunca escrito.
-    expect(markdown).toContain('tags: ["Zotera", "Capítulo Um"]')
+    expect(markdown).toContain('tags: ["zotera", "capítulo um"]')
     expect(markdown).not.toContain("categorias:")
     expect(markdown).toContain("[[Zotera]]")
     expect(markdown).toContain("3× Lobo Rúnico")
@@ -590,7 +590,7 @@ describe("nomes com colchetes: campanha e tags nunca perdem o `[` inicial", () =
     const withProperty = importNotes([{ path: `${folder}/Sessão 1.md`, markdown: `---\ncampanha: "${CAMPAIGN}"\n---\n# Sessão 1\n` }])
     const withoutProperty = importNotes([{ path: `${folder}/Sessão 1.md`, markdown: "# Sessão 1\n\nSem propriedade alguma.\n" }])
     for (const state of [withProperty, withoutProperty]) {
-      expect(state.pages[0].tags).toContain("Anotações")
+      expect(state.pages[0].tags).toContain("anotações")
       expect(state.pages[0].tags).not.toContain(CAMPAIGN)
       expect(state.pages[0].tags).not.toContain("O&C] Lion Heart pt. II")
       expect(state.categories.map((category) => category.name)).not.toContain(CAMPAIGN)
@@ -599,7 +599,7 @@ describe("nomes com colchetes: campanha e tags nunca perdem o `[` inicial", () =
 
   it("o formato antigo, sem pasta por campanha, continua tratando a pasta de tipo como categoria", () => {
     const state = importNotes([{ path: "Campanhas/Eventos e Missões/Novo Capitão.md", markdown: '---\nObra de Origem:\n  - "[[Lion Heart (Campanha)]]"\n---\n# Novo Capitão\n' }])
-    expect(state.pages[0].tags).toContain("Eventos e Missões")
+    expect(state.pages[0].tags).toContain("eventos e missões")
     expect(state.campaigns.map((campaign) => campaign.title)).toEqual(["Lion Heart"])
   })
 
@@ -611,12 +611,12 @@ describe("nomes com colchetes: campanha e tags nunca perdem o `[` inicial", () =
     })
     const first = importNotes([{ path: organizedObsidianPathForPage({ ...original.pages[0], obsidianPath: "" }, original, ""), markdown: pageToMarkdown(original.pages[0], original) }])
     expect(first.campaigns.map((campaign) => campaign.title)).toEqual([CAMPAIGN])
-    expect(first.pages[0].tags).toEqual(expect.arrayContaining(["Sessões", CAMPAIGN, "[Segredo] Fim"]))
-    expect(first.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining([CAMPAIGN, "[Segredo] Fim"]))
+    expect(first.pages[0].tags).toEqual(expect.arrayContaining(["sessões", CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
+    expect(first.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining([CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
 
     const second = importNotes([{ path: first.pages[0].obsidianPath, markdown: pageToMarkdown({ ...first.pages[0], title: "Sessão 1 (revisada)" }, first) }])
     expect(second.campaigns.map((campaign) => campaign.title)).toEqual([CAMPAIGN])
-    expect(second.pages[0].tags).toEqual(expect.arrayContaining(["Sessões", CAMPAIGN, "[Segredo] Fim"]))
+    expect(second.pages[0].tags).toEqual(expect.arrayContaining(["sessões", CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
     expect(second.tags.filter((tag) => tag.name === "O&C] Lion Heart pt. II" || tag.name === "Segredo] Fim")).toEqual([])
   })
 
@@ -637,13 +637,14 @@ describe("nomes com colchetes: campanha e tags nunca perdem o `[` inicial", () =
 
   it.each(tagForms)("importa as tags com o nome exato: %s", (_label, property, expected) => {
     const state = importNotes([{ path: "Geografia/Cidade.md", markdown: `---\n${property}\n---\n# Cidade\n\nTexto.\n` }])
-    expect(state.pages[0].tags).toEqual(expected)
-    expect(state.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining(expected))
+    const lower = expected.map((tag) => tag.toLocaleLowerCase("pt-BR"))
+    expect(state.pages[0].tags).toEqual(lower)
+    expect(state.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining(lower))
   })
 
   it("uma pasta de categoria com colchetes vira uma tag com o nome exato", () => {
     const state = importNotes([{ path: `Geografia/${CAMPAIGN}/Cidade.md`, markdown: "# Cidade\n" }])
-    expect(state.pages[0].tags).toEqual([CAMPAIGN])
+    expect(state.pages[0].tags).toEqual([CAMPAIGN.toLocaleLowerCase("pt-BR")])
   })
 })
 
@@ -800,7 +801,7 @@ describe("Cronologia: uma pasta por era", () => {
       updatedAt: 1,
     })
     expect(obsidianPathForPage(state.pages[0], state, "")).toBe("Cronologia/Era das Máquinas/Era das Máquinas.md")
-    expect(obsidianPathForPage(state.pages[1], state, "")).toBe("Cronologia/Acontecimentos Globais/Linha do tempo.md")
+    expect(obsidianPathForPage(state.pages[1], state, "")).toBe("Cronologia/Acontecimentos globais/Linha do tempo.md")
   })
 })
 
@@ -838,10 +839,12 @@ describe("o resumo derivado do primeiro bloco não duplica o começo da nota", (
 })
 
 describe("campos que só existem no site sobrevivem a reler a nota", () => {
+  const migrated = ["eras-documento-2026-09"]
   const eraMarkdown = '---\nrunas: true\nrunas_id: "era-monges"\nrunas_scope: "wiki"\nrunas_kind: "chronology"\nrunas_title: "Era dos Monges"\n---\n# Era dos Monges\n\nTexto editado no Obsidian.\n'
 
   it("o intervalo de anos, o calendário, o ícone e a cor da era não são zerados quando o texto muda no Obsidian", () => {
     const local = normalizeKnowledgeWorkspace({
+      migrations: migrated,
       pages: [{ id: "era-monges", scope: "wiki", kind: "chronology", title: "Era dos Monges", eraStartYear: 100, eraEndYear: 900, eraCalendar: "Solaris", icon: "🏯", accentColor: "#c9a227", obsidianPath: "Cronologia/Era dos Monges/Era dos Monges.md", obsidianSourceMarkdown: "# Era dos Monges\n", createdAt: 1, updatedAt: 1 }],
       updatedAt: 1,
     })

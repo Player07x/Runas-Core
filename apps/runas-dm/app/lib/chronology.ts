@@ -10,7 +10,7 @@ export interface UniverseEra {
 
 export const UNIVERSE_ERAS: UniverseEra[] = [
   { id: "pre-runas", name: "Pré-Runas", startYear: null, endYear: null, calendar: "C.E.", note: "Origem do universo conhecido." },
-  { id: "runas", name: "Era das Runas", startYear: null, endYear: null, calendar: "C.E.", note: "Há mais de 100 milhões de anos; o documento não define os limites exatos." },
+  { id: "runas", name: "Era das Runas", startYear: null, endYear: -100180789, calendar: "C.E.", note: "Há mais de 100 milhões de anos; termina onde começa a Era dos Titãs." },
   { id: "titas", name: "Era dos Titãs", startYear: -100180789, endYear: -15396, calendar: "C.E.", note: "" },
   { id: "maquinas", name: "Era das Máquinas", startYear: -15396, endYear: -5084, calendar: "C.E.", note: "Equivale a 0–10.312 no calendário Solaris." },
   { id: "estrelas", name: "Era das Estrelas", startYear: -6702, endYear: 0, calendar: "C.E.", note: "Também chamada Era Divina na tabela do documento. Seu intervalo se sobrepõe à Era das Máquinas." },
@@ -63,11 +63,28 @@ export function toLogiYear(year: number): number {
  * pelo mestre) não tem equivalência conhecida com Logi, então só o dela é
  * exibido.
  */
+export function calendarLines(year: number | null | undefined, calendar = "C.E."): string[] {
+  if (year == null) return ["Não definido"]
+  if (normalizedCalendar(calendar) === "logi") return [`${toLogiYear(year).toLocaleString("pt-BR")} Logi`, `${year.toLocaleString("pt-BR")} C.E.`]
+  return [formatFictionalYear(year, calendar)]
+}
+
+/** Uma linha por calendário: só uma data marcada em Logi mostra também o C.E.; uma marcada em C.E. nunca mostra Logi. */
 export function formatCalendarYears(year: number | null | undefined, calendar = "C.E."): string {
-  if (year == null) return "Não definido"
-  const primary = formatFictionalYear(year, calendar)
-  if (normalizedCalendar(calendar) !== "ce") return primary
-  return `${primary} · ${toLogiYear(year).toLocaleString("pt-BR")} Logi`
+  return calendarLines(year, calendar).join("\n")
+}
+
+/** `início → fim`, uma linha por calendário (Logi primeiro, depois C.E.). */
+export function eraRangeLines(start: number | null | undefined, end: number | null | undefined, calendar = "C.E."): string[] {
+  const one = (year: number | null | undefined, index: number) => calendarLines(year, calendar)[index] ?? calendarLines(year, calendar)[0]
+  const count = normalizedCalendar(calendar) === "logi" ? 2 : 1
+  return Array.from({ length: count }, (_, index) => `${one(start, index)} → ${one(end, index)}`)
+}
+
+/** Da menor para a maior data C.E.: pelo início, ou pelo fim quando não há início; sem datas, por último (a Pré-Runas abre a lista). */
+export function sortErasByStart<T extends { id: string; eraStartYear?: number | null; eraEndYear?: number | null }>(eras: T[]): T[] {
+  const key = (era: T) => era.id === "era-pre-runas" ? -Infinity : era.eraStartYear ?? era.eraEndYear ?? Infinity
+  return [...eras].sort((a, b) => key(a) - key(b) || (a.eraEndYear ?? Infinity) - (b.eraEndYear ?? Infinity))
 }
 
 export function fictionalYear(value: unknown): number | null {

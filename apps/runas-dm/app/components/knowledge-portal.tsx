@@ -42,6 +42,7 @@ import { TagEditor } from "./tag-editor"
 import { TagGrid } from "./tag-grid"
 import { TagPage } from "./tag-page"
 import { ChronologyEraPage } from "./chronology-era-page"
+import { canonicalizeTags } from "../lib/tag-normalization"
 import { pagesOutsideAllowedFolders, removePagesOutsideAllowedFolders } from "../lib/obsidian-sync"
 import { CampaignPortal } from "./campaign-portal"
 import { CampaignStory } from "./campaign-story"
@@ -581,7 +582,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   function mutate(updater: (current: KnowledgeWorkspaceState) => KnowledgeWorkspaceState): KnowledgeWorkspaceState {
     // eslint-disable-next-line react-hooks/purity -- mutate() only ever runs from event handlers, never during render; this rule misattributes an unrelated call in removeCampaign's async cleanup (deleteCampaignHubNotesFromLocalVault) to this line instead of its own.
-    const result = { ...updater(state), updatedAt: Date.now() }
+    const result = canonicalizeTags({ ...updater(state), updatedAt: Date.now() })
     setState(result)
     return result
   }
@@ -858,6 +859,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   function saveTag(values: Pick<KnowledgeTag, "name" | "icon" | "color">) {
     if (!tagEditor || !values.name.trim()) return
+    values = { ...values, name: values.name.trim().toLocaleLowerCase("pt-BR") }
     const section = tagEditor.section
     let next: KnowledgeWorkspaceState | null = null
     if (tagEditor.tag) {

@@ -1,6 +1,7 @@
 import { CAMPAIGN_PAGE_KINDS, CAMPAIGN_STATUSES, WIKILINK_TARGET_SOURCE, WIKI_NESTED_KINDS, WIKI_SECTIONS, createCampaign, createKnowledgeId, normalizeKnowledgeWorkspace, pageKindLabel, wikiLinkTitles, withStoryEvents, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeWorkspaceState } from "./knowledge-model"
 import { parseYamlScalar, referenceList, restoreStrippedBracket, stringList, tagList } from "./frontmatter-values"
 import { hashText } from "./snapshot-policy"
+import { tagStem } from "./tag-normalization"
 import { createTextZip, downloadBlob, safeFilename } from "./export"
 import { cacheVaultAsset, readCachedVaultAsset } from "./vault-assets"
 import { UNIVERSE_ERAS, fictionalYear } from "./chronology"
@@ -285,7 +286,9 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
   return JSON.stringify({
     title: page.title, scope: page.scope, campaign: campaignFor(page, state.campaigns)?.title ?? "", kind: page.kind,
     summary: page.summary, contentHtml: page.contentHtml, status: page.status, date: page.date,
-    tags: [...page.tags].sort(), links, bestiaryEntryId: page.bestiaryEntryId,
+    // Só a forma canônica da tag conta: mudar a caixa ou unir `assentamento`/`Assentamentos` não é edição da nota,
+    // senão o site regravaria dezenas de notas do vault só por causa da caixa.
+    tags: [...new Set(page.tags.map(tagStem))].sort(), links, bestiaryEntryId: page.bestiaryEntryId,
     ...(page.kind === "characters" ? { characterStatus: page.characterStatus ?? "unknown" } : {}),
     encounterCreatures: page.encounterCreatures,
     ...(page.order ? { order: page.order } : {}),
@@ -480,7 +483,10 @@ export function obsidianPathForPage(page: KnowledgePage, state: KnowledgeWorkspa
   // caía solta em `Cronologia/` e o vault ficava metade em pastas, metade não.
   const primaryTag = FLAT_WIKI_KINDS.has(page.kind) ? undefined
     : page.tags[0] ?? (page.kind === "chronology" ? page.title : legacyPrimaryCategory)
-  return pathInsideRoot(joinVaultPath(section, primaryTag ? folderPart(primaryTag, "Tag") : "", filename), rootFolder)
+  // A tag é sempre minúscula, mas a pasta mantém a inicial maiúscula (`assentamentos` → `Assentamentos`):
+  // sem isso, uma página nova criaria uma pasta ao lado da que já existe, e no Linux `a` e `A` são pastas diferentes.
+  const folderName = primaryTag ? primaryTag.charAt(0).toLocaleUpperCase("pt-BR") + primaryTag.slice(1) : ""
+  return pathInsideRoot(joinVaultPath(section, folderName ? folderPart(folderName, "Tag") : "", filename), rootFolder)
 }
 
 /** Organização usada quando o vault possui pelo menos um arquivo `.base`. */

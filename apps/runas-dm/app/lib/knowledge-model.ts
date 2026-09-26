@@ -1,4 +1,5 @@
 import { fictionalYear, UNIVERSE_ERAS, withEraTags, type UniverseEra } from "./chronology"
+import { canonicalizeTags } from "./tag-normalization"
 import { createId } from "@runas/core/lib/ids"
 
 export const CAMPAIGN_STATUSES = [
@@ -161,6 +162,8 @@ export interface KnowledgePage {
 export interface KnowledgeWorkspaceState {
   version: 3
   eras?: UniverseEra[]
+  /** Migrações de dados já aplicadas a este espaço de trabalho (cada uma roda uma única vez). */
+  migrations?: string[]
   campaigns: CampaignRecord[]
   /** @deprecated mantido apenas para ler snapshots v2; novas gravações usam tags. */
   categories: KnowledgeCategory[]
@@ -243,6 +246,8 @@ export function chronologyEraPages(state: Pick<KnowledgeWorkspaceState, "eras" |
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : []
 }
+
+const ERA_YEARS_MIGRATION = "eras-documento-2026-09"
 
 export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceState {
   if (!value || typeof value !== "object") return createEmptyKnowledgeWorkspace()
@@ -331,10 +336,20 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
     const preset = UNIVERSE_ERAS.find((era) => `era-${era.id}` === page.id)
     if (preset && (preset.startYear != null || preset.endYear != null)) { page.eraStartYear = preset.startYear; page.eraEndYear = preset.endYear; page.eraCalendar = preset.calendar }
   }
+  // Migração única: os anos das eras canônicas passam a ser os do documento, inclusive os que estavam diferentes.
+  const migrations = [...new Set(strings(candidate.migrations))]
+  if (!migrations.includes(ERA_YEARS_MIGRATION)) {
+    for (const page of pages) {
+      if (page.scope !== "wiki" || page.kind !== "chronology") continue
+      const preset = UNIVERSE_ERAS.find((era) => `era-${era.id}` === page.id)
+      if (preset && (preset.startYear != null || preset.endYear != null)) { page.eraStartYear = preset.startYear; page.eraEndYear = preset.endYear; page.eraCalendar = preset.calendar }
+    }
+    migrations.push(ERA_YEARS_MIGRATION)
+  }
   const eraPages = pages.filter((page) => page.scope === "wiki" && page.kind === "chronology" && (page.eraStartYear != null || page.eraEndYear != null))
   for (const era of eraPages) ensureTag(era.title, ["chronology"])
   const taggedPages = withEraTags(pages, eraPages)
-  return { version: 3, eras, campaigns, categories, tags: withUniqueTagIds([...tagsByName.values()]), pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() }
+  return canonicalizeTags({ version: 3, eras, migrations, campaigns, categories, tags: withUniqueTagIds([...tagsByName.values()]), pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() })
 }
 
 /**
@@ -397,6 +412,7 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
     tags: mergeById(local.tags, remote.tags),
     pages: mergeById(local.pages, remote.pages),
     deletedIds: [...deletedIds],
+    migrations: [...new Set([...(local.migrations ?? []), ...(remote.migrations ?? [])])],
     updatedAt: Math.max(local.updatedAt, remote.updatedAt),
   }
 }
@@ -428,6 +444,7 @@ export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unkn
     tags: mergeById(local.tags, backup.tags),
     pages: mergeById(local.pages, backup.pages),
     deletedIds: local.deletedIds,
+    migrations: [...new Set([...(local.migrations ?? []), ...(backup.migrations ?? [])])],
     updatedAt: Date.now(),
   }
 }

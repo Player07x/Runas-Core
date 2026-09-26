@@ -143,11 +143,11 @@ describe("knowledge model", () => {
     ] })
     expect(state.version).toBe(3)
     expect(state.pages.map((page) => [page.id, page.kind, page.tags])).toEqual([
-      ["fauna", "creatures", ["Fauna"]],
-      ["monsters", "creatures", ["Monstros"]],
-      ["session", "gm-note", ["Sessões"]],
+      ["fauna", "creatures", ["fauna"]],
+      ["monsters", "creatures", ["monstros"]],
+      ["session", "gm-note", ["sessões"]],
     ])
-    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["Fauna", "Monstros", "Sessões"])
+    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["fauna", "monstros", "sessões"])
   })
 
   it("começa sem eras pré-criadas e preserva eras configuradas pelo mestre", () => {
@@ -171,7 +171,7 @@ describe("knowledge model", () => {
   it("migra categorias antigas para tags e cria páginas de era uma única vez", () => {
     const input = { version: 2, eras: [{ id: "monges", name: "Monges", startYear: 0, endYear: 1489, calendar: "C.E." }], categories: [{ id: "cat", scope: "wiki", campaignId: null, name: "Runilitas", parentId: null }], pages: [{ id: "person", scope: "wiki", kind: "characters", title: "Martim", categoryIds: ["cat"], tags: [], eventYear: 100 }] }
     const first = normalizeKnowledgeWorkspace(input)
-    expect(first.pages.find((page) => page.id === "person")?.tags).toContain("Runilitas")
+    expect(first.pages.find((page) => page.id === "person")?.tags).toContain("runilitas")
     expect(first.pages.some((page) => page.id === "era-monges" && page.kind === "chronology")).toBe(true)
     const second = normalizeKnowledgeWorkspace(first)
     expect(second.pages.map((page) => page.id)).toEqual(first.pages.map((page) => page.id))
@@ -206,10 +206,10 @@ describe("nomes com colchetes no modelo", () => {
     const state = normalizeKnowledgeWorkspace({
       pages: [
         { id: "p1", scope: "wiki", kind: "geography", title: "A", tags: ["[O&C] Foo"], createdAt: 1, updatedAt: 1 },
-        { id: "p2", scope: "wiki", kind: "geography", title: "B", tags: ["O&C] Foo"], createdAt: 1, updatedAt: 1 },
+        { id: "p2", scope: "wiki", kind: "geography", title: "B", tags: ["O&C Foo"], createdAt: 1, updatedAt: 1 },
       ],
     })
-    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["O&C] Foo", "[O&C] Foo"])
+    expect(state.tags.map((tag) => tag.name).sort()).toEqual(["[o&c] foo", "o&c foo"])
     expect(new Set(state.tags.map((tag) => tag.id)).size).toBe(2)
     // Ids que já eram únicos não mudam: normalizar de novo devolve o mesmo resultado.
     expect(normalizeKnowledgeWorkspace(state).tags.map((tag) => tag.id)).toEqual(state.tags.map((tag) => tag.id))
@@ -219,6 +219,7 @@ describe("nomes com colchetes no modelo", () => {
 describe("anos das eras canônicas", () => {
   it("preenche as eras sem ano com os do documento e nunca sobrescreve o que o mestre editou", () => {
     const state = normalizeKnowledgeWorkspace({
+      migrations: ["eras-documento-2026-09"],
       pages: [
         { id: "era-alquimistas", scope: "wiki", kind: "chronology", title: "Era dos Alquimistas", createdAt: 1, updatedAt: 1 },
         { id: "era-magos", scope: "wiki", kind: "chronology", title: "Era dos Magos", eraStartYear: 3000, eraEndYear: 3500, createdAt: 1, updatedAt: 1 },

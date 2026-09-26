@@ -944,6 +944,7 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .chronology-timeline { position: relative; max-width: 1000px; margin: 18px auto; padding: 12px 0; }
 .chronology-timeline::before { content: ""; position: absolute; left: 164px; top: 0; bottom: 0; width: 2px; background: var(--line); }
 .chronology-event { position: relative; display: grid; grid-template-columns: 138px 30px minmax(0, 1fr); gap: 0 3px; width: 100%; padding: 18px 12px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.calendar-lines, .chronology-year, .era-heading p { white-space: pre-line; }
 .chronology-year { padding-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .chronology-dot { z-index: 1; width: 12px; height: 12px; margin: 6px auto; border: 3px solid var(--panel); border-radius: 50%; background: var(--violet); box-shadow: 0 0 0 2px var(--violet); }
 .chronology-event h2 { margin: 0 0 5px; font-size: 20px; overflow-wrap: anywhere; }

@@ -56,8 +56,9 @@ describe("calendário fictício", () => {
   })
 
   it("exibe os dois calendários, mas só quando a era usa C.E.", () => {
-    expect(formatCalendarYears(1200)).toBe("1.200 C.E. · -2.827 Logi")
-    expect(formatCalendarYears(4027, "C.E.")).toBe("4.027 C.E. · 0 Logi")
+    expect(formatCalendarYears(1200)).toBe("1.200 C.E.")
+    expect(formatCalendarYears(1200, "Logi")).toBe("-2.827 Logi\n1.200 C.E.")
+    expect(formatCalendarYears(4027, "C.E.")).toBe("4.027 C.E.")
     expect(formatCalendarYears(0, "Solaris")).toBe("0 Solaris")
     expect(formatCalendarYears(null)).toBe("Não definido")
   })

@@ -20,7 +20,7 @@ describe("restaurar Campanhas e Wiki do vault", () => {
     const campaign = restored.campaigns[0]
     expect(campaign).toMatchObject({ title: CAMPAIGN, accentColor: "#9987a3", backgroundColor: "#100d0e", boxColor: "#1b1517", buttonColor: "#35242b", textColor: "#f5eeee", imageBlur: 12, backgroundImageDataUrl: "data:image/webp;base64,AAAA", worldPageIds: ["p1"], storyIds: ["s1"] })
     expect(campaign.organizer?.nodes).toHaveLength(1)
-    expect(restored.tags.find((tag) => tag.name === "Sessões")).toMatchObject({ icon: "📜", color: "#c9a227" })
+    expect(restored.tags.find((tag) => tag.name === "sessões")).toMatchObject({ icon: "📜", color: "#c9a227" })
     expect(restored.eras?.map((era) => era.id)).toEqual(["estrelas"])
     expect(restored.pages[0]).toMatchObject({ eraStartYear: -6702, eraEndYear: 0, eraCalendar: "C.E.", icon: "🕰️", accentColor: "#c9a227" })
     expect(restored.deletedIds).toEqual(["page-apagada"])
