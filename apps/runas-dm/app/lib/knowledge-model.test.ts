@@ -215,3 +215,20 @@ describe("nomes com colchetes no modelo", () => {
     expect(normalizeKnowledgeWorkspace(state).tags.map((tag) => tag.id)).toEqual(state.tags.map((tag) => tag.id))
   })
 })
+
+describe("anos das eras canônicas", () => {
+  it("preenche as eras sem ano com os do documento e nunca sobrescreve o que o mestre editou", () => {
+    const state = normalizeKnowledgeWorkspace({
+      pages: [
+        { id: "era-alquimistas", scope: "wiki", kind: "chronology", title: "Era dos Alquimistas", createdAt: 1, updatedAt: 1 },
+        { id: "era-magos", scope: "wiki", kind: "chronology", title: "Era dos Magos", eraStartYear: 3000, eraEndYear: 3500, createdAt: 1, updatedAt: 1 },
+        { id: "era-runas", scope: "wiki", kind: "chronology", title: "Era das Runas", createdAt: 1, updatedAt: 1 },
+      ],
+      updatedAt: 1,
+    })
+    const byId = (id: string) => state.pages.find((page) => page.id === id)
+    expect(byId("era-alquimistas")).toMatchObject({ eraStartYear: 1489, eraEndYear: 3122 })
+    expect(byId("era-magos")).toMatchObject({ eraStartYear: 3000, eraEndYear: 3500 })
+    expect(byId("era-runas")?.eraStartYear ?? null).toBeNull()
+  })
+})

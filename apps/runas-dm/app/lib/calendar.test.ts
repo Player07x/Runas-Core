@@ -38,15 +38,18 @@ describe("calendário fictício", () => {
     expect(eraForYear(-20000, eras)?.id).toBe("titas")
     // O ano 0 encerra a Era das Estrelas e abre a dos Monges: vence quem começa nele.
     expect(eraForYear(0, eras)?.id).toBe("monges")
-    // Entre 1.489 e 4.027 o documento não define limites; nada é deduzido.
-    expect(eraForYear(2000, eras)).toBeUndefined()
+    // Alquimistas (1.489–3.122), Magos (3.122–3.888) e Migrações (3.888–4.027) vêm do documento.
+    expect(eraForYear(2000, eras)?.id).toBe("alquimistas")
+    expect(eraForYear(3500, eras)?.id).toBe("magos")
+    expect(eraForYear(3900, eras)?.id).toBe("migracoes")
     expect(eraForYear(null, eras)).toBeUndefined()
   })
 
   it("mantém a era gravada quando o ano não classifica sozinho", () => {
     const eras = normalizeUniverseEras(undefined)
-    expect(resolveEra(2000, eras, "magos")?.id).toBe("magos")
-    expect(resolveEra(null, eras, "magos")?.id).toBe("magos")
+    // A Era das Runas não tem limites no documento: só a era gravada a identifica.
+    expect(resolveEra(null, eras, "runas")?.id).toBe("runas")
+    expect(resolveEra(2000, eras, "runas")?.id).toBe("alquimistas")
     // Um ano que classifica vence a era antiga gravada no registro.
     expect(resolveEra(1200, eras, "magos")?.id).toBe("monges")
     expect(resolveEra(null, eras, "")).toBeUndefined()

@@ -15,9 +15,9 @@ export const UNIVERSE_ERAS: UniverseEra[] = [
   { id: "maquinas", name: "Era das Máquinas", startYear: -15396, endYear: -5084, calendar: "C.E.", note: "Equivale a 0–10.312 no calendário Solaris." },
   { id: "estrelas", name: "Era das Estrelas", startYear: -6702, endYear: 0, calendar: "C.E.", note: "Também chamada Era Divina na tabela do documento. Seu intervalo se sobrepõe à Era das Máquinas." },
   { id: "monges", name: "Era dos Monges", startYear: 0, endYear: 1489, calendar: "C.E.", note: "" },
-  { id: "alquimistas", name: "Era dos Alquimistas", startYear: null, endYear: null, calendar: "C.E.", note: "Limites não definidos no documento." },
-  { id: "magos", name: "Era dos Magos", startYear: null, endYear: null, calendar: "C.E.", note: "Limites não definidos no documento." },
-  { id: "migracoes", name: "Era das Migrações", startYear: null, endYear: null, calendar: "C.E.", note: "Considerada por alguns como parte da Era dos Magos." },
+  { id: "alquimistas", name: "Era dos Alquimistas", startYear: 1489, endYear: 3122, calendar: "C.E.", note: "" },
+  { id: "magos", name: "Era dos Magos", startYear: 3122, endYear: 3888, calendar: "C.E.", note: "" },
+  { id: "migracoes", name: "Era das Migrações", startYear: 3888, endYear: 4027, calendar: "C.E.", note: "Considerada por alguns como parte da Era dos Magos." },
   { id: "cacadores", name: "Era dos Caçadores", startYear: 4027, endYear: null, calendar: "C.E.", note: "Era atual, também chamada Era dos Reis. 4.027 C.E. equivale a 0 Logi." },
 ]
 

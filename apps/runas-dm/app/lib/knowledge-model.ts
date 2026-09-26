@@ -324,6 +324,13 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
       ensureTag(era.name, ["chronology"])
     }
   }
+  // Era canônica sem nenhum ano recebe os do documento `[O&C] História do Universo`. Só preenche o que está vazio:
+  // um intervalo que o mestre editou nunca é sobrescrito.
+  for (const page of pages) {
+    if (page.scope !== "wiki" || page.kind !== "chronology" || page.eraStartYear != null || page.eraEndYear != null) continue
+    const preset = UNIVERSE_ERAS.find((era) => `era-${era.id}` === page.id)
+    if (preset && (preset.startYear != null || preset.endYear != null)) { page.eraStartYear = preset.startYear; page.eraEndYear = preset.endYear; page.eraCalendar = preset.calendar }
+  }
   const eraPages = pages.filter((page) => page.scope === "wiki" && page.kind === "chronology" && (page.eraStartYear != null || page.eraEndYear != null))
   for (const era of eraPages) ensureTag(era.title, ["chronology"])
   const taggedPages = withEraTags(pages, eraPages)

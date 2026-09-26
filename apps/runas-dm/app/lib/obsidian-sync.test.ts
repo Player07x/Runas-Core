@@ -854,7 +854,7 @@ describe("campos que só existem no site sobrevivem a reler a nota", () => {
   it("uma era canônica que chega pela primeira vez, sem anos, recebe os do documento; uma que já tem anos não muda", () => {
     const fresh = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Cronologia/Era dos Monges/Era dos Monges.md", markdown: eraMarkdown, createdAt: 1, modifiedAt: 2 }]).state
     expect(fresh.pages[0]).toMatchObject({ id: "era-monges", eraStartYear: 0, eraEndYear: 1489, eraCalendar: "C.E." })
-    const undefinedEra = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Cronologia/Era dos Magos/Era dos Magos.md", markdown: eraMarkdown.replaceAll("era-monges", "era-magos").replaceAll("Monges", "Magos"), createdAt: 1, modifiedAt: 2 }]).state
+    const undefinedEra = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Cronologia/Era das Runas/Era das Runas.md", markdown: eraMarkdown.replaceAll("era-monges", "era-runas").replaceAll("Monges", "Runas"), createdAt: 1, modifiedAt: 2 }]).state
     expect(undefinedEra.pages[0].eraStartYear ?? null).toBeNull()
     const custom = mergeObsidianNotes(normalizeKnowledgeWorkspace({}), [{ path: "Cronologia/Era Minha/Era Minha.md", markdown: '---\nrunas_id: "era-minha"\nrunas_kind: "chronology"\n---\n# Era Minha\n', createdAt: 1, modifiedAt: 2 }]).state
     expect(custom.pages[0].eraStartYear ?? null).toBeNull()
