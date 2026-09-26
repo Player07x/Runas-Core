@@ -135,7 +135,7 @@ Quando a mesma página muda no site e no vault, o site guarda a versão local co
 Toda tag é **minúscula** e única (`lib/tag-normalization.ts`, aplicada em `normalizeKnowledgeWorkspace` e em cada alteração):
 
 - Variantes de caixa, acento e plural viram uma só (`assentamento`, `Assentamentos` → `assentamentos`; `regiao`, `Regiões` → `regiões`); vence a forma mais completa.
-- O ruído do erro dos colchetes (`] Lion Heart pt. II`, `O&C] …`, `…"] …`) e `Sem Tag` saem. Um nome bem formado nunca é removido, nem quando igual ao da campanha.
+- O ruído do erro dos colchetes (`] Lion Heart pt. II`, `O&C] …`, `…"] …`), `Sem Tag`, tags com "cópia local em conflito" no nome e o nome da própria campanha usado como tag das notas dela saem. Um nome bem formado nunca é removido, nem quando igual ao da campanha.
 - Cada tag ganha um emoji relacionado (`assentamentos` 🏘️, `regiões` 🏞️, `sessões` 🎬…); o emoji que o mestre escolheu nunca é trocado.
 - A assinatura de sincronização compara só a forma canônica: mudar a caixa não regrava as notas do vault. Uma nota só ganha as tags minúsculas quando é salva pelo site. A pasta de uma página nova usa a tag com a inicial maiúscula (`Geografia/Assentamentos/`), para não criar pastas paralelas.
 

@@ -611,12 +611,14 @@ describe("nomes com colchetes: campanha e tags nunca perdem o `[` inicial", () =
     })
     const first = importNotes([{ path: organizedObsidianPathForPage({ ...original.pages[0], obsidianPath: "" }, original, ""), markdown: pageToMarkdown(original.pages[0], original) }])
     expect(first.campaigns.map((campaign) => campaign.title)).toEqual([CAMPAIGN])
-    expect(first.pages[0].tags).toEqual(expect.arrayContaining(["sessões", CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
-    expect(first.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining([CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
+    expect(first.pages[0].tags).toEqual(expect.arrayContaining(["sessões", "[segredo] fim"]))
+    expect(first.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining(["[segredo] fim"]))
+    // O nome da própria campanha não fica como tag das notas dela.
+    expect(first.pages[0].tags).not.toContain(CAMPAIGN.toLocaleLowerCase("pt-BR"))
 
     const second = importNotes([{ path: first.pages[0].obsidianPath, markdown: pageToMarkdown({ ...first.pages[0], title: "Sessão 1 (revisada)" }, first) }])
     expect(second.campaigns.map((campaign) => campaign.title)).toEqual([CAMPAIGN])
-    expect(second.pages[0].tags).toEqual(expect.arrayContaining(["sessões", CAMPAIGN.toLocaleLowerCase("pt-BR"), "[segredo] fim"]))
+    expect(second.pages[0].tags).toEqual(expect.arrayContaining(["sessões", "[segredo] fim"]))
     expect(second.tags.filter((tag) => tag.name === "O&C] Lion Heart pt. II" || tag.name === "Segredo] Fim")).toEqual([])
   })
 

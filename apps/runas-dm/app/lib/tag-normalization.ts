@@ -26,7 +26,7 @@ export function tagStem(name: string): string {
  */
 export function isNoiseTag(name: string): boolean {
   const value = name.trim()
-  if (!value || fold(value) === "sem tag") return true
+  if (!value || fold(value) === "sem tag" || fold(value).includes("copia local em conflito")) return true
   return value.includes('"') || value.startsWith("]") || value.endsWith("[") || (value.includes("]") && !value.includes("["))
 }
 
@@ -76,16 +76,21 @@ export function canonicalizeTags(state: KnowledgeWorkspaceState): KnowledgeWorks
     return (best.get(tagStem(name))?.name ?? name).trim().toLocaleLowerCase("pt-BR")
   }
 
+  // O nome da própria campanha como tag das notas dela é sobra do erro dos colchetes (a nota já tem o campo `campanha`).
+  const campaignTitle = new Map(state.campaigns.map((campaign) => [campaign.id, tagStem(campaign.title)]))
   const pages = state.pages.map((page) => {
-    const tags = [...new Set(page.tags.flatMap((tag) => canonical(tag) ?? []))]
+    const own = page.campaignId ? campaignTitle.get(page.campaignId) : undefined
+    const tags = [...new Set(page.tags.flatMap((tag) => own && tagStem(tag) === own ? [] : canonical(tag) ?? []))]
     return tags.length === page.tags.length && tags.every((tag, index) => tag === page.tags[index]) ? page : { ...page, tags }
   })
 
   const scopeOf = (tag: KnowledgeTag) => tag.pinnedIn.find((scope) => scope.startsWith("campaign-notes:")) ?? "global"
   const merged = new Map<string, KnowledgeTag>()
+  const campaignStems = new Set(campaignTitle.values())
+  const stillUsed = new Set(pages.flatMap((page) => page.tags.map(tagStem)))
   for (const tag of state.tags) {
     const name = canonical(tag.name)
-    if (!name) continue
+    if (!name || (campaignStems.has(tagStem(name)) && !stillUsed.has(tagStem(name)))) continue
     const key = `${tagStem(name)}|${scopeOf(tag)}`
     const existing = merged.get(key)
     if (!existing) {

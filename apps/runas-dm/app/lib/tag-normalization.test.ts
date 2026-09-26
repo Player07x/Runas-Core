@@ -102,3 +102,19 @@ describe("cópias em conflito", () => {
     expect(removePagesById(next, [])).toBe(next)
   })
 })
+
+describe("tags em conflito", () => {
+  it("remove a tag com 'cópia local em conflito' e o nome da campanha usado como tag das notas dela", () => {
+    const state = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "c1", title: "[O&C] Lion Heart pt. II", createdAt: 1, updatedAt: 1 }],
+      pages: [
+        { id: "n1", scope: "campaign", campaignId: "c1", kind: "gm-note", title: "N", tags: ["[O&C] Lion Heart pt. II", "importante", "Nota (cópia local em conflito)"], createdAt: 1, updatedAt: 1 },
+        { id: "w1", scope: "wiki", kind: "geography", title: "W", tags: ["[O&C] Lion Heart pt. II", "lion heart"], createdAt: 1, updatedAt: 1 },
+      ],
+      updatedAt: 1,
+    })
+    expect(state.pages[0].tags).toEqual(["importante"])
+    // Fora da campanha o mesmo nome é uma tag comum e fica.
+    expect(state.pages[1].tags).toEqual(["[o&c] lion heart pt. ii", "lion heart"])
+  })
+})
