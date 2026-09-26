@@ -126,6 +126,10 @@ Cada arquivo é um envelope `{ format: "runas-dm-vault-data", kind, version: 1, 
 
 O estilo da campanha continua **fora** das notas `.md` (nem no frontmatter das páginas, nem em nota da campanha): ele vive só no `.json`.
 
+## Cópias em conflito
+
+Quando a mesma página muda no site e no vault, o site guarda a versão local como "(cópia local em conflito)". Elas se acumulam, então há duas ações (`lib/conflict-copies.ts`): o aviso **Cópias em conflito** no topo da Wiki e das Campanhas remove todas do sistema e do Obsidian, e o botão **Remover cópias em conflito** da página de uma tag remove só as daquela tag. Cada remoção pede confirmação, limpa referências, grava a lápide e, com a integração ativa, apaga o arquivo do vault depois de guardar uma cópia em `Assets/Runas DM Backups`.
+
 ## Tags
 
 Toda tag é **minúscula** e única (`lib/tag-normalization.ts`, aplicada em `normalizeKnowledgeWorkspace` e em cada alteração):

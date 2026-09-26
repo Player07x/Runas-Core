@@ -73,3 +73,32 @@ describe("eras: datas do documento, ordem e exibição", () => {
     expect(eraRangeLines(4027, null, "C.E.")).toEqual(["4.027 C.E. → Não definido"])
   })
 })
+
+import { conflictCopies, isConflictCopy, removePagesById } from "./conflict-copies"
+
+describe("cópias em conflito", () => {
+  const state = normalizeKnowledgeWorkspace({
+    campaigns: [{ id: "c1", title: "C", worldPageIds: ["dup"], storyIds: ["dup"], createdAt: 1, updatedAt: 1 }],
+    pages: [
+      page("orig", ["sessões"], { title: "Nota", linkedPageIds: ["dup"] }),
+      page("page-conflict-1", ["sessões"], { title: "Nota (cópia local em conflito)" }),
+      page("dup", ["sessões"], { title: "Outra (cópia local em conflito)" }),
+      page("solta", ["sessões"], { title: "Cópia local em conflito é só um assunto" }),
+    ],
+    updatedAt: 1,
+  })
+
+  it("reconhece só as cópias geradas pelo site", () => {
+    expect(conflictCopies(state.pages).map((p) => p.id).sort()).toEqual(["dup", "page-conflict-1"])
+    expect(isConflictCopy({ id: "x", title: "Cópia local em conflito é só um assunto" })).toBe(false)
+  })
+
+  it("remove as cópias, limpa referências e grava a lápide", () => {
+    const next = removePagesById(state, conflictCopies(state.pages).map((p) => p.id))
+    expect(next.pages.map((p) => p.id).sort()).toEqual(["orig", "solta"])
+    expect(next.pages.find((p) => p.id === "orig")?.linkedPageIds).toEqual([])
+    expect(next.campaigns[0].worldPageIds).toEqual([])
+    expect(next.deletedIds).toEqual(expect.arrayContaining(["dup", "page-conflict-1"]))
+    expect(removePagesById(next, [])).toBe(next)
+  })
+})
