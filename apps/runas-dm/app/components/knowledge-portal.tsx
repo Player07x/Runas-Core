@@ -5,7 +5,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, BookMarked, BookOpen, CalendarDays, Check, CloudDownload, CloudUpload, Filter, Grid2X2, LibraryBig, Minus, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
-import { cloneCharacter, createEmptyRunasDmState, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
+import { cloneCharacter, createEmptyRunasDmState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadBestiaryRegistry, loadLocalState, saveLocalState } from "../lib/storage"
 import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
@@ -418,7 +418,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const foreign = found.filter((item) => !item.ours)
     if (foreign.length === 0) return "nothing"
     const stored = await loadLocalState(activeBestiaryId).catch(() => null)
-    const pristine = (kind: VaultDataKind) => kind === "knowledge" ? isPristineKnowledge(stateRef.current) : !stored || isPristineBestiary(normalizeRunasDmState(stored))
+    // A adoção silenciosa é a conveniência de "computador novo, mesma wiki de sempre" — só faz
+    // sentido para a coleção padrão. Uma wiki (ou bestiário) criada de propósito pelo mestre nunca
+    // deve ser preenchida sozinha com o conteúdo de um vault estrangeiro só por estar vazia: por
+    // mais pristina que esteja, ela pergunta, como qualquer dispositivo com dados próprios.
+    const pristine = (kind: VaultDataKind) => kind === "knowledge"
+      ? wikiId === DEFAULT_WIKI_COLLECTION_ID && isPristineKnowledge(stateRef.current)
+      : activeBestiaryId === DEFAULT_BESTIARY_COLLECTION_ID && (!stored || isPristineBestiary(normalizeRunasDmState(stored)))
     if (foreign.every((item) => pristine(item.kind))) {
       const items = await loadVaultItems(foreign.map((item) => item.kind), Boolean(options.prompt))
       const message = await applyVaultItems(items, Object.fromEntries(items.map((item) => [item.kind, "pristine" as const])), true)
