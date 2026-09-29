@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@runas/core": "*",
+    "@runas/cronos-core": "*",
+    "@runas/ruleset-contracts": "*",
     "@runas/vtt-bridge": "*",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.16.0",

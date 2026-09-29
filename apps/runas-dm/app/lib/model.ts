@@ -1,6 +1,8 @@
 import { createEmptyCharacter as createCoreCharacter, normalizeCharacter } from "@runas/core/lib/characterStorage"
 import { synchronizeCharacterDerivedValues } from "@runas/core/lib/characterSynchronization"
+import { createId } from "@runas/core/lib/ids"
 import type { Character } from "@runas/core/types/character"
+import { isRulesetId, type RulesetId } from "@runas/ruleset-contracts"
 
 export interface BestiaryEntry {
   id: string
@@ -32,12 +34,82 @@ export interface InitiativeEntry {
 
 export interface RunasDmState {
   version: 2
+  /**
+   * Id do bestiário dono deste estado. Opcional para não quebrar nenhum
+   * leitor existente (backup antigo, teste, importação) que ainda não sabe
+   * de múltiplos bestiários; `normalizeRunasDmState` sempre devolve um valor
+   * válido, caindo em `DEFAULT_BESTIARY_COLLECTION_ID` na ausência de um.
+   */
+  collectionId?: string
   entries: BestiaryEntry[]
   encounter: EncounterActor[]
   masteryTables: MasteryTable[]
   workspaceNotesHtml: string
   initiative: InitiativeEntry[]
   updatedAt: number
+}
+
+/** Id do bestiário que já existia antes de bestiários múltiplos existirem. */
+export const DEFAULT_BESTIARY_COLLECTION_ID = "default"
+const DEFAULT_BESTIARY_NAME = "Bestiário"
+
+/** Um bestiário do registro: nome de exibição e o sistema fixo escolhido na criação. */
+export interface BestiaryCollectionMeta {
+  id: string
+  name: string
+  system: RulesetId
+  createdAt: number
+  updatedAt: number
+}
+
+/** A lista de bestiários deste dispositivo e qual deles está aberto agora. */
+export interface BestiaryRegistry {
+  version: 1
+  collections: BestiaryCollectionMeta[]
+  activeCollectionId: string
+}
+
+/** Um dispositivo novo (ou um dispositivo que ainda não tinha o registro) começa só com o bestiário padrão, em Livro Azul. */
+export function createDefaultBestiaryRegistry(now = Date.now()): BestiaryRegistry {
+  return {
+    version: 1,
+    collections: [{ id: DEFAULT_BESTIARY_COLLECTION_ID, name: DEFAULT_BESTIARY_NAME, system: "runas-blue", createdAt: now, updatedAt: now }],
+    activeCollectionId: DEFAULT_BESTIARY_COLLECTION_ID,
+  }
+}
+
+export function createBestiaryCollection(name: string, system: RulesetId, now = Date.now()): BestiaryCollectionMeta {
+  return { id: createId(), name: name.trim() || DEFAULT_BESTIARY_NAME, system, createdAt: now, updatedAt: now }
+}
+
+/**
+ * Normaliza um registro salvo (ou lido de outro dispositivo). Sempre garante
+ * pelo menos o bestiário padrão e uma coleção ativa que exista de verdade —
+ * nunca perde uma coleção por um dado malformado.
+ */
+export function normalizeBestiaryRegistry(value: unknown): BestiaryRegistry {
+  if (!value || typeof value !== "object") return createDefaultBestiaryRegistry()
+  const candidate = value as Partial<BestiaryRegistry>
+  const now = Date.now()
+  const seenIds = new Set<string>()
+  const collections = (Array.isArray(candidate.collections) ? candidate.collections : []).flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const record = item as Partial<BestiaryCollectionMeta>
+    if (typeof record.id !== "string" || !record.id.trim() || seenIds.has(record.id)) return []
+    seenIds.add(record.id)
+    return [{
+      id: record.id,
+      name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : DEFAULT_BESTIARY_NAME,
+      system: isRulesetId(record.system) ? record.system : "runas-blue",
+      createdAt: Number.isFinite(record.createdAt) ? record.createdAt as number : now,
+      updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt as number : now,
+    }]
+  })
+  if (collections.length === 0) return createDefaultBestiaryRegistry(now)
+  const activeCollectionId = typeof candidate.activeCollectionId === "string" && collections.some((collection) => collection.id === candidate.activeCollectionId)
+    ? candidate.activeCollectionId
+    : collections[0].id
+  return { version: 1, collections, activeCollectionId }
 }
 
 export function createEmptyCharacter(name = "Nova criatura"): Character {
@@ -91,6 +163,7 @@ export function createInitialState(): RunasDmState {
   const now = Date.now()
   return {
     version: 2,
+    collectionId: DEFAULT_BESTIARY_COLLECTION_ID,
     entries: [
       { id: SAMPLE_ENTRY_IDS[0], character: sampleSentinel(), masteryTableId: "default", updatedAt: now },
       { id: SAMPLE_ENTRY_IDS[1], character: sampleAshBeast(), masteryTableId: "default", updatedAt: now },
@@ -103,6 +176,11 @@ export function createInitialState(): RunasDmState {
   }
 }
 
+/** Um bestiário novo (criado pelo mestre) começa vazio: as fichas de exemplo só fazem sentido no bestiário padrão. */
+export function createEmptyRunasDmState(collectionId: string): RunasDmState {
+  return { ...createInitialState(), collectionId, entries: [] }
+}
+
 /** Normaliza dados antigos/importados com as regras atuais sem restaurar recursos gastos. */
 export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
   // O backup da nuvem e o arquivo do vault não levam a Mesa (encounter, iniciativa, notas),
@@ -113,6 +191,7 @@ export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
   return {
     ...state,
     version: 2,
+    collectionId: typeof state.collectionId === "string" && state.collectionId.trim() ? state.collectionId.trim() : DEFAULT_BESTIARY_COLLECTION_ID,
     masteryTables,
     workspaceNotesHtml: typeof state.workspaceNotesHtml === "string" ? state.workspaceNotesHtml : "",
     initiative: Array.isArray(state.initiative) ? state.initiative.flatMap((entry, index) => {

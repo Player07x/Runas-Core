@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createEmptyKnowledgeWorkspace, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -231,5 +231,74 @@ describe("anos das eras canônicas", () => {
     expect(byId("era-alquimistas")).toMatchObject({ eraStartYear: 1489, eraEndYear: 3122 })
     expect(byId("era-magos")).toMatchObject({ eraStartYear: 3000, eraEndYear: 3500 })
     expect(byId("era-runas")?.eraStartYear ?? null).toBeNull()
+  })
+})
+
+describe("identidade da wiki (collectionId)", () => {
+  it("uma wiki nova já nasce com o id padrão", () => {
+    expect(createEmptyKnowledgeWorkspace().collectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("normaliza um estado sem collectionId (dado legado) para o id padrão", () => {
+    expect(normalizeKnowledgeWorkspace({ pages: [] }).collectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("preserva um collectionId já existente ao normalizar", () => {
+    expect(normalizeKnowledgeWorkspace({ collectionId: "wiki-outra", pages: [] }).collectionId).toBe("wiki-outra")
+  })
+
+  it("mesclar nunca troca a identidade da wiki: o resultado segue sempre a local", () => {
+    const local = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-local", updatedAt: 5 }
+    const remote = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-remota", updatedAt: 10 }
+    expect(mergeKnowledgeWorkspaces(local, remote).collectionId).toBe("wiki-local")
+  })
+
+  it("importar um backup da nuvem (mesclar ou substituir) nunca troca a identidade da wiki", () => {
+    const local = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-local" }
+    const backup = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-remota" }
+    expect(applyCloudBackup(local, backup, "merge").collectionId).toBe("wiki-local")
+    expect(applyCloudBackup(local, backup, "replace").collectionId).toBe("wiki-local")
+  })
+})
+
+describe("registro de wikis", () => {
+  it("um dispositivo novo começa só com a wiki padrão", () => {
+    const registry = createDefaultWikiRegistry()
+    expect(registry.collections).toEqual([expect.objectContaining({ id: DEFAULT_WIKI_COLLECTION_ID, name: "Wiki" })])
+    expect(registry.activeCollectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("criar uma wiki nova gera um id próprio, mesmo com o mesmo nome", () => {
+    const a = createWikiCollection("Ordem x Caos")
+    const b = createWikiCollection("Ordem x Caos")
+    expect(a.id).not.toBe(b.id)
+    expect(a.name).toBe("Ordem x Caos")
+  })
+
+  it("normaliza um valor qualquer (dado legado, ausente) para o registro padrão, sem perder nada", () => {
+    expect(normalizeWikiRegistry(null).collections).toHaveLength(1)
+    expect(normalizeWikiRegistry(undefined).activeCollectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("preserva coleções válidas, descarta as malformadas e nunca fica com ids repetidos", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [
+        { id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 },
+        { id: "w2", name: "Sagas de Cronos", createdAt: 2, updatedAt: 2 },
+        { id: "w1", name: "Duplicata", createdAt: 3, updatedAt: 3 },
+        { name: "Sem id" },
+      ],
+      activeCollectionId: "w2",
+    })
+    expect(registry.collections.map((collection) => collection.id)).toEqual(["w1", "w2"])
+    expect(registry.activeCollectionId).toBe("w2")
+  })
+
+  it("uma coleção ativa que não existe mais cai na primeira coleção válida", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [{ id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 }],
+      activeCollectionId: "wiki-apagada",
+    })
+    expect(registry.activeCollectionId).toBe("w1")
   })
 })

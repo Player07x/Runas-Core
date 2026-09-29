@@ -1,6 +1,6 @@
 # Organização do vault Ordem x Caos
 
-Este documento é a **norma** do vault. O Runas DM grava exatamente esta estrutura e lê somente as pastas que ela reserva ao site; qualquer arquivo que não a respeite deve ser padronizado, realocado ou, se for cópia, removido pelo protocolo da última seção. As regras de sincronização (o que o site lê, reescreve e protege) estão em `docs/data-sync.md`.
+Este documento é a **norma** de um vault de wiki do Runas DM, usando Ordem x Caos como exemplo. O mestre pode ter mais de uma wiki, cada uma com seu próprio vault; a norma abaixo se aplica a cada um deles, independentemente. O Runas DM grava exatamente esta estrutura em cada vault e lê somente as pastas que ela reserva ao site; qualquer arquivo que não a respeite deve ser padronizado, realocado ou, se for cópia, removido pelo protocolo da última seção. As regras de sincronização (o que o site lê, reescreve e protege, e como uma pasta vazia com nome desconhecido é reconhecida como wiki nova ou associada a uma já existente) estão em `docs/data-sync.md`.
 
 ## Estrutura padronizada
 

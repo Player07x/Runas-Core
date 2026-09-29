@@ -20,8 +20,17 @@ export type CloudHead = BackupHead
 
 export const CLOUD_PATHS: Record<CloudKind, string> = { knowledge: "/api/campaign-data", bestiary: "/api/backup" }
 export const BACKUP_TOKEN_KEY = "runas-dm.backup-token"
+/** Id da coleção (bestiário ou wiki) que já existia antes de coleções múltiplas existirem. */
+export const DEFAULT_COLLECTION_ID = "default"
 const DEVICE_KEY = "runas-dm.device-id"
-const baseKey = (kind: CloudKind) => `runas-dm.cloud-base.${kind}`
+/** A coleção padrão mantém a chave antiga: nenhum dispositivo já sincronizado perde a versão-base conhecida ao atualizar. */
+const baseKey = (kind: CloudKind, collectionId: string) => collectionId === DEFAULT_COLLECTION_ID ? `runas-dm.cloud-base.${kind}` : `runas-dm.cloud-base.${kind}.${collectionId}`
+function cloudPath(kind: CloudKind, collectionId: string): string {
+  return collectionId === DEFAULT_COLLECTION_ID ? CLOUD_PATHS[kind] : `${CLOUD_PATHS[kind]}?collection=${encodeURIComponent(collectionId)}`
+}
+function withQuery(path: string, extra: string): string {
+  return `${path}${path.includes("?") ? "&" : "?"}${extra}`
+}
 
 function local(): Storage | null {
   try { return globalThis.localStorage ?? null } catch { return null }
@@ -62,28 +71,29 @@ export function getDeviceId(): string {
 }
 
 /** Última versão da nuvem que este dispositivo enviou ou importou; `null` = nunca sincronizou. */
-export function readCloudBase(kind: CloudKind): number | null {
+export function readCloudBase(kind: CloudKind, collectionId: string = DEFAULT_COLLECTION_ID): number | null {
   try {
-    const raw = local()?.getItem(baseKey(kind))
+    const raw = local()?.getItem(baseKey(kind, collectionId))
     return raw !== null && raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : null
   } catch {
     return null
   }
 }
 
-export function writeCloudBase(kind: CloudKind, version: number): void {
-  try { local()?.setItem(baseKey(kind), String(version)) } catch { /* a próxima sincronização volta a perguntar */ }
+export function writeCloudBase(kind: CloudKind, version: number, collectionId: string = DEFAULT_COLLECTION_ID): void {
+  try { local()?.setItem(baseKey(kind, collectionId), String(version)) } catch { /* a próxima sincronização volta a perguntar */ }
 }
 
-const signatureKey = (kind: CloudKind) => `runas-dm.cloud-signature.${kind}`
+/** A coleção padrão mantém a chave antiga, pelo mesmo motivo de `baseKey`. */
+const signatureKey = (kind: CloudKind, collectionId: string) => collectionId === DEFAULT_COLLECTION_ID ? `runas-dm.cloud-signature.${kind}` : `runas-dm.cloud-signature.${kind}.${collectionId}`
 
 /** Hash do conteúdo que este dispositivo enviou (ou recebeu) por último; evita reenviar o que não mudou. */
-export function readCloudSignature(kind: CloudKind): string | null {
-  try { return local()?.getItem(signatureKey(kind)) ?? null } catch { return null }
+export function readCloudSignature(kind: CloudKind, collectionId: string = DEFAULT_COLLECTION_ID): string | null {
+  try { return local()?.getItem(signatureKey(kind, collectionId)) ?? null } catch { return null }
 }
 
-export function writeCloudSignature(kind: CloudKind, signature: string): void {
-  try { local()?.setItem(signatureKey(kind), signature) } catch { /* no máximo um envio a mais */ }
+export function writeCloudSignature(kind: CloudKind, signature: string, collectionId: string = DEFAULT_COLLECTION_ID): void {
+  try { local()?.setItem(signatureKey(kind, collectionId), signature) } catch { /* no máximo um envio a mais */ }
 }
 
 // ---- compressão ----
@@ -158,9 +168,9 @@ function headFromHeaders(headers: Headers): CloudHead {
  * Envia uma cópia inteira. `force` só existe para o botão explícito "Substituir
  * a nuvem por este dispositivo" (o servidor guarda a versão anterior).
  */
-export async function putCloudBackup(kind: CloudKind, token: string, input: { payload: unknown; stats: SnapshotStats; force?: boolean }, retried = false): Promise<CloudPutResult> {
+export async function putCloudBackup(kind: CloudKind, token: string, input: { payload: unknown; stats: SnapshotStats; force?: boolean }, collectionId: string = DEFAULT_COLLECTION_ID, retried = false): Promise<CloudPutResult> {
   const { bytes, encoding } = await gzipText(JSON.stringify(input.payload))
-  const base = readCloudBase(kind)
+  const base = readCloudBase(kind, collectionId)
   const device = getDeviceId()
   const headers: Record<string, string> = { "Content-Type": "application/octet-stream", authorization: `Bearer ${token}`, "x-runas-encoding": encoding, "x-runas-stats": JSON.stringify(input.stats), "x-runas-device": device }
   if (base !== null) headers["x-runas-base-version"] = String(base)
@@ -168,7 +178,7 @@ export async function putCloudBackup(kind: CloudKind, token: string, input: { pa
 
   let response: Response
   try {
-    response = await fetch(CLOUD_PATHS[kind], { method: "PUT", headers, body: bytes })
+    response = await fetch(cloudPath(kind, collectionId), { method: "PUT", headers, body: bytes })
   } catch {
     return { ok: false, reason: "unavailable", message: OFFLINE }
   }
@@ -176,7 +186,7 @@ export async function putCloudBackup(kind: CloudKind, token: string, input: { pa
   if (response.ok) {
     const version = typeof body.version === "number" ? body.version : 0
     const localOnly = body.localOnly === true
-    if (!localOnly) writeCloudBase(kind, version)
+    if (!localOnly) writeCloudBase(kind, version, collectionId)
     return { ok: true, version, updatedAt: typeof body.updatedAt === "number" ? body.updatedAt : Date.now(), localOnly }
   }
   if (response.status === 401) return { ok: false, reason: "unauthorized", message: UNAUTHORIZED }
@@ -186,18 +196,18 @@ export async function putCloudBackup(kind: CloudKind, token: string, input: { pa
     // Nossa gravação anterior chegou ao servidor mas a resposta se perdeu: a cabeça é obra deste
     // dispositivo, a partir da nossa base. Adotamos a versão e repetimos uma vez, com o estado atual.
     if (!retried && body.reason === "stale" && head && head.deviceId === device && head.baseVersion === (base ?? 0) && head.version === (base ?? 0) + 1) {
-      writeCloudBase(kind, head.version)
-      return putCloudBackup(kind, token, input, true)
+      writeCloudBase(kind, head.version, collectionId)
+      return putCloudBackup(kind, token, input, collectionId, true)
     }
     return { ok: false, reason: body.reason, head, message: serverMessage(body, "A nuvem recusou o envio.") }
   }
   return { ok: false, reason: "unavailable", message: serverMessage(body, `A nuvem respondeu com erro ${response.status}.`) }
 }
 
-export async function fetchCloudMeta(kind: CloudKind, token: string): Promise<CloudMetaResult> {
+export async function fetchCloudMeta(kind: CloudKind, token: string, collectionId: string = DEFAULT_COLLECTION_ID): Promise<CloudMetaResult> {
   let response: Response
   try {
-    response = await fetch(`${CLOUD_PATHS[kind]}?meta=1`, { cache: "no-store", headers: { authorization: `Bearer ${token}` } })
+    response = await fetch(withQuery(cloudPath(kind, collectionId), "meta=1"), { cache: "no-store", headers: { authorization: `Bearer ${token}` } })
   } catch {
     return { ok: false, reason: "unavailable", message: OFFLINE }
   }
@@ -208,10 +218,10 @@ export async function fetchCloudMeta(kind: CloudKind, token: string): Promise<Cl
 }
 
 /** Lê a versão mais recente (ou uma específica). Quem aplica o resultado grava a versão-base com `writeCloudBase`. */
-export async function fetchCloudBackup<T>(kind: CloudKind, token: string, version?: number): Promise<CloudReadResult<T>> {
+export async function fetchCloudBackup<T>(kind: CloudKind, token: string, version?: number, collectionId: string = DEFAULT_COLLECTION_ID): Promise<CloudReadResult<T>> {
   let response: Response
   try {
-    response = await fetch(`${CLOUD_PATHS[kind]}${version === undefined ? "" : `?version=${version}`}`, { cache: "no-store", headers: { authorization: `Bearer ${token}` } })
+    response = await fetch(version === undefined ? cloudPath(kind, collectionId) : withQuery(cloudPath(kind, collectionId), `version=${version}`), { cache: "no-store", headers: { authorization: `Bearer ${token}` } })
   } catch {
     return { ok: false, reason: "unavailable", message: OFFLINE }
   }

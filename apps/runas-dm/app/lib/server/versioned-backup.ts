@@ -22,9 +22,12 @@ export const BACKUP_CHUNK_BYTES = 900_000
 export const BACKUP_MAX_BYTES = 32_000_000
 /** A linha antiga (`knowledge_snapshots` / `backup_snapshots`) é a "versão 1 virtual"; a primeira gravação real é a 2. */
 export const LEGACY_VERSION = 1
+/** Id da coleção (bestiário ou wiki) que já existia antes de coleções múltiplas existirem; só ela enxerga o legado. */
+export const DEFAULT_COLLECTION_ID = "default"
 
 export interface BackupRow {
   kind: BackupKind
+  collectionId: string
   version: number
   createdAt: number
   deviceId: string
@@ -51,13 +54,14 @@ export interface BackupCommit {
 }
 
 export interface BackupStore {
-  /** Cabeçalhos de todas as versões reais do tipo, da mais nova para a mais antiga. */
-  rows(kind: BackupKind): Promise<BackupRow[]>
-  chunks(kind: BackupKind, version: number): Promise<Uint8Array[]>
+  /** Cabeçalhos de todas as versões reais da coleção, da mais nova para a mais antiga. */
+  rows(kind: BackupKind, collectionId: string): Promise<BackupRow[]>
+  chunks(kind: BackupKind, collectionId: string, version: number): Promise<Uint8Array[]>
+  /** A linha antiga só existe para `DEFAULT_COLLECTION_ID`: é o backup único de antes de coleções múltiplas. */
   legacyInfo(kind: BackupKind): Promise<LegacyInfo | null>
   legacyPayload(kind: BackupKind): Promise<string | null>
   /** Grava e apaga atomicamente. `false` quando a versão já existe (outra gravação chegou primeiro). */
-  commit(kind: BackupKind, write: BackupCommit): Promise<boolean>
+  commit(kind: BackupKind, collectionId: string, write: BackupCommit): Promise<boolean>
 }
 
 /** O que os clientes veem de uma versão. */
@@ -94,27 +98,32 @@ export function joinChunks(chunks: readonly Uint8Array[]): Uint8Array<ArrayBuffe
   return joined
 }
 
-export async function readHead(store: BackupStore, kind: BackupKind): Promise<BackupHead | null> {
-  const [row] = await store.rows(kind)
+/** A linha antiga só faz sentido para a coleção padrão: é o backup único de antes de coleções múltiplas existirem. */
+function legacyEligible(collectionId: string): boolean {
+  return collectionId === DEFAULT_COLLECTION_ID
+}
+
+export async function readHead(store: BackupStore, kind: BackupKind, collectionId: string): Promise<BackupHead | null> {
+  const [row] = await store.rows(kind, collectionId)
   if (row) return toHead(row)
-  const legacy = await store.legacyInfo(kind)
+  const legacy = legacyEligible(collectionId) ? await store.legacyInfo(kind) : null
   return legacy ? legacyHead(legacy) : null
 }
 
 /** Cabeça + lista de versões disponíveis; a linha antiga aparece como versão 1 enquanto nenhuma versão real a ocupa. */
-export async function listBackupMeta(store: BackupStore, kind: BackupKind): Promise<{ head: BackupHead | null; versions: BackupHead[] }> {
-  const rows = await store.rows(kind)
+export async function listBackupMeta(store: BackupStore, kind: BackupKind, collectionId: string): Promise<{ head: BackupHead | null; versions: BackupHead[] }> {
+  const rows = await store.rows(kind, collectionId)
   const versions = rows.map(toHead)
-  const legacy = await store.legacyInfo(kind)
+  const legacy = legacyEligible(collectionId) ? await store.legacyInfo(kind) : null
   if (legacy && !rows.some((row) => row.version === LEGACY_VERSION)) versions.push(legacyHead(legacy))
   return { head: versions[0] ?? null, versions }
 }
 
-export async function readBackup(store: BackupStore, kind: BackupKind, version?: number): Promise<{ head: BackupHead; body: Uint8Array<ArrayBuffer> } | null> {
-  const rows = await store.rows(kind)
+export async function readBackup(store: BackupStore, kind: BackupKind, collectionId: string, version?: number): Promise<{ head: BackupHead; body: Uint8Array<ArrayBuffer> } | null> {
+  const rows = await store.rows(kind, collectionId)
   const row = version === undefined ? rows[0] : rows.find((candidate) => candidate.version === version)
-  if (row) return { head: toHead(row), body: joinChunks(await store.chunks(kind, row.version)) }
-  if (version === undefined ? rows.length === 0 : version === LEGACY_VERSION) {
+  if (row) return { head: toHead(row), body: joinChunks(await store.chunks(kind, collectionId, row.version)) }
+  if (legacyEligible(collectionId) && (version === undefined ? rows.length === 0 : version === LEGACY_VERSION)) {
     const [info, payload] = await Promise.all([store.legacyInfo(kind), store.legacyPayload(kind)])
     if (info && payload !== null) return { head: legacyHead(info), body: new TextEncoder().encode(payload) }
   }
@@ -136,13 +145,13 @@ export type PutResult =
   | { ok: true; version: number; updatedAt: number }
   | { ok: false; status: 400 | 409 | 413; reason: "empty" | "too-large" | "stale" | "shrink"; head: BackupHead | null }
 
-export async function putBackup(store: BackupStore, kind: BackupKind, input: PutInput, policy: CheckpointPolicy = CLOUD_CHECKPOINT_POLICY): Promise<PutResult> {
+export async function putBackup(store: BackupStore, kind: BackupKind, collectionId: string, input: PutInput, policy: CheckpointPolicy = CLOUD_CHECKPOINT_POLICY): Promise<PutResult> {
   if (input.body.byteLength === 0) return { ok: false, status: 400, reason: "empty", head: null }
   if (input.body.byteLength > BACKUP_MAX_BYTES) return { ok: false, status: 413, reason: "too-large", head: null }
 
-  const rows = await store.rows(kind)
+  const rows = await store.rows(kind, collectionId)
   const previous = rows[0] ?? null
-  const legacy = previous ? null : await store.legacyInfo(kind)
+  const legacy = previous || !legacyEligible(collectionId) ? null : await store.legacyInfo(kind)
   const head = previous ? toHead(previous) : legacy ? legacyHead(legacy) : null
   const shrink = isShrink(head?.stats, input.stats)
 
@@ -160,8 +169,8 @@ export async function putBackup(store: BackupStore, kind: BackupKind, input: Put
   if (previous && !keepPrevious) dropVersions.push(previous.version)
 
   const chunks = splitChunks(input.body)
-  const row: BackupRow = { kind, version, createdAt: input.now, deviceId: input.deviceId, baseVersion: input.baseVersion ?? 0, encoding: input.encoding, bytes: input.body.byteLength, chunkCount: chunks.length, stats: input.stats, checkpoint: false }
-  const committed = await store.commit(kind, { row, chunks, markCheckpoint: previous && keepPrevious ? previous.version : null, dropVersions })
-  if (!committed) return { ok: false, status: 409, reason: "stale", head: await readHead(store, kind) }
+  const row: BackupRow = { kind, collectionId, version, createdAt: input.now, deviceId: input.deviceId, baseVersion: input.baseVersion ?? 0, encoding: input.encoding, bytes: input.body.byteLength, chunkCount: chunks.length, stats: input.stats, checkpoint: false }
+  const committed = await store.commit(kind, collectionId, { row, chunks, markCheckpoint: previous && keepPrevious ? previous.version : null, dropVersions })
+  if (!committed) return { ok: false, status: 409, reason: "stale", head: await readHead(store, kind, collectionId) }
   return { ok: true, version, updatedAt: input.now }
 }

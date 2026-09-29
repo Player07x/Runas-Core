@@ -35,6 +35,26 @@ export const VAULT_DATA_VERSION = 1
 
 const VERSION_PREFIX: Record<VaultDataKind, string> = { knowledge: "wiki-e-campanhas", bestiary: "bestiario" }
 const CHECKPOINT_POLICY: Record<VaultDataKind, CheckpointPolicy> = { knowledge: VAULT_KNOWLEDGE_CHECKPOINT_POLICY, bestiary: VAULT_BESTIARY_CHECKPOINT_POLICY }
+
+/**
+ * Um bestiário não tem vault próprio (vive no vault da wiki ativa), então
+ * mais de um bestiário salvo no mesmo vault precisa de arquivos distintos.
+ * O bestiário padrão (o único que existia antes de bestiários múltiplos)
+ * mantém o nome de sempre; qualquer outro ganha o próprio arquivo, nomeado
+ * pelo id da coleção.
+ */
+function sanitizeBestiaryId(bestiaryId: string): string {
+  return bestiaryId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60) || "x"
+}
+
+function dataFileName(kind: VaultDataKind, bestiaryId?: string): string {
+  if (kind === "knowledge" || !bestiaryId || bestiaryId === "default") return VERSION_PREFIX[kind]
+  return `bestiario-${sanitizeBestiaryId(bestiaryId)}`
+}
+
+function dataFilePath(kind: VaultDataKind, bestiaryId?: string): string {
+  return `${VAULT_DATA_FOLDER}/${dataFileName(kind, bestiaryId)}.json`
+}
 /** O cabeçalho vem antes de `data`; ler só o começo do arquivo basta para saber de quem ele é. */
 const HEADER_PREFIX_BYTES = 8192
 const DATA_MARKER = ',"data":'
@@ -121,8 +141,8 @@ export type VaultInspection =
   | { status: "ok"; header: VaultDataHeader; ours: boolean }
 
 /** Estado barato do arquivo (só o cabeçalho): há dados? de quando? foi este navegador quem os gravou? */
-export async function inspectVaultData(adapter: VaultDataAdapter, kind: VaultDataKind, known: KnownRevision | null): Promise<VaultInspection> {
-  const found = await readHeader(adapter, VAULT_DATA_FILES[kind])
+export async function inspectVaultData(adapter: VaultDataAdapter, kind: VaultDataKind, known: KnownRevision | null, bestiaryId?: string): Promise<VaultInspection> {
+  const found = await readHeader(adapter, dataFilePath(kind, bestiaryId))
   if (!found.present) return { status: "missing" }
   if (!found.header) return { status: "unreadable" }
   if (found.header.version > VAULT_DATA_VERSION) return { status: "unsupported", version: found.header.version }
@@ -143,8 +163,8 @@ export type VaultLoadResult<T> =
   | { status: "unreadable" }
   | { status: "unsupported"; version: number }
 
-export async function loadVaultData<T = unknown>(adapter: VaultDataAdapter, kind: VaultDataKind): Promise<VaultLoadResult<T>> {
-  const text = await adapter.readText(VAULT_DATA_FILES[kind])
+export async function loadVaultData<T = unknown>(adapter: VaultDataAdapter, kind: VaultDataKind, bestiaryId?: string): Promise<VaultLoadResult<T>> {
+  const text = await adapter.readText(dataFilePath(kind, bestiaryId))
   if (text === null) return { status: "missing" }
   const parsed = parseVaultData<T>(text)
   if (!parsed) return { status: "unreadable" }
@@ -182,8 +202,8 @@ export type VaultSaveOutcome =
 
 const STAMP = /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/
 
-export function versionFileName(kind: VaultDataKind, savedAt: number): string {
-  return `${VERSION_PREFIX[kind]}-${new Date(savedAt).toISOString().replace(/[:.]/g, "-")}.json`
+export function versionFileName(kind: VaultDataKind, savedAt: number, bestiaryId?: string): string {
+  return `${dataFileName(kind, bestiaryId)}-${new Date(savedAt).toISOString().replace(/[:.]/g, "-")}.json`
 }
 
 export function versionFileTime(name: string): number | null {
@@ -194,15 +214,16 @@ export function versionFileTime(name: string): number | null {
 }
 
 /** Copia o arquivo atual para `versoes/` quando a política manda, e apaga as cópias que passam do limite. */
-async function checkpointExisting(adapter: VaultDataAdapter, kind: VaultDataKind, existing: VaultDataHeader, forced: boolean, shrink: boolean): Promise<boolean> {
+async function checkpointExisting(adapter: VaultDataAdapter, kind: VaultDataKind, existing: VaultDataHeader, forced: boolean, shrink: boolean, bestiaryId?: string): Promise<boolean> {
   const policy = CHECKPOINT_POLICY[kind]
-  const versions = (await adapter.list(VAULT_VERSIONS_FOLDER)).filter((name) => name.startsWith(`${VERSION_PREFIX[kind]}-`) && name.endsWith(".json"))
+  const prefix = dataFileName(kind, bestiaryId)
+  const versions = (await adapter.list(VAULT_VERSIONS_FOLDER)).filter((name) => name.startsWith(`${prefix}-`) && name.endsWith(".json"))
     .flatMap((name) => { const at = versionFileTime(name); return at === null ? [] : [{ name, at }] })
   const newest = versions.reduce<number | null>((latest, item) => latest === null || item.at > latest ? item.at : latest, null)
   if (!shouldCheckpoint({ previousAt: existing.savedAt, newestCheckpointAt: newest, forced, shrink, policy })) return false
-  const text = await adapter.readText(VAULT_DATA_FILES[kind])
+  const text = await adapter.readText(dataFilePath(kind, bestiaryId))
   if (text === null) return false
-  const name = versionFileName(kind, existing.savedAt)
+  const name = versionFileName(kind, existing.savedAt, bestiaryId)
   await adapter.writeText(`${VAULT_VERSIONS_FOLDER}/${name}`, text)
   const all = versions.some((item) => item.name === name) ? versions : [...versions, { name, at: existing.savedAt }]
   for (const item of checkpointsToDrop(all, policy.keep)) await adapter.remove(`${VAULT_VERSIONS_FOLDER}/${item.name}`)
@@ -228,10 +249,10 @@ async function ensureReadme(adapter: VaultDataAdapter): Promise<void> {
   if (await adapter.readTextPrefix(VAULT_README_PATH, 1) === null) await adapter.writeText(VAULT_README_PATH, README)
 }
 
-export async function saveVaultData(adapter: VaultDataAdapter, kind: VaultDataKind, input: VaultSaveInput, context: VaultSaveContext): Promise<VaultSaveOutcome> {
+export async function saveVaultData(adapter: VaultDataAdapter, kind: VaultDataKind, input: VaultSaveInput, context: VaultSaveContext, bestiaryId?: string): Promise<VaultSaveOutcome> {
   const force = context.force === true
   if (input.pristine && !force) return { status: "skipped-pristine" }
-  const path = VAULT_DATA_FILES[kind]
+  const path = dataFilePath(kind, bestiaryId)
   const found = await readHeader(adapter, path)
   if (found.present && !found.header && !force) return { status: "conflict", reason: "unreadable", existing: null }
   const existing = found.present ? found.header : null
@@ -245,7 +266,7 @@ export async function saveVaultData(adapter: VaultDataAdapter, kind: VaultDataKi
     if (isShrink(existing.counts, input.counts)) return { status: "conflict", reason: "shrink", existing }
   }
 
-  const checkpointed = existing ? await checkpointExisting(adapter, kind, existing, force, isShrink(existing.counts, input.counts)) : false
+  const checkpointed = existing ? await checkpointExisting(adapter, kind, existing, force, isShrink(existing.counts, input.counts), bestiaryId) : false
   const header: VaultDataHeader = { format: VAULT_DATA_FORMAT, kind, version: VAULT_DATA_VERSION, revision: (existing?.revision ?? 0) + 1, writerId: context.writerId, savedAt: context.now ?? Date.now(), counts: input.counts, contentHash, ...(input.preferences && Object.keys(input.preferences).length ? { preferences: input.preferences } : {}) }
   await adapter.writeText(path, serializeVaultData(header, JSON.stringify(input.data)))
   await ensureReadme(adapter)

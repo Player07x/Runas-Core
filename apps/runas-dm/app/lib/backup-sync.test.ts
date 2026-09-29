@@ -99,8 +99,16 @@ describe("o backup guarda só o Bestiário", () => {
 
   it("mantém o formato do estado completo, então qualquer leitor existente o aceita", () => {
     const payload = bestiaryBackupPayload(sessionState())
-    expect(Object.keys(payload).sort()).toEqual(["encounter", "entries", "initiative", "masteryTables", "updatedAt", "version", "workspaceNotesHtml"])
+    expect(Object.keys(payload).sort()).toEqual(["collectionId", "encounter", "entries", "initiative", "masteryTables", "updatedAt", "version", "workspaceNotesHtml"])
     expect(parseRunasImport(JSON.parse(JSON.stringify(payload)))).toMatchObject({ kind: "workspace" })
+  })
+
+  it("sincronizar e fazer backup nunca trocam a identidade do bestiário (o resultado segue sempre o local)", () => {
+    const local: RunasDmState = { ...sessionState(), collectionId: "bestiario-local" }
+    const remote: RunasDmState = { ...state([entry("b", "Ficha B", "Orc", "ar", "remoto")]), collectionId: "bestiario-remoto" }
+    expect(synchronizeRunasDmState(local, remote, 10).collectionId).toBe("bestiario-local")
+    expect(createRunasDmBackup(local, remote, 10).collectionId).toBe("bestiario-local")
+    expect(createRunasDmBackup(local, null, 10).collectionId).toBe("bestiario-local")
   })
 
   it("um backup sem Mesa ou sem tabelas (de outra versão) é lido sem quebrar", () => {

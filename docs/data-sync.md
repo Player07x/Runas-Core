@@ -10,9 +10,9 @@ O Runas DM é local-first. Nada depende da rede para funcionar.
 
 | Dado | Onde fica no navegador | Vai à nuvem? | Vai ao vault? |
 | - | - | - | - |
-| Fichas do Bestiário e tabelas de maestria | IndexedDB (`runas-dm`) | sim | sim (`Runas DM/bestiario.json`) |
+| Fichas do Bestiário e tabelas de maestria (um ou mais bestiários, por `collectionId`) | IndexedDB (`runas-dm`) | sim, cada bestiário na sua própria coleção | sim, no vault da wiki ativa (`Runas DM/bestiario.json` ou `bestiario-<id>.json`) |
 | Mesa: encontro, iniciativa e notas da Mesa | IndexedDB | **não** | não |
-| Campanhas e Wiki (páginas, campanhas, tags, eras, exclusões) | IndexedDB (`runas-dm-knowledge`) | sim | sim (`.md` + `Runas DM/wiki-e-campanhas.json`) |
+| Campanhas e Wiki (páginas, campanhas, tags, eras, exclusões; uma ou mais wikis, por `collectionId`) | IndexedDB (`runas-dm-knowledge`) | sim, cada wiki na sua própria coleção | sim, no vault próprio de cada wiki (`.md` + `Runas DM/wiki-e-campanhas.json`) |
 | Preferências de interface (tema, tamanho da grade, colunas da cronologia, modo do editor de itens) | `localStorage` | **não** | sim (dentro de `wiki-e-campanhas.json`) |
 | Preferências da integração com o Obsidian | `localStorage` | não | não |
 | Versão-base e assinatura da nuvem, id do dispositivo | `localStorage` | não | não |
@@ -35,10 +35,12 @@ As duas rotas seguem o mesmo contrato (`lib/server/backup-routes.ts`): `/api/bac
 
 | Requisição | Resposta |
 | - | - |
-| `GET` | bytes da versão mais recente (cabeçalhos `X-Runas-Version`, `X-Runas-Updated-At`, `X-Runas-Encoding`, `X-Runas-Stats`, `X-Runas-Device`) ou `{ head: null }` |
+| `GET` | bytes da versão mais recente (cabeçalhos `X-Runas-Version`, `X-Runas-Updated-At`, `X-Runas-Encoding`, `X-Runas-Stats`, `X-Runas-Device`, `X-Runas-Collection`) ou `{ head: null }` |
 | `GET ?meta=1` | `{ head, versions }`: a lista de versões disponíveis |
 | `GET ?version=N` | bytes daquela versão |
 | `PUT` | grava uma nova versão; corpo = gzip do JSON |
+
+Todas aceitam `?collection=<id>`: identifica **qual** bestiário ou wiki, já que um mestre pode ter mais de um dos dois. Sem o parâmetro, vale a coleção `"default"` — a que já existia antes de bestiários e wikis múltiplos, então nenhum cliente antigo perde o backup ao atualizar. Duas coleções do mesmo `kind` nunca competem pela mesma sequência de versões, pela mesma trava de encolhimento nem pelo mesmo histórico de checkpoints.
 
 Todas exigem `Authorization: Bearer <token>` (a única exceção é `/api/campaign-data` em `localhost`, descrita abaixo), respondem `Cache-Control: no-store` e nunca são armazenadas pelo service worker.
 
@@ -60,11 +62,11 @@ Todas exigem `Authorization: Bearer <token>` (a única exceção é `/api/campai
 
 `lib/cloud-backup.ts` é o **único** caminho de rede para os backups: `putCloudBackup`, `fetchCloudBackup`, `fetchCloudMeta`, com resultado tipado (`ok`, `stale`, `shrink`, `unauthorized`, `too-large`, `unavailable`). Nenhum componente faz `fetch("/api/…")` nem `PUT` direto; `navigation-safety.test.ts` protege isso.
 
-- O dispositivo guarda, por tipo, a versão-base e a assinatura do conteúdo enviado por último (`localStorage`, `runas-dm.cloud-base.*`). Um `409` cuja versão atual foi escrita por este mesmo dispositivo a partir da nossa base (resposta perdida) é adotado e repetido, em vez de virar conflito.
+- O dispositivo guarda, por tipo **e por coleção**, a versão-base e a assinatura do conteúdo enviado por último (`localStorage`, `runas-dm.cloud-base.<kind>` para a coleção `"default"`, `runas-dm.cloud-base.<kind>.<collectionId>` para as demais — a coleção padrão mantém a chave antiga de propósito, para não perder a versão-base já conhecida ao atualizar). Um `409` cuja versão atual foi escrita por este mesmo dispositivo a partir da nossa base (resposta perdida) é adotado e repetido, em vez de virar conflito.
 - Um dispositivo que nunca recebeu a nuvem não a sobrescreve: recebe `stale` e o usuário decide.
 - O token fica somente em `sessionStorage`; não entra no bundle, IndexedDB ou Git.
 
-Antes de publicar, aplique as migrações registradas em `apps/runas-dm/drizzle` ao D1. As tabelas do backup versionado (`cloud_backups`, `cloud_backup_chunks`) são criadas sob demanda pelo próprio servidor (`CREATE TABLE IF NOT EXISTS`), sem migração nova. A configuração versionada do Pages usa o binding `DB`; nunca duplique esse binding no artefato gerado pelo Vinext.
+Antes de publicar, aplique as migrações registradas em `apps/runas-dm/drizzle` ao D1. As tabelas do backup versionado (`cloud_backups`, `cloud_backup_chunks`) são criadas sob demanda pelo próprio servidor (`CREATE TABLE IF NOT EXISTS`), sem migração nova; a chave é `(kind, collection_id, version)`. Um banco de produção que já tinha essas tabelas no formato antigo (sem `collection_id`) é migrado sozinho na primeira requisição depois do deploy: a tabela antiga é renomeada (`cloud_backups_v1_legacy`/`cloud_backup_chunks_v1_legacy`, nunca apagada) e todo o conteúdo dela entra na coleção `"default"`. A configuração versionada do Pages usa o binding `DB`; nunca duplique esse binding no artefato gerado pelo Vinext.
 
 ## Bestiário
 
@@ -101,12 +103,15 @@ As notas `.md` guardam o texto das páginas. Tudo o mais — campanhas (estilo, 
 ```text
 Runas DM/
 ├── LEIA-ME.md                 (runas_system: true)
-├── wiki-e-campanhas.json      estado completo de Campanhas e Wiki + preferências de interface
-├── bestiario.json             fichas e tabelas de maestria
+├── wiki-e-campanhas.json      estado completo desta wiki (Campanhas e Wiki) + preferências de interface
+├── bestiario.json             fichas e tabelas de maestria do bestiário padrão
+├── bestiario-<id>.json        idem, para cada bestiário além do padrão salvo neste vault
 └── versoes/                   cópias anteriores (checkpoints)
 ```
 
 Cada arquivo é um envelope `{ format: "runas-dm-vault-data", kind, version: 1, revision, writerId, savedAt, counts, contentHash, preferences?, data }` com o cabeçalho **antes** de `data`, o que permite ler só o começo do arquivo para saber de quem ele é (`lib/vault-data.ts`).
+
+Uma wiki tem vault próprio (um vault conectado por vez neste dispositivo); o mestre pode ter várias wikis, cada uma com o seu. O bestiário **não** tem vault próprio: ele grava sempre dentro do vault da wiki ativa no momento, mas cada bestiário com o seu arquivo (`bestiario.json` para o padrão, `bestiario-<id>.json` para os demais) — trocar de bestiário ativo nunca troca de vault conectado, e vários bestiários podem morar no mesmo vault sem colidir.
 
 **Regras de gravação (todas com teste):**
 
