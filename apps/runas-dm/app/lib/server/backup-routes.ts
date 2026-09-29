@@ -1,5 +1,5 @@
 import { parseSnapshotStats } from "../snapshot-policy"
-import { BACKUP_MAX_BYTES, listBackupMeta, putBackup, readBackup, type BackupHead, type BackupKind, type BackupStore } from "./versioned-backup"
+import { BACKUP_MAX_BYTES, DEFAULT_COLLECTION_ID, listBackupMeta, putBackup, readBackup, type BackupHead, type BackupKind, type BackupStore } from "./versioned-backup"
 
 /**
  * Camada HTTP do backup na nuvem, sem nada específico do Cloudflare para poder
@@ -40,7 +40,7 @@ function isLocalRequest(request: Request): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1"
 }
 
-function headHeaders(head: BackupHead): Record<string, string> {
+function headHeaders(head: BackupHead, collectionId: string): Record<string, string> {
   return {
     "Content-Type": "application/octet-stream",
     ...NO_STORE,
@@ -50,8 +50,15 @@ function headHeaders(head: BackupHead): Record<string, string> {
     "X-Runas-Legacy": head.legacy ? "1" : "0",
     "X-Runas-Device": head.deviceId,
     "X-Runas-Base-Version": String(head.baseVersion),
+    "X-Runas-Collection": collectionId,
     ...(head.stats ? { "X-Runas-Stats": JSON.stringify(head.stats) } : {}),
   }
+}
+
+/** `?collection=` identifica qual bestiário/wiki; ausente = a coleção que já existia antes de coleções múltiplas. */
+function collectionIdOf(request: Request): string {
+  const value = new URL(request.url).searchParams.get("collection")
+  return value && value.trim() ? value.trim().slice(0, 200) : DEFAULT_COLLECTION_ID
 }
 
 function failure(error: unknown, action: string): Response {
@@ -66,13 +73,14 @@ export function createBackupHandlers(deps: BackupRouteDeps) {
     const store = await deps.openStore()
     if (!store) return json({ error: "O banco de dados da nuvem não está disponível neste ambiente." }, 503)
     const url = new URL(request.url)
+    const collectionId = collectionIdOf(request)
     try {
-      if (url.searchParams.get("meta") === "1") return json(await listBackupMeta(store, kind))
+      if (url.searchParams.get("meta") === "1") return json(await listBackupMeta(store, kind, collectionId))
       const versionParam = url.searchParams.get("version")
       if (versionParam !== null && !/^\d+$/.test(versionParam)) return json({ error: "Versão inválida." }, 400)
-      const found = await readBackup(store, kind, versionParam === null ? undefined : Number(versionParam))
+      const found = await readBackup(store, kind, collectionId, versionParam === null ? undefined : Number(versionParam))
       if (!found) return json({ head: null })
-      return new Response(found.body, { headers: headHeaders(found.head) })
+      return new Response(found.body, { headers: headHeaders(found.head, collectionId) })
     } catch (error) {
       return failure(error, "ler")
     }
@@ -87,7 +95,7 @@ export function createBackupHandlers(deps: BackupRouteDeps) {
     if (!store) return json({ error: "O banco de dados da nuvem não está disponível neste ambiente." }, 503)
     try {
       const baseHeader = request.headers.get("x-runas-base-version")
-      const result = await putBackup(store, kind, {
+      const result = await putBackup(store, kind, collectionIdOf(request), {
         body: new Uint8Array(await request.arrayBuffer()),
         encoding: request.headers.get("x-runas-encoding") === "gzip" ? "gzip" : "identity",
         baseVersion: baseHeader !== null && /^\d+$/.test(baseHeader) ? Number(baseHeader) : null,

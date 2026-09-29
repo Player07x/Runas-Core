@@ -113,6 +113,23 @@ describe("rotas de backup na nuvem", () => {
     expect((await handlers.get(new Request(url("/api/backup", "localhost")), "bestiary")).status).toBe(401)
   })
 
+  it("`?collection=` separa bestiários/wikis diferentes; sem o parâmetro, cai na coleção padrão de sempre", async () => {
+    const { handlers, url, headers } = setup()
+    await handlers.put(new Request(url("/api/backup"), { method: "PUT", headers: headers(), body: encode("bestiário sem collection=") }), "bestiary")
+    await handlers.put(new Request(url("/api/backup?collection=bestiario-b"), { method: "PUT", headers: headers(), body: encode("bestiário B") }), "bestiary")
+
+    const defaultRead = await handlers.get(new Request(url("/api/backup"), { headers: headers() }), "bestiary")
+    expect(decode(await defaultRead.arrayBuffer())).toBe("bestiário sem collection=")
+    expect(defaultRead.headers.get("x-runas-collection")).toBe("default")
+
+    const otherRead = await handlers.get(new Request(url("/api/backup?collection=bestiario-b"), { headers: headers() }), "bestiary")
+    expect(decode(await otherRead.arrayBuffer())).toBe("bestiário B")
+    expect(otherRead.headers.get("x-runas-collection")).toBe("bestiario-b")
+
+    // Avançar uma coleção não exige a versão-base da outra.
+    expect((await handlers.put(new Request(url("/api/backup?collection=bestiario-b"), { method: "PUT", headers: headers({ "x-runas-base-version": "1" }), body: encode("bestiário B v2") }), "bestiary")).status).toBe(200)
+  })
+
   it("mostra um erro claro quando o banco não existe ou falha, sem derrubar a rota", async () => {
     const missing = setup({ openStore: async () => null })
     const noDb = await missing.handlers.get(new Request(missing.url("/api/backup"), { headers: missing.headers() }), "bestiary")

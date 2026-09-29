@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest"
 import type { CheckpointPolicy } from "../snapshot-policy"
 import { createD1BackupStore, resetBackupTablesCache } from "./d1-backup-store"
 import { createMemoryBackupStore } from "./memory-backup-store"
-import { BACKUP_CHUNK_BYTES, BACKUP_MAX_BYTES, joinChunks, listBackupMeta, putBackup, readBackup, readHead, splitChunks, type BackupKind, type BackupRow, type BackupStore, type PutInput } from "./versioned-backup"
+import { BACKUP_CHUNK_BYTES, BACKUP_MAX_BYTES, DEFAULT_COLLECTION_ID, joinChunks, listBackupMeta, putBackup, readBackup, readHead, splitChunks, type BackupKind, type BackupRow, type BackupStore, type PutInput } from "./versioned-backup"
 
 const HOUR = 60 * 60 * 1000
 const policy: CheckpointPolicy = { intervalMs: 6 * HOUR, keep: 2 }
 const encode = (text: string) => new TextEncoder().encode(text)
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
+const COLLECTION = DEFAULT_COLLECTION_ID
 
 type SqliteModule = typeof import("node:sqlite")
 let sqlite: SqliteModule | null = null
@@ -47,8 +48,8 @@ function createSqliteD1(legacy: Partial<Record<BackupKind, { payload: string; up
   return { d1: d1 as unknown as D1Database, database }
 }
 
-function put(store: BackupStore, kind: BackupKind, body: string | Uint8Array, overrides: Partial<PutInput> = {}) {
-  return putBackup(store, kind, { body: typeof body === "string" ? encode(body) : body, encoding: "identity", baseVersion: null, stats: { total: 10 }, deviceId: "notebook", force: false, now: 1_000, ...overrides }, policy)
+function put(store: BackupStore, kind: BackupKind, body: string | Uint8Array, overrides: Partial<PutInput> = {}, collectionId = COLLECTION) {
+  return putBackup(store, kind, collectionId, { body: typeof body === "string" ? encode(body) : body, encoding: "identity", baseVersion: null, stats: { total: 10 }, deviceId: "notebook", force: false, now: 1_000, ...overrides }, policy)
 }
 
 function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, { payload: string; updatedAt: number }>>) => BackupStore) {
@@ -57,11 +58,11 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
 
     it("o primeiro envio cria a versão 1 e a leitura devolve exatamente os mesmos bytes", async () => {
       const store = createStore()
-      expect(await readHead(store, "knowledge")).toBeNull()
-      expect(await readBackup(store, "knowledge")).toBeNull()
+      expect(await readHead(store, "knowledge", COLLECTION)).toBeNull()
+      expect(await readBackup(store, "knowledge", COLLECTION)).toBeNull()
       const result = await put(store, "knowledge", "primeiro", { baseVersion: null, stats: { total: 3, pages: 2, campaigns: 1 }, encoding: "gzip", now: 5_000 })
       expect(result).toEqual({ ok: true, version: 1, updatedAt: 5_000 })
-      const read = await readBackup(store, "knowledge")
+      const read = await readBackup(store, "knowledge", COLLECTION)
       expect(decode(read!.body)).toBe("primeiro")
       expect(read!.head).toMatchObject({ version: 1, updatedAt: 5_000, legacy: false, encoding: "gzip", deviceId: "notebook", stats: { total: 3, pages: 2, campaigns: 1 } })
     })
@@ -72,9 +73,9 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       expect(await put(store, "knowledge", "sem base")).toMatchObject({ ok: false, status: 409, reason: "stale" })
       expect(await put(store, "knowledge", "base velha", { baseVersion: 0 })).toMatchObject({ ok: false, status: 409, reason: "stale" })
       expect(await put(store, "knowledge", "base do futuro", { baseVersion: 7 })).toMatchObject({ ok: false, status: 409, reason: "stale" })
-      expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("v1")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("v1")
       expect(await put(store, "knowledge", "v2", { baseVersion: 1 })).toMatchObject({ ok: true, version: 2 })
-      expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("v2")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("v2")
     })
 
     it("a resposta de conflito traz a cabeça, para o cliente mostrar o que a nuvem já tem", async () => {
@@ -91,7 +92,7 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       for (const baseVersion of [null, 0]) {
         expect(await put(store, "knowledge", "{}", { baseVersion, stats: { total: 0 } })).toMatchObject({ ok: false, status: 409 })
       }
-      expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("backup bom")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("backup bom")
     })
 
     it("esvaziar ou encolher demais é recusado mesmo com a base certa; force libera e guarda a versão anterior", async () => {
@@ -103,17 +104,17 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       const forced = await put(store, "knowledge", "vazio de propósito", { baseVersion: 2, stats: { total: 0 }, force: true, now: 2_000 })
       expect(forced).toMatchObject({ ok: true, version: 3 })
       // v1 virou o primeiro checkpoint ao ser substituída; v2 é guardada por causa do force.
-      const { versions } = await listBackupMeta(store, "knowledge")
+      const { versions } = await listBackupMeta(store, "knowledge", COLLECTION)
       expect(versions.map((item) => [item.version, item.checkpoint])).toEqual([[3, false], [2, true], [1, true]])
-      expect(decode((await readBackup(store, "knowledge", 2))!.body)).toBe("metade")
-      expect(decode((await readBackup(store, "knowledge", 1))!.body)).toBe("cheio")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION, 2))!.body)).toBe("metade")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION, 1))!.body)).toBe("cheio")
     })
 
     it("force ignora a versão-base (substituir a nuvem por este dispositivo) e também preserva o que havia", async () => {
       const store = createStore()
       await put(store, "knowledge", "da nuvem", { stats: { total: 50 } })
       expect(await put(store, "knowledge", "deste dispositivo", { baseVersion: null, stats: { total: 40 }, force: true, now: 3_000 })).toMatchObject({ ok: true, version: 2 })
-      expect(decode((await readBackup(store, "knowledge", 1))!.body)).toBe("da nuvem")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION, 1))!.body)).toBe("da nuvem")
     })
 
     it("histórico: cabeça + checkpoints espaçados, e os mais antigos saem quando passam do limite", async () => {
@@ -122,16 +123,16 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       await write("v1", 0, 0)
       await write("v2", 60_000, 1) // v1 vira o primeiro checkpoint
       await write("v3", 120_000, 2) // v2 é descartado: 1 minuto depois do último checkpoint
-      expect((await listBackupMeta(store, "knowledge")).versions.map((item) => item.version)).toEqual([3, 1])
+      expect((await listBackupMeta(store, "knowledge", COLLECTION)).versions.map((item) => item.version)).toEqual([3, 1])
       await write("v4", 7 * HOUR, 3)
       await write("v5", 7 * HOUR + 60_000, 4) // v4 passou de 6 h do checkpoint anterior: fica
-      expect((await listBackupMeta(store, "knowledge")).versions.map((item) => item.version)).toEqual([5, 4, 1])
+      expect((await listBackupMeta(store, "knowledge", COLLECTION)).versions.map((item) => item.version)).toEqual([5, 4, 1])
       await write("v6", 14 * HOUR, 5)
       await write("v7", 14 * HOUR + 60_000, 6) // v6 vira checkpoint; com keep = 2 o mais antigo (v1) sai
-      const versions = (await listBackupMeta(store, "knowledge")).versions
+      const versions = (await listBackupMeta(store, "knowledge", COLLECTION)).versions
       expect(versions.map((item) => item.version)).toEqual([7, 6, 4])
-      expect(await readBackup(store, "knowledge", 1)).toBeNull()
-      expect(decode((await readBackup(store, "knowledge", 4))!.body)).toBe("v4")
+      expect(await readBackup(store, "knowledge", COLLECTION, 1)).toBeNull()
+      expect(decode((await readBackup(store, "knowledge", COLLECTION, 4))!.body)).toBe("v4")
     })
 
     it("divide o payload em blocos e devolve bytes idênticos", async () => {
@@ -139,11 +140,11 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       const body = new Uint8Array(BACKUP_CHUNK_BYTES * 2 + 1234)
       for (let index = 0; index < body.length; index += 1) body[index] = (index * 31 + 7) & 255
       expect(await put(store, "bestiary", body, { stats: { total: 1 } })).toMatchObject({ ok: true })
-      const read = await readBackup(store, "bestiary")
+      const read = await readBackup(store, "bestiary", COLLECTION)
       expect(read!.head.bytes).toBe(body.length)
       expect(read!.body.byteLength).toBe(body.length)
       expect(Buffer.compare(Buffer.from(read!.body), Buffer.from(body))).toBe(0)
-      expect((await store.chunks("bestiary", 1)).map((chunk) => chunk.byteLength)).toEqual([BACKUP_CHUNK_BYTES, BACKUP_CHUNK_BYTES, 1234])
+      expect((await store.chunks("bestiary", COLLECTION, 1)).map((chunk) => chunk.byteLength)).toEqual([BACKUP_CHUNK_BYTES, BACKUP_CHUNK_BYTES, 1234])
     })
 
     it("recusa corpo vazio e corpo acima do limite sem tocar no que existe", async () => {
@@ -151,29 +152,50 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
       await put(store, "knowledge", "v1")
       expect(await put(store, "knowledge", new Uint8Array(0), { baseVersion: 1 })).toMatchObject({ ok: false, status: 400, reason: "empty" })
       expect(await put(store, "knowledge", new Uint8Array(BACKUP_MAX_BYTES + 1), { baseVersion: 1 })).toMatchObject({ ok: false, status: 413, reason: "too-large" })
-      expect((await readBackup(store, "knowledge"))!.head.version).toBe(1)
+      expect((await readBackup(store, "knowledge", COLLECTION))!.head.version).toBe(1)
     })
 
     it("os dois tipos de backup são independentes", async () => {
       const store = createStore()
       await put(store, "knowledge", "wiki")
       await put(store, "bestiary", "fichas")
-      expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("wiki")
-      expect(decode((await readBackup(store, "bestiary"))!.body)).toBe("fichas")
+      expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("wiki")
+      expect(decode((await readBackup(store, "bestiary", COLLECTION))!.body)).toBe("fichas")
       expect(await put(store, "bestiary", "fichas 2", { baseVersion: 1 })).toMatchObject({ ok: true, version: 2 })
-      expect((await readHead(store, "knowledge"))!.version).toBe(1)
+      expect((await readHead(store, "knowledge", COLLECTION))!.version).toBe(1)
+    })
+
+    it("duas coleções do mesmo tipo (dois bestiários, duas wikis) são totalmente independentes", async () => {
+      const store = createStore()
+      await put(store, "bestiary", "bestiário A v1", { stats: { total: 5 } }, "bestiario-a")
+      await put(store, "bestiary", "bestiário B v1", { stats: { total: 5 } }, "bestiario-b")
+      // A mesma versão (1) existe nas duas coleções sem colidir.
+      expect(decode((await readBackup(store, "bestiary", "bestiario-a"))!.body)).toBe("bestiário A v1")
+      expect(decode((await readBackup(store, "bestiary", "bestiario-b"))!.body)).toBe("bestiário B v1")
+      expect(await put(store, "bestiary", "bestiário A v2", { baseVersion: 1 }, "bestiario-a")).toMatchObject({ ok: true, version: 2 })
+      // Avançar a coleção A nunca muda a cabeça da coleção B.
+      expect((await readHead(store, "bestiary", "bestiario-b"))!.version).toBe(1)
+      expect(decode((await readBackup(store, "bestiary", "bestiario-b"))!.body)).toBe("bestiário B v1")
+      // Uma base velha da coleção A não afeta a B, e vice-versa: cada uma tem sua própria versão-base.
+      expect(await put(store, "bestiary", "conflito", { baseVersion: 1 }, "bestiario-b")).toMatchObject({ ok: true, version: 2 })
     })
 
     describe("backup antigo (linha única) já existente no D1", () => {
       const legacy = { knowledge: { payload: JSON.stringify({ version: 3, campaigns: [{ id: "c" }] }), updatedAt: 777 } }
 
-      it("aparece como a versão 1, legível, e nunca é apagado", async () => {
+      it("aparece como a versão 1 da coleção padrão, legível, e nunca é apagado", async () => {
         const store = createStore(legacy)
-        expect(await readHead(store, "knowledge")).toMatchObject({ version: 1, legacy: true, updatedAt: 777, stats: null })
-        expect(await readHead(store, "bestiary")).toBeNull()
-        const read = await readBackup(store, "knowledge")
+        expect(await readHead(store, "knowledge", COLLECTION)).toMatchObject({ version: 1, legacy: true, updatedAt: 777, stats: null })
+        expect(await readHead(store, "bestiary", COLLECTION)).toBeNull()
+        const read = await readBackup(store, "knowledge", COLLECTION)
         expect(JSON.parse(decode(read!.body))).toEqual({ version: 3, campaigns: [{ id: "c" }] })
         expect(read!.head.legacy).toBe(true)
+      })
+
+      it("uma coleção nova (não-padrão) nunca vê o legado da coleção padrão", async () => {
+        const store = createStore(legacy)
+        expect(await readHead(store, "knowledge", "wiki-nova")).toBeNull()
+        expect(await put(store, "knowledge", "primeira", { baseVersion: null, stats: { total: 1 } }, "wiki-nova")).toMatchObject({ ok: true, version: 1 })
       })
 
       it("um dispositivo novo não passa por cima dele; quem declarou a versão 1 cria a versão 2", async () => {
@@ -181,11 +203,11 @@ function suite(name: string, createStore: (legacy?: Partial<Record<BackupKind, {
         expect(await put(store, "knowledge", "{}", { baseVersion: null, stats: { total: 0 } })).toMatchObject({ ok: false, reason: "stale", head: { version: 1, legacy: true } })
         expect(await put(store, "knowledge", "{}", { baseVersion: 0, stats: { total: 0 } })).toMatchObject({ ok: false, reason: "stale" })
         expect(await put(store, "knowledge", "novo", { baseVersion: 1 })).toMatchObject({ ok: true, version: 2 })
-        expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("novo")
+        expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("novo")
         // A linha antiga continua acessível como versão 1 depois de substituída.
-        const { versions } = await listBackupMeta(store, "knowledge")
+        const { versions } = await listBackupMeta(store, "knowledge", COLLECTION)
         expect(versions.map((item) => [item.version, item.legacy])).toEqual([[2, false], [1, true]])
-        expect(JSON.parse(decode((await readBackup(store, "knowledge", 1))!.body))).toEqual({ version: 3, campaigns: [{ id: "c" }] })
+        expect(JSON.parse(decode((await readBackup(store, "knowledge", COLLECTION, 1))!.body))).toEqual({ version: 3, campaigns: [{ id: "c" }] })
       })
 
       it("force também pode substituir o backup antigo", async () => {
@@ -207,11 +229,11 @@ describe.skipIf(!sqlite)("backup versionado sobre o D1", () => {
     const { d1, database } = createSqliteD1()
     const store = createD1BackupStore(d1)
     await put(store, "knowledge", "v1")
-    const row: BackupRow = { kind: "knowledge", version: 1, createdAt: 2, deviceId: "x", baseVersion: 0, encoding: "identity", bytes: 3, chunkCount: 1, stats: { total: 1 }, checkpoint: false }
-    expect(await store.commit("knowledge", { row, chunks: [encode("xxx")], markCheckpoint: null, dropVersions: [] })).toBe(false)
+    const row: BackupRow = { kind: "knowledge", collectionId: COLLECTION, version: 1, createdAt: 2, deviceId: "x", baseVersion: 0, encoding: "identity", bytes: 3, chunkCount: 1, stats: { total: 1 }, checkpoint: false }
+    expect(await store.commit("knowledge", COLLECTION, { row, chunks: [encode("xxx")], markCheckpoint: null, dropVersions: [] })).toBe(false)
     const stored = database.prepare("SELECT COUNT(*) AS n FROM cloud_backup_chunks WHERE kind = 'knowledge'").get() as { n: number }
     expect(stored.n).toBe(1)
-    expect(decode((await readBackup(store, "knowledge"))!.body)).toBe("v1")
+    expect(decode((await readBackup(store, "knowledge", COLLECTION))!.body)).toBe("v1")
   })
 
   it("as tabelas são criadas na primeira utilização e as tabelas antigas nunca são alteradas", async () => {
@@ -238,8 +260,59 @@ describe.skipIf(!sqlite)("backup versionado sobre o D1", () => {
       batch: async (statements: Array<{ run(): Promise<unknown> }>) => { for (const statement of statements) await statement.run(); return [] },
     } as unknown as D1Database
     const store = createD1BackupStore(d1)
-    expect(await readHead(store, "knowledge")).toBeNull()
+    expect(await readHead(store, "knowledge", COLLECTION)).toBeNull()
     expect(await put(store, "knowledge", "primeiro")).toMatchObject({ ok: true, version: 1 })
+  })
+
+  describe("migração de um banco já em produção, no formato antigo (sem collection_id)", () => {
+    /** Um banco como o de produção antes desta mudança: tabelas já existentes, chave (kind, version). */
+    function createPreCollectionD1() {
+      const { d1, database } = createSqliteD1()
+      database.exec("CREATE TABLE cloud_backups (kind TEXT NOT NULL, version INTEGER NOT NULL, created_at INTEGER NOT NULL, device_id TEXT NOT NULL DEFAULT '', base_version INTEGER NOT NULL DEFAULT 0, encoding TEXT NOT NULL DEFAULT 'identity', bytes INTEGER NOT NULL, chunk_count INTEGER NOT NULL, stats TEXT NOT NULL DEFAULT 'null', checkpoint INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (kind, version))")
+      database.exec("CREATE TABLE cloud_backup_chunks (kind TEXT NOT NULL, version INTEGER NOT NULL, idx INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (kind, version, idx))")
+      database.prepare("INSERT INTO cloud_backups (kind, version, created_at, device_id, base_version, encoding, bytes, chunk_count, stats, checkpoint) VALUES ('bestiary', 1, 1000, 'notebook', 0, 'identity', 5, 1, '{\"total\":5}', 0)").run()
+      database.prepare("INSERT INTO cloud_backup_chunks (kind, version, idx, data) VALUES ('bestiary', 1, 0, ?)").run(encode("fichas de antes da migração"))
+      return { d1, database }
+    }
+
+    it("preserva o backup que já existia, agora sob a coleção padrão, sem apagar a tabela antiga", async () => {
+      const { d1, database } = createPreCollectionD1()
+      const store = createD1BackupStore(d1)
+      const read = await readBackup(store, "bestiary", COLLECTION)
+      expect(decode(read!.body)).toBe("fichas de antes da migração")
+      expect(read!.head).toMatchObject({ version: 1, deviceId: "notebook", stats: { total: 5 } })
+      // A tabela antiga foi renomeada, não apagada: o conteúdo original continua ali, intacto.
+      const legacyRow = database.prepare("SELECT * FROM cloud_backups_v1_legacy WHERE kind = 'bestiary'").get() as { version: number }
+      expect(legacyRow.version).toBe(1)
+    })
+
+    it("uma coleção nova (não-padrão) começa vazia mesmo com dado antigo migrado para a padrão", async () => {
+      const { d1 } = createPreCollectionD1()
+      const store = createD1BackupStore(d1)
+      expect(await readHead(store, "bestiary", "bestiario-novo")).toBeNull()
+      expect(await put(store, "bestiary", "novo bestiário", { baseVersion: null, stats: { total: 1 } }, "bestiario-novo")).toMatchObject({ ok: true, version: 1 })
+      // A coleção padrão continua com o que a migração trouxe.
+      expect(decode((await readBackup(store, "bestiary", COLLECTION))!.body)).toBe("fichas de antes da migração")
+    })
+
+    it("depois de migrado, uma gravação nova respeita a versão-base normalmente", async () => {
+      const { d1 } = createPreCollectionD1()
+      const store = createD1BackupStore(d1)
+      expect(await put(store, "bestiary", "sem base")).toMatchObject({ ok: false, status: 409, reason: "stale" })
+      expect(await put(store, "bestiary", "v2", { baseVersion: 1 })).toMatchObject({ ok: true, version: 2 })
+      expect(decode((await readBackup(store, "bestiary", COLLECTION))!.body)).toBe("v2")
+    })
+
+    it("a migração roda uma única vez: reabrir o mesmo banco não tenta renomear de novo", async () => {
+      const { d1 } = createPreCollectionD1()
+      resetBackupTablesCache()
+      const first = createD1BackupStore(d1)
+      await readBackup(first, "bestiary", COLLECTION)
+      resetBackupTablesCache()
+      const second = createD1BackupStore(d1)
+      // Se tentasse renomear de novo, a segunda chamada falharia (a tabela `_v1_legacy` já existiria).
+      await expect(readBackup(second, "bestiary", COLLECTION)).resolves.toMatchObject({ head: { version: 1 } })
+    })
   })
 })
 
