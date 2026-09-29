@@ -6,6 +6,9 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 
 ## Bestiário
 
+- O mestre pode criar vários bestiários neste dispositivo. Um bestiário novo fixa o sistema na criação (hoje Livro Azul ou Cronos, a mesma lista de `@runas/ruleset-contracts`) e nunca muda depois. Trocar de bestiário ou criar um novo recarrega a página — é o jeito mais simples e mais seguro de reiniciar sincronização e trava do vault sem misturar estado de duas coleções.
+- Um bestiário Cronos é criado, nomeado e sincronizado normalmente; o editor de fichas de Sagas de Cronos dentro do Runas DM ainda não existe, então a galeria mostra honestamente "chega em breve" em vez de simular o Livro Azul.
+- O bestiário não tem vault próprio: usa sempre o vault da wiki ativa no momento, mas com arquivo próprio dentro dele (`Runas DM/bestiario.json` para o padrão, `Runas DM/bestiario-<id>.json` para os demais) — vários bestiários podem morar no mesmo vault sem colidir.
 - A galeria sempre exibe a ficha simplificada.
 - Criar ou editar abre um modal, sem abandonar a tela atual.
 - O modal inicia na ficha simplificada e permite alternar para a ficha avançada.
@@ -66,6 +69,7 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 - O backup guarda **somente** Bestiário (fichas e tabelas de maestria), Campanhas e Wiki. Mesa (encontro, iniciativa e notas da Mesa), notas do Livro Vermelho e qualquer nota fora das pastas permitidas nunca entram, na nuvem ou no vault.
 - Um dispositivo sem dado algum do mestre (por exemplo, um computador novo) nunca envia nem grava nada: o backup só sai de quem tem o que salvar.
 - Um dispositivo que ainda não recebeu a versão atual da nuvem não a sobrescreve. O mestre escolhe entre **Importar e mesclar**, **Substituir a nuvem por este dispositivo** (com confirmação) e **Cancelar**.
+- O backup na nuvem é separado por coleção: cada bestiário e cada wiki tem sua própria versão-base, seu próprio histórico e sua própria trava de encolhimento, identificados por `?collection=<id>` (ausente = a coleção padrão, a única que existia antes de coleções múltiplas). Um usuário com token de acesso nunca mistura o backup de uma wiki com o de outra, nem o de um bestiário com o de outro.
 - Toda gravação na nuvem passa por `lib/cloud-backup.ts`; nenhum componente faz `fetch("/api/…")` nem `PUT` direto.
 - Tudo o que o site sabe e as notas não guardam — estilo e organizador das campanhas, tags com ícone e cor, eras com anos, exclusões, preferências de interface e o Bestiário — vive também em `Runas DM/*.json` dentro do vault. Ao conectar o vault num computador novo, esses dados voltam sozinhos; se o dispositivo já tem dados, o mestre escolhe **Mesclar**, **Substituir tudo** ou **Manter**.
 - Um arquivo de dados do vault que este navegador não conhece (outro computador, cópia, edição à mão) nunca é sobrescrito sem decisão do mestre.
@@ -75,6 +79,13 @@ O Runas DM reduz o tempo gasto pelo mestre procurando fichas, calculando testes 
 
 - Nomes de campanha e tags podem começar com `[`, como `[O&C] Lion Heart pt. II`. Importar, exportar, restaurar ou mesclar nunca remove, divide nem move esses colchetes. Um valor só é lista quando não tem aspas e o primeiro `[` fecha no último caractere.
 - Nunca use `.replace(/^\[/…` ou `.replace(/\]$/…` sobre nomes; use `referenceList`, `tagList` e `stringList` (`lib/frontmatter-values.ts`). `bracket-safety.test.ts` protege isso.
+
+## Wiki: múltiplas wikis
+
+- O mestre pode ter várias wikis neste dispositivo, cada uma com suas próprias campanhas, páginas, tags e — se conectado — seu próprio vault do Obsidian. Trocar de wiki ou criar uma nova grava o registro e recarrega a página, pelo mesmo motivo do bestiário.
+- Primeira vez do mestre no Runas DM (a única wiki é a padrão, ainda sem nenhum dado e sem vault conectado): a Wiki mostra uma tela de boas-vindas com o botão **Criar nova wiki**, em vez do "Nenhum registro encontrado" genérico de uma seção vazia.
+- Selecionar uma pasta vazia cujo nome não bate com nenhuma wiki já conhecida neste dispositivo pergunta: **Criar wiki nova** (registra a pasta com esse nome) ou **Substituir por uma já existente** (associa a pasta a uma wiki conhecida, que grava seu conteúdo nela na sincronização seguinte). Uma pasta vazia cujo nome já bate com uma wiki conhecida é associada direto, sem perguntar.
+- O diálogo "Obsidian" de uma wiki já aberta (Selecionar existente / Criar novo vault) continua associando a pasta escolhida sempre a essa wiki, sem esse fluxo de pergunta — que só existe no seletor de wikis, para conectar uma pasta a uma wiki ainda não aberta.
 
 ## Wiki: História
 
