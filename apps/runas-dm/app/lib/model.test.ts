@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createBestiaryCollection, createDefaultBestiaryRegistry, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, type RunasDmState } from "./model"
+import { createBestiaryCollection, createDefaultBestiaryRegistry, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, type RunasDmState } from "./model"
 
 describe("identidade do bestiário (collectionId)", () => {
   it("um bestiário novo já nasce com o id padrão", () => {
@@ -68,5 +68,14 @@ describe("registro de bestiários", () => {
 
   it("um registro sem nenhuma coleção válida nunca fica vazio: volta ao padrão", () => {
     expect(normalizeBestiaryRegistry({ collections: [{ name: "sem id" }] }).collections).toHaveLength(1)
+  })
+})
+
+describe("bestiário novo, criado pelo mestre", () => {
+  it("começa vazio, sem as duas fichas de exemplo do bestiário padrão", () => {
+    const state = createEmptyRunasDmState("bestiario-cronos")
+    expect(state.collectionId).toBe("bestiario-cronos")
+    expect(state.entries).toEqual([])
+    expect(state.masteryTables.length).toBeGreaterThan(0)
   })
 })

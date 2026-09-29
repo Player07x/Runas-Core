@@ -269,13 +269,20 @@ async function withCrossTabLock<T>(task: () => Promise<T>): Promise<T> {
   return locks ? locks.request("runas-dm-vault-data", task) : task()
 }
 
-/** `collectionId` entra na chave para que duas wikis diferentes, apontando em momentos diferentes para pastas de mesmo nome, nunca compartilhem a "revisão conhecida" uma da outra. */
-const knownKey = (collectionId: string, vaultName: string, kind: VaultDataKind) => `runas-dm.vault-data.${collectionId}.${vaultName}.${kind}`
+/**
+ * `collectionId` entra na chave para que duas wikis diferentes, apontando em
+ * momentos diferentes para pastas de mesmo nome, nunca compartilhem a
+ * "revisão conhecida" uma da outra. `bestiaryId` faz o mesmo entre
+ * bestiários diferentes salvos no mesmo vault (o bestiário não tem vault
+ * próprio): sem ele, o segundo bestiário gravado pisaria na revisão
+ * conhecida do primeiro.
+ */
+const knownKey = (collectionId: string, vaultName: string, kind: VaultDataKind, bestiaryId?: string) => `runas-dm.vault-data.${collectionId}.${vaultName}.${kind}${bestiaryId && bestiaryId !== "default" ? `.${bestiaryId}` : ""}`
 
 /** A revisão do arquivo que este navegador escreveu ou leu por último, por wiki, vault e arquivo. */
-export function readKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind): KnownRevision | null {
+export function readKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind, bestiaryId?: string): KnownRevision | null {
   try {
-    const raw = localStorage.getItem(knownKey(collectionId, vaultName, kind))
+    const raw = localStorage.getItem(knownKey(collectionId, vaultName, kind, bestiaryId))
     const value = raw ? JSON.parse(raw) as Partial<KnownRevision> : null
     return value && Number.isInteger(value.revision) && typeof value.writerId === "string" ? { revision: value.revision as number, writerId: value.writerId } : null
   } catch {
@@ -283,8 +290,8 @@ export function readKnownVaultRevision(collectionId: string, vaultName: string, 
   }
 }
 
-export function writeKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind, known: KnownRevision): void {
-  try { localStorage.setItem(knownKey(collectionId, vaultName, kind), JSON.stringify(known)) } catch { /* no máximo uma pergunta a mais */ }
+export function writeKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind, known: KnownRevision, bestiaryId?: string): void {
+  try { localStorage.setItem(knownKey(collectionId, vaultName, kind, bestiaryId), JSON.stringify(known)) } catch { /* no máximo uma pergunta a mais */ }
 }
 
 export type VaultDataAccess = { status: "no-vault" } | { status: "permission" }
@@ -296,31 +303,36 @@ async function openVaultData(collectionId: string, requestPermission: boolean): 
   return { status: "ok", name: handle.name, adapter: createVaultDataAdapter(handle) }
 }
 
-/** Grava o arquivo de dados. Sem permissão de escrita ele não pede sozinho (só com `requestPermission`, a partir de um clique). */
-export async function saveDataToLocalVault(collectionId: string, kind: VaultDataKind, input: VaultSaveInput, options: { requestPermission?: boolean; force?: boolean } = {}): Promise<VaultSaveOutcome | VaultDataAccess> {
+/**
+ * Grava o arquivo de dados. Sem permissão de escrita ele não pede sozinho
+ * (só com `requestPermission`, a partir de um clique). `bestiaryId` só se
+ * aplica a `kind === "bestiary"`: identifica qual bestiário, já que ele
+ * grava dentro do vault da wiki ativa em vez de ter um vault próprio.
+ */
+export async function saveDataToLocalVault(collectionId: string, kind: VaultDataKind, input: VaultSaveInput, options: { requestPermission?: boolean; force?: boolean; bestiaryId?: string } = {}): Promise<VaultSaveOutcome | VaultDataAccess> {
   const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
   return withCrossTabLock(async () => {
-    const outcome = await saveVaultData(opened.adapter, kind, input, { writerId: getDeviceId(), known: readKnownVaultRevision(collectionId, opened.name, kind), force: options.force })
-    if (outcome.status === "saved" || outcome.status === "unchanged") writeKnownVaultRevision(collectionId, opened.name, kind, outcome.known)
+    const outcome = await saveVaultData(opened.adapter, kind, input, { writerId: getDeviceId(), known: readKnownVaultRevision(collectionId, opened.name, kind, options.bestiaryId), force: options.force }, options.bestiaryId)
+    if (outcome.status === "saved" || outcome.status === "unchanged") writeKnownVaultRevision(collectionId, opened.name, kind, outcome.known, options.bestiaryId)
     return outcome
   })
 }
 
-export async function inspectLocalVaultData(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultInspection | VaultDataAccess> {
+export async function inspectLocalVaultData(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean; bestiaryId?: string } = {}): Promise<VaultInspection | VaultDataAccess> {
   const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
-  return inspectVaultData(opened.adapter, kind, readKnownVaultRevision(collectionId, opened.name, kind))
+  return inspectVaultData(opened.adapter, kind, readKnownVaultRevision(collectionId, opened.name, kind, options.bestiaryId), options.bestiaryId)
 }
 
-export async function loadDataFromLocalVault<T = unknown>(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultLoadResult<T> | VaultDataAccess> {
+export async function loadDataFromLocalVault<T = unknown>(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean; bestiaryId?: string } = {}): Promise<VaultLoadResult<T> | VaultDataAccess> {
   const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
-  return loadVaultData<T>(opened.adapter, kind)
+  return loadVaultData<T>(opened.adapter, kind, options.bestiaryId)
 }
 
 /** Depois de aplicar um arquivo neste dispositivo, a revisão dele passa a ser "conhecida": as próximas gravações continuam dele, sem conflito. */
-export async function adoptVaultDataRevision(collectionId: string, kind: VaultDataKind, header: VaultDataHeader): Promise<void> {
+export async function adoptVaultDataRevision(collectionId: string, kind: VaultDataKind, header: VaultDataHeader, bestiaryId?: string): Promise<void> {
   const name = await localVaultName(collectionId)
-  if (name) writeKnownVaultRevision(collectionId, name, kind, knownRevisionOf(header))
+  if (name) writeKnownVaultRevision(collectionId, name, kind, knownRevisionOf(header), bestiaryId)
 }

@@ -176,6 +176,11 @@ export function createInitialState(): RunasDmState {
   }
 }
 
+/** Um bestiário novo (criado pelo mestre) começa vazio: as fichas de exemplo só fazem sentido no bestiário padrão. */
+export function createEmptyRunasDmState(collectionId: string): RunasDmState {
+  return { ...createInitialState(), collectionId, entries: [] }
+}
+
 /** Normaliza dados antigos/importados com as regras atuais sem restaurar recursos gastos. */
 export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
   // O backup da nuvem e o arquivo do vault não levam a Mesa (encounter, iniciativa, notas),

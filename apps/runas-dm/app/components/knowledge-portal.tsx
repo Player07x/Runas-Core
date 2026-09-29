@@ -5,8 +5,8 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, BookMarked, BookOpen, CalendarDays, Check, CloudDownload, CloudUpload, Filter, Grid2X2, LibraryBig, Minus, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
-import { cloneCharacter, createInitialState, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
-import { loadLocalState, saveLocalState } from "../lib/storage"
+import { cloneCharacter, createEmptyRunasDmState, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
+import { loadBestiaryRegistry, loadLocalState, saveLocalState } from "../lib/storage"
 import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
@@ -215,7 +215,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setSyncState("loading")
     const registry = await loadWikiRegistry()
     setWikiRegistry(registry)
-    const [local, dmState] = await Promise.all([loadKnowledgeWorkspace(registry.activeCollectionId), loadLocalState().catch(() => null)])
+    const bestiaryRegistry = await loadBestiaryRegistry()
+    const [local, dmState] = await Promise.all([loadKnowledgeWorkspace(registry.activeCollectionId), loadLocalState(bestiaryRegistry.activeCollectionId).catch(() => null)])
     if (dmState) setBestiary(dmState.entries)
     // A nuvem nunca é consultada sozinha: o estado local é sempre a fonte de
     // verdade ao abrir. O backup remoto só entra quando o usuário pede pela
@@ -338,10 +339,12 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       let status = describeSaveOutcome(knowledge)
       if ("header" in knowledge) setVaultHeaders((current) => ({ ...current, knowledge: knowledge.header }))
       if (options.bestiary && knowledge.status !== "no-vault" && knowledge.status !== "permission") {
-        const stored = await loadLocalState().catch(() => null)
+        const activeBestiaryId = (await loadBestiaryRegistry()).activeCollectionId
+        const stored = await loadLocalState(activeBestiaryId).catch(() => null)
         if (stored) {
-          // O bestiário não tem vault próprio: usa sempre o handle da wiki ativa.
-          const fichas = await saveDataToLocalVault(wikiId, "bestiary", bestiaryVaultInput(normalizeRunasDmState(stored)), { requestPermission: false, force: options.force })
+          // O bestiário não tem vault próprio: usa sempre o handle da wiki ativa, mas com arquivo
+          // próprio (o vault pode guardar mais de um bestiário).
+          const fichas = await saveDataToLocalVault(wikiId, "bestiary", bestiaryVaultInput(normalizeRunasDmState(stored)), { requestPermission: false, force: options.force, bestiaryId: activeBestiaryId })
           if ("header" in fichas) setVaultHeaders((current) => ({ ...current, bestiary: fichas.header }))
           if (status.phase !== "conflict" && (fichas.status === "conflict" || fichas.status === "unsupported")) status = describeSaveOutcome(fichas)
         }
@@ -361,6 +364,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     for (const item of items) {
       const mode = plan[item.kind]
       if (!mode) continue
+      let bestiaryId: string | undefined
       if (item.kind === "knowledge") {
         const next = restoreKnowledge(stateRef.current, item.data, mode)
         stateRef.current = next
@@ -370,14 +374,15 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
         applyPreferencesLive(applyUiPreferences(item.header.preferences ?? {}, browserStorage()))
         parts.push(describeStats(knowledgeStats(next)))
       } else {
-        const current = normalizeRunasDmState((await loadLocalState().catch(() => null)) ?? createInitialState())
+        bestiaryId = (await loadBestiaryRegistry()).activeCollectionId
+        const current = normalizeRunasDmState((await loadLocalState(bestiaryId).catch(() => null)) ?? createEmptyRunasDmState(bestiaryId))
         const next = restoreBestiary(current, item.data, mode)
         await saveLocalState(next)
         setBestiary(next.entries)
         parts.push(describeStats(bestiaryStats(next)))
       }
       // Um arquivo lido do vault passa a ser "conhecido": as próximas gravações continuam dele, sem conflito.
-      if (adopt) await adoptVaultDataRevision(stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID, item.kind, item.header)
+      if (adopt) await adoptVaultDataRevision(stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID, item.kind, item.header, bestiaryId)
     }
     return parts.length ? `Restaurado: ${parts.join(" · ")}.` : "Nada foi restaurado."
   }, [applyPreferencesLive])
@@ -385,8 +390,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const loadVaultItems = useCallback(async (kinds: VaultDataKind[], prompt: boolean): Promise<LoadedVaultItem[]> => {
     const items: LoadedVaultItem[] = []
     const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+    const activeBestiaryId = (await loadBestiaryRegistry()).activeCollectionId
     for (const kind of kinds) {
-      const loaded = await loadDataFromLocalVault(wikiId, kind, { requestPermission: prompt && items.length === 0 })
+      const loaded = await loadDataFromLocalVault(wikiId, kind, { requestPermission: prompt && items.length === 0, bestiaryId: activeBestiaryId })
       if (loaded.status === "ok") items.push({ kind, header: loaded.header, data: loaded.data })
     }
     return items
@@ -399,9 +405,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
    */
   const inspectVault = useCallback(async (options: { prompt?: boolean; interactive: boolean }): Promise<"restored" | "offered" | "nothing"> => {
     const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+    const activeBestiaryId = (await loadBestiaryRegistry()).activeCollectionId
     const found: Array<{ kind: VaultDataKind; header: VaultDataHeader; ours: boolean }> = []
     for (const kind of ["knowledge", "bestiary"] as const) {
-      const inspection = await inspectLocalVaultData(wikiId, kind, { requestPermission: options.prompt && kind === "knowledge" })
+      const inspection = await inspectLocalVaultData(wikiId, kind, { requestPermission: options.prompt && kind === "knowledge", bestiaryId: activeBestiaryId })
       if (inspection.status === "no-vault" || inspection.status === "permission") { setVaultStatus(describeSaveOutcome(inspection)); return "nothing" }
       if (inspection.status === "unsupported") { setVaultStatus(describeSaveOutcome(inspection)); return "nothing" }
       if (inspection.status === "unreadable") { setVaultStatus(describeSaveOutcome({ status: "conflict", reason: "unreadable", existing: null })); return "nothing" }
@@ -410,7 +417,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setVaultHeaders({ knowledge: found.find((item) => item.kind === "knowledge")?.header ?? null, bestiary: found.find((item) => item.kind === "bestiary")?.header ?? null })
     const foreign = found.filter((item) => !item.ours)
     if (foreign.length === 0) return "nothing"
-    const stored = await loadLocalState().catch(() => null)
+    const stored = await loadLocalState(activeBestiaryId).catch(() => null)
     const pristine = (kind: VaultDataKind) => kind === "knowledge" ? isPristineKnowledge(stateRef.current) : !stored || isPristineBestiary(normalizeRunasDmState(stored))
     if (foreign.every((item) => pristine(item.kind))) {
       const items = await loadVaultItems(foreign.map((item) => item.kind), Boolean(options.prompt))
@@ -504,9 +511,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   async function openVaultRestore() {
     setVaultBusy(true)
     const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+    const activeBestiaryId = (await loadBestiaryRegistry()).activeCollectionId
     const items: VaultRestoreItem[] = []
     for (const kind of ["knowledge", "bestiary"] as const) {
-      const inspection = await withVaultLock(() => inspectLocalVaultData(wikiId, kind, { requestPermission: items.length === 0 }))
+      const inspection = await withVaultLock(() => inspectLocalVaultData(wikiId, kind, { requestPermission: items.length === 0, bestiaryId: activeBestiaryId }))
       if (inspection.status === "ok") items.push({ kind, header: inspection.header })
       else if (inspection.status === "permission") { setNotice("Conceda a permissão de escrita no vault (Importar e sincronizar) e tente de novo."); setVaultBusy(false); return }
     }
@@ -606,7 +614,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   async function exportVaultDataFiles() {
     const writerId = getDeviceId()
     const files = [{ name: "wiki-e-campanhas.json", content: createVaultDataText("knowledge", knowledgeVaultInput(stateRef.current, collectUiPreferences(browserStorage())), { writerId }) }]
-    const stored = await loadLocalState().catch(() => null)
+    const activeBestiaryId = (await loadBestiaryRegistry()).activeCollectionId
+    const stored = await loadLocalState(activeBestiaryId).catch(() => null)
     if (stored) files.push({ name: "bestiario.json", content: createVaultDataText("bestiary", bestiaryVaultInput(normalizeRunasDmState(stored)), { writerId }) })
     const zip = createTextZip(files)
     const buffer = new ArrayBuffer(zip.byteLength)
@@ -1011,7 +1020,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }
 
   async function launchEncounter(page: KnowledgePage) {
-    const dmState = await loadLocalState()
+    const dmState = await loadLocalState((await loadBestiaryRegistry()).activeCollectionId)
     if (!dmState) { setNotice("Abra ou crie o bestiário antes de iniciar o encontro."); return }
     const actors: EncounterActor[] = []
     for (const reference of page.encounterCreatures) {

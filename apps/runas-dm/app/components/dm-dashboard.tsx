@@ -27,12 +27,17 @@ import { applyDeterminationToRoll, applyDeterminationUsesToRoll, calculateAttrib
 import type { AttributeKey, Character, CharacterSkill, CharacterSpell, SecondaryAttributeKey } from "@runas/core/types/character"
 import type { SkillRoll, SkillRollOutcome, SpecialDieId } from "@runas/core/types/skillTest"
 import {
-  characterImage, cloneCharacter, createEmptyCharacter, createInitialState, essenceYield,
-  normalizeRunasDmState, type BestiaryEntry, type EncounterActor, type InitiativeEntry, type MasteryTable, type RunasDmState,
+  characterImage, cloneCharacter, createBestiaryCollection, createEmptyCharacter, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, essenceYield,
+  normalizeRunasDmState, type BestiaryEntry, type BestiaryRegistry, type EncounterActor, type InitiativeEntry, type MasteryTable, type RunasDmState,
 } from "../lib/model"
+import { getRulesetDefinition } from "@runas/ruleset-contracts/definitions"
+import type { RulesetId } from "@runas/ruleset-contracts"
 import { parseRunasImport } from "../lib/import"
 import { parseGalleryZip } from "@runas/core/lib/galleryImport"
-import { loadLocalState, saveLocalState } from "../lib/storage"
+import { loadBestiaryRegistry, loadLocalState, saveBestiaryRegistry, saveLocalState } from "../lib/storage"
+import { BestiarySwitcher } from "./bestiary-switcher"
+import { CreateBestiaryDialog } from "./create-bestiary-dialog"
+import { BestiaryComingSoon } from "./bestiary-coming-soon"
 import { AdvancedSheetEditor } from "./advanced-sheet-editor"
 import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
 import { AttributeBands } from "./attribute-bands"
@@ -94,10 +99,16 @@ export function DmDashboard() {
   const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
   const [vaultStatus, setVaultStatus] = useState<VaultStatus>({ phase: "no-vault", message: "", attention: false })
+  // A lista de bestiários deste dispositivo e qual está aberto agora. Trocar
+  // de bestiário (ou criar um novo) grava o registro e recarrega a página —
+  // mesmo motivo do seletor de wikis.
+  const [bestiaryRegistry, setBestiaryRegistry] = useState<BestiaryRegistry | null>(null)
+  const [createBestiaryOpen, setCreateBestiaryOpen] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
   // Dentro do RunasVTT, a Mesa opera sobre os tokens da cena aberta nele.
   const vttMesa = useVttMesa(setSyncMessage)
   const encounterActors = vttMesa?.actors ?? state.encounter
+  const activeSystem = bestiaryRegistry?.collections.find((collection) => collection.id === bestiaryRegistry.activeCollectionId)?.system ?? "runas-blue"
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -108,9 +119,12 @@ export function DmDashboard() {
 
   useEffect(() => {
     let active = true
-    void loadLocalState().then((stored) => {
+    void loadBestiaryRegistry().then(async (registry) => {
       if (!active) return
-      if (stored) setState(normalizeRunasDmState(stored))
+      setBestiaryRegistry(registry)
+      const stored = await loadLocalState(registry.activeCollectionId)
+      if (!active) return
+      setState(stored ? normalizeRunasDmState(stored) : createEmptyRunasDmState(registry.activeCollectionId))
       setReady(true)
       setSaveStatus("saved")
     }).catch(() => {
@@ -119,6 +133,21 @@ export function DmDashboard() {
     })
     return () => { active = false }
   }, [])
+
+  /** Troca o bestiário ativo: grava o registro e recarrega a página. */
+  function switchBestiary(id: string) {
+    if (!bestiaryRegistry || id === bestiaryRegistry.activeCollectionId) return
+    void saveBestiaryRegistry({ ...bestiaryRegistry, activeCollectionId: id }).then(() => window.location.reload())
+  }
+
+  function createBestiary({ name, system }: { name: string; system: RulesetId }) {
+    const collection = createBestiaryCollection(name, system)
+    const next: BestiaryRegistry = bestiaryRegistry
+      ? { ...bestiaryRegistry, collections: [...bestiaryRegistry.collections, collection], activeCollectionId: collection.id }
+      : { version: 1, collections: [collection], activeCollectionId: collection.id }
+    setCreateBestiaryOpen(false)
+    void saveBestiaryRegistry(next).then(() => window.location.reload())
+  }
 
   useEffect(() => {
     if (!ready) return
@@ -136,9 +165,11 @@ export function DmDashboard() {
     if (!readObsidianPreferences().enabled) return { phase: "off", message: "", attention: false }
     try {
       const [{ saveDataToLocalVault }, { bestiaryVaultInput }, { describeSaveOutcome }, { loadWikiRegistry }] = await Promise.all([import("../lib/local-vault"), import("../lib/bestiary-scope"), import("../lib/vault-status"), import("../lib/knowledge-storage")])
-      // O bestiário não tem vault próprio (decisão de produto): usa sempre o handle da wiki ativa.
-      const { activeCollectionId } = await loadWikiRegistry()
-      return describeSaveOutcome(await saveDataToLocalVault(activeCollectionId, "bestiary", bestiaryVaultInput(normalizeRunasDmState(current)), { requestPermission: prompt }))
+      // O bestiário não tem vault próprio (decisão de produto): usa sempre o handle da wiki ativa,
+      // mas com arquivo próprio (bestiaryId) — o vault pode guardar mais de um bestiário.
+      const wikiRegistry = await loadWikiRegistry()
+      const normalized = normalizeRunasDmState(current)
+      return describeSaveOutcome(await saveDataToLocalVault(wikiRegistry.activeCollectionId, "bestiary", bestiaryVaultInput(normalized), { requestPermission: prompt, bestiaryId: normalized.collectionId }))
     } catch (error) {
       return { phase: "error", message: `Vault: ${error instanceof Error ? error.message : "não foi possível gravar o bestiário."}`, attention: true }
     }
@@ -349,18 +380,19 @@ export function DmDashboard() {
     // com a versão lida como base: nada que está na nuvem se perde, e uma gravação concorrente de
     // outro dispositivo é recusada em vez de sobrescrita. Só fichas e tabelas de maestria vão à
     // nuvem; a Mesa (encontro, iniciativa, notas) é estado de sessão e fica no dispositivo.
-    const current = await fetchCloudBackup<RunasDmState>("bestiary", token)
+    const collectionId = state.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+    const current = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
     if (!current.ok) {
       if (current.reason === "unauthorized") clearBackupToken()
       setSyncMessage(current.message)
       return
     }
-    if (!current.empty) writeCloudBase("bestiary", current.head.version)
+    if (!current.empty) writeCloudBase("bestiary", current.head.version, collectionId)
     const completeBackup = createRunasDmBackup(state, current.empty ? null : current.data)
     const stats = bestiaryStats(completeBackup)
-    let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats })
+    let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats }, collectionId)
     if (!result.ok && result.reason === "shrink" && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
-      result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true })
+      result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true }, collectionId)
     }
     if (result.ok) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
     else setSyncMessage(cloudFailureMessage(result))
@@ -368,7 +400,8 @@ export function DmDashboard() {
 
   async function synchronizeFromCloud(token: string) {
     setSyncMessage("Consultando backup remoto…")
-    const result = await fetchCloudBackup<RunasDmState>("bestiary", token)
+    const collectionId = state.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+    const result = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
     if (!result.ok) {
       if (result.reason === "unauthorized") clearBackupToken()
       setSyncMessage(result.message)
@@ -379,7 +412,7 @@ export function DmDashboard() {
     if (!window.confirm(`Sincronizar as fichas deste dispositivo com o backup de ${date}? Fichas com o mesmo nome, raça e elemento serão atualizadas pelo backup; as demais serão preservadas.`)) { setSyncMessage("Sincronização cancelada"); return }
     setState((current) => synchronizeRunasDmState(current, result.data))
     // A partir daqui este dispositivo conhece essa versão da nuvem, e o próximo backup pode declará-la.
-    writeCloudBase("bestiary", result.head.version)
+    writeCloudBase("bestiary", result.head.version, collectionId)
     setSyncMessage(`Fichas sincronizadas com o backup de ${date}`)
   }
 
@@ -399,6 +432,7 @@ export function DmDashboard() {
         <div className="top-actions">
           <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }} details={vaultStatus.message ? [{ text: vaultStatus.message, attention: vaultStatus.attention } satisfies TopbarDetail] : []}>
             {(close) => <>
+              {bestiaryRegistry && <BestiarySwitcher collections={bestiaryRegistry.collections} activeId={bestiaryRegistry.activeCollectionId} onSwitch={(id) => { close(); switchBestiary(id) }} onCreateNew={() => { close(); setCreateBestiaryOpen(true) }} />}
               <ThemeToggle variant="menu" />
               <button className="topbar-menu-item" onClick={() => { close(); void saveBestiaryToVault(state, true).then((status) => { setVaultStatus(status); setSyncMessage(status.message || "Conecte um vault em Wiki › ⋯ › Obsidian para salvar o bestiário nele.") }) }}><Save size={18} /><span>Salvar bestiário no vault</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); exportWorkspace() }}><Download size={18} /><span>Exportar backup</span></button>
@@ -411,6 +445,11 @@ export function DmDashboard() {
       </header>
 
       {view === "gallery" ? (
+        activeSystem !== "runas-blue" ? (
+          <section className="workspace gallery-workspace">
+            <BestiaryComingSoon systemName={getRulesetDefinition(activeSystem).name} />
+          </section>
+        ) : (
         <section className="workspace gallery-workspace">
           {!vttMesa && <PwaInstallCard />}
           <div className="workspace-heading">
@@ -432,6 +471,7 @@ export function DmDashboard() {
             <button className="new-sheet-card" onClick={createSheet}><span><Plus size={24} /></span><strong>Criar nova ficha</strong><small>Comece pelo formato simplificado</small></button>
           </div>
         </section>
+        )
       ) : (
         <EncounterWorkspace vtt={vttMesa ? { selectedTokenId: vttMesa.selectedTokenId, log: vttMesa.log, notice: syncMessage } : null} actors={encounterActors} selectedId={selectedActor?.id ?? null} entries={state.entries} notesHtml={state.workspaceNotesHtml} initiative={state.initiative} onNotesChange={(workspaceNotesHtml) => updateState((current) => ({ ...current, workspaceNotesHtml }))} onInitiativeChange={(initiative) => updateState((current) => ({ ...current, initiative }))} onSelect={setSelectedActorId} onAdd={addToEncounter} onEdit={(actor) => setEditingActor({ ...actor, character: cloneCharacter(actor.character) })} onRestore={restoreActor} onDuplicate={duplicateActor} onRemove={removeActor} onUpdate={updateActor} />
       )}
@@ -440,6 +480,7 @@ export function DmDashboard() {
       {editingActor && <SheetEditor entry={{ id: editingActor.id, character: editingActor.character, masteryTableId: editingActor.masteryTableId, updatedAt: Date.now() }} tables={state.masteryTables} onClose={() => setEditingActor(null)} onSave={saveActorSheet} onTablesChange={(masteryTables) => updateState((current) => ({ ...current, masteryTables }))} />}
       {batchExportOpen && <BatchExportDialog entries={state.entries} onSendToVtt={vttMesa ? (entries) => void sendToVtt(entries) : undefined} onClose={() => setBatchExportOpen(false)} />}
       {pendingCloudAction && <BackupTokenDialog onClose={() => setPendingCloudAction(null)} onSubmit={submitBackupToken} />}
+      {createBestiaryOpen && <CreateBestiaryDialog existingNames={bestiaryRegistry?.collections.map((collection) => collection.name) ?? []} onCreate={createBestiary} onClose={() => setCreateBestiaryOpen(false)} />}
       {!ready && <div className="loading-screen"><span className="brand-rune">R</span><p>Abrindo a mesa…</p></div>}
     </main>
   )

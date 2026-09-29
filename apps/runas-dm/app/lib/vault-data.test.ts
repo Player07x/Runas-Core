@@ -209,3 +209,55 @@ describe("ler o estado do arquivo", () => {
     expect(await inspectVaultData(adapter, "knowledge", null)).toMatchObject({ status: "ok", header: { revision: 1 } })
   })
 })
+
+describe("múltiplos bestiários no mesmo vault (o bestiário não tem vault próprio)", () => {
+  const bestiaryInput = (signature: string, total: number) => input({ data: { entries: [], label: signature }, signature, counts: { total, entries: total } })
+
+  it("sem bestiaryId (ou 'default'), o arquivo continua sendo bestiario.json — compatibilidade com quem já usava um único bestiário", async () => {
+    const { adapter, files } = memoryVault()
+    await saveVaultData(adapter, "bestiary", bestiaryInput("a", 1), context(null))
+    await saveVaultData(adapter, "bestiary", bestiaryInput("b", 1), context(null), "default")
+    expect(files.has(VAULT_DATA_FILES.bestiary)).toBe(true)
+    expect(files.has("Runas DM/bestiario-default.json")).toBe(false)
+  })
+
+  it("um bestiário além do padrão grava em Runas DM/bestiario-<id>.json, sem tocar no arquivo do padrão", async () => {
+    const { adapter, files } = memoryVault()
+    await saveVaultData(adapter, "bestiary", bestiaryInput("padrão", 2), context(null))
+    const outro = await saveVaultData(adapter, "bestiary", bestiaryInput("outro", 3), context(null), "cronos1")
+    expect(outro).toMatchObject({ status: "saved", header: { revision: 1 } })
+    expect(files.get(VAULT_DATA_FILES.bestiary)).toContain("padrão")
+    expect(files.get("Runas DM/bestiario-cronos1.json")).toContain("outro")
+  })
+
+  it("dois bestiários não compartilham revisão: gravar um não deixa o outro como \"conflito\"", async () => {
+    const { adapter } = memoryVault()
+    const a = await saveVaultData(adapter, "bestiary", bestiaryInput("a1", 1), context(null), "bestiA")
+    if (a.status !== "saved") throw new Error("esperava gravar")
+    await saveVaultData(adapter, "bestiary", bestiaryInput("b1", 1), context(null), "bestiB")
+    // A base conhecida de "a" continua válida para "a", independente do que aconteceu com "b".
+    expect(await saveVaultData(adapter, "bestiary", bestiaryInput("a2", 2), context(a.known), "bestiA")).toMatchObject({ status: "saved", header: { revision: 2 } })
+  })
+
+  it("inspecionar e ler respeitam o bestiaryId", async () => {
+    const { adapter } = memoryVault()
+    expect(await inspectVaultData(adapter, "bestiary", null, "cronos1")).toEqual({ status: "missing" })
+    await saveVaultData(adapter, "bestiary", bestiaryInput("cronos", 1), context(null), "cronos1")
+    expect(await inspectVaultData(adapter, "bestiary", null, "cronos1")).toMatchObject({ status: "ok" })
+    expect(await inspectVaultData(adapter, "bestiary", null)).toEqual({ status: "missing" })
+    expect(await loadVaultData(adapter, "bestiary", "cronos1")).toMatchObject({ status: "ok" })
+  })
+
+  it("checkpoints de um bestiário nunca colidem com os de outro em versoes/", async () => {
+    const { adapter, files } = memoryVault()
+    const first = await saveVaultData(adapter, "bestiary", bestiaryInput("a", 100), context(null, { now: 0 }), "bestiA")
+    if (first.status !== "saved") throw new Error("esperava gravar")
+    await saveVaultData(adapter, "bestiary", bestiaryInput("a-shrink", 0), context(first.known, { now: 1_000, force: true }), "bestiA")
+    const firstB = await saveVaultData(adapter, "bestiary", bestiaryInput("b", 100), context(null, { now: 0 }), "bestiB")
+    if (firstB.status !== "saved") throw new Error("esperava gravar")
+    await saveVaultData(adapter, "bestiary", bestiaryInput("b-shrink", 0), context(firstB.known, { now: 1_000, force: true }), "bestiB")
+    const versions = [...files.keys()].filter((path) => path.startsWith(`${VAULT_VERSIONS_FOLDER}/`))
+    expect(versions.some((path) => path.includes("bestiario-bestiA-"))).toBe(true)
+    expect(versions.some((path) => path.includes("bestiario-bestiB-"))).toBe(true)
+  })
+})
