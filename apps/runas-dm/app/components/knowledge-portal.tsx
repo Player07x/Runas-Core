@@ -7,8 +7,8 @@ import { Archive, BookMarked, BookOpen, CalendarDays, Check, CloudDownload, Clou
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
 import { cloneCharacter, createInitialState, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadLocalState, saveLocalState } from "../lib/storage"
-import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState } from "../lib/knowledge-model"
-import { loadKnowledgeWorkspace, saveKnowledgeWorkspace } from "../lib/knowledge-storage"
+import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
+import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
 import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
 import { CloudConflictDialog, type CloudConflict } from "./cloud-conflict-dialog"
@@ -24,7 +24,11 @@ import { createTextZip, downloadBlob } from "../lib/export"
 import { VaultRestoreDialog, type VaultRestoreItem } from "./vault-restore-dialog"
 import { applyTheme } from "./theme-toggle"
 import { setChronologyColumns } from "./chronology-timeline"
-import { adoptVaultDataRevision, deleteCampaignHubNotesFromLocalVault, deletePageFromLocalVault, inspectLocalVaultData, loadDataFromLocalVault, localVaultName, saveDataToLocalVault, syncWorkspaceToLocalVault } from "../lib/local-vault"
+import { adoptVaultDataRevision, adoptVaultFolder, deleteCampaignHubNotesFromLocalVault, deletePageFromLocalVault, inspectLocalVaultData, loadDataFromLocalVault, localVaultName, peekLocalVaultFolder, pickVaultFolder, saveDataToLocalVault, syncWorkspaceToLocalVault, type DirectoryHandle } from "../lib/local-vault"
+import { WikiSwitcher } from "./wiki-switcher"
+import { CreateWikiDialog } from "./create-wiki-dialog"
+import { UnknownFolderDialog } from "./unknown-folder-dialog"
+import { WikiOnboarding } from "./wiki-onboarding"
 import { ExpandableTextarea } from "./expandable-textarea"
 import { KnowledgeEditor } from "./knowledge-editor"
 import { CampaignAppearance, campaignTheme } from "./campaign-appearance"
@@ -136,6 +140,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   })
   const [tagEditor, setTagEditor] = useState<{ tag?: KnowledgeTag; section: string } | null>(null)
   const [route, navigateRoute] = useKnowledgeRoute(area === "wiki" ? "/wiki" : "/campaigns")
+  // A lista de wikis deste dispositivo e qual está aberta agora. Trocar de
+  // wiki (ou criar uma) grava o registro e recarrega a página: mais simples
+  // e muito mais seguro do que tentar trocar tudo isto (temporizadores de
+  // sincronização, trava do vault, envio à nuvem) sem reiniciar o componente.
+  const [wikiRegistry, setWikiRegistry] = useState<WikiRegistry | null>(null)
+  const [createWikiOpen, setCreateWikiOpen] = useState(false)
+  const [unknownFolder, setUnknownFolder] = useState<{ handle: DirectoryHandle; name: string } | null>(null)
   const hydratedOnce = useRef(false)
   const stateRef = useRef(state)
   // Envio à nuvem: um por vez; pausado enquanto o usuário não decide um conflito;
@@ -202,7 +213,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (hydratedOnce.current) return
     hydratedOnce.current = true
     setSyncState("loading")
-    const [local, dmState] = await Promise.all([loadKnowledgeWorkspace(), loadLocalState().catch(() => null)])
+    const registry = await loadWikiRegistry()
+    setWikiRegistry(registry)
+    const [local, dmState] = await Promise.all([loadKnowledgeWorkspace(registry.activeCollectionId), loadLocalState().catch(() => null)])
     if (dmState) setBestiary(dmState.entries)
     // A nuvem nunca é consultada sozinha: o estado local é sempre a fonte de
     // verdade ao abrir. O backup remoto só entra quando o usuário pede pela
@@ -244,8 +257,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       if (manual) setNotice("Nada para enviar: este dispositivo ainda não tem dados de Campanhas ou Wiki.")
       return "skipped"
     }
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     const signature = hashText(knowledgeSignature(snapshot))
-    if (!force && readCloudBase("knowledge") !== null && signature === readCloudSignature("knowledge")) {
+    if (!force && readCloudBase("knowledge", wikiId) !== null && signature === readCloudSignature("knowledge", wikiId)) {
       dirtySinceRef.current = null
       setCloud((current) => current.phase === "uploading" ? { phase: "synced", message: current.message } : current)
       if (manual) setNotice("A nuvem já está atualizada.")
@@ -255,12 +269,12 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     dirtySinceRef.current = null
     setCloud((current) => ({ ...current, phase: "uploading" }))
     try {
-      const result = await putCloudBackup("knowledge", token, { payload: snapshot, stats: knowledgeStats(snapshot), force })
+      const result = await putCloudBackup("knowledge", token, { payload: snapshot, stats: knowledgeStats(snapshot), force }, wikiId)
       if (result.ok) {
         cloudBlockedRef.current = false
         setCloudConflict(null)
         if (result.localOnly) { setCloud({ phase: "off", message: "Nuvem indisponível no preview local." }); if (manual) setNotice("Preview local: a nuvem não é usada aqui."); return "skipped" }
-        writeCloudSignature("knowledge", signature)
+        writeCloudSignature("knowledge", signature, wikiId)
         setCloud({ phase: "synced", message: `Nuvem: enviado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` })
         if (manual) setNotice("Backup na nuvem atualizado.")
         return "ok"
@@ -318,14 +332,16 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
    */
   const persistVaultData = useCallback(async (options: { prompt?: boolean; force?: boolean; bestiary?: boolean } = {}): Promise<VaultStatus> => {
     if (!obsidianPreferencesRef.current.enabled) return { phase: "off", message: "", attention: false }
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     try {
-      const knowledge = await saveDataToLocalVault("knowledge", knowledgeVaultInput(stateRef.current, collectUiPreferences(browserStorage())), { requestPermission: options.prompt, force: options.force })
+      const knowledge = await saveDataToLocalVault(wikiId, "knowledge", knowledgeVaultInput(stateRef.current, collectUiPreferences(browserStorage())), { requestPermission: options.prompt, force: options.force })
       let status = describeSaveOutcome(knowledge)
       if ("header" in knowledge) setVaultHeaders((current) => ({ ...current, knowledge: knowledge.header }))
       if (options.bestiary && knowledge.status !== "no-vault" && knowledge.status !== "permission") {
         const stored = await loadLocalState().catch(() => null)
         if (stored) {
-          const fichas = await saveDataToLocalVault("bestiary", bestiaryVaultInput(normalizeRunasDmState(stored)), { requestPermission: false, force: options.force })
+          // O bestiário não tem vault próprio: usa sempre o handle da wiki ativa.
+          const fichas = await saveDataToLocalVault(wikiId, "bestiary", bestiaryVaultInput(normalizeRunasDmState(stored)), { requestPermission: false, force: options.force })
           if ("header" in fichas) setVaultHeaders((current) => ({ ...current, bestiary: fichas.header }))
           if (status.phase !== "conflict" && (fichas.status === "conflict" || fichas.status === "unsupported")) status = describeSaveOutcome(fichas)
         }
@@ -361,15 +377,16 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
         parts.push(describeStats(bestiaryStats(next)))
       }
       // Um arquivo lido do vault passa a ser "conhecido": as próximas gravações continuam dele, sem conflito.
-      if (adopt) await adoptVaultDataRevision(item.kind, item.header)
+      if (adopt) await adoptVaultDataRevision(stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID, item.kind, item.header)
     }
     return parts.length ? `Restaurado: ${parts.join(" · ")}.` : "Nada foi restaurado."
   }, [applyPreferencesLive])
 
   const loadVaultItems = useCallback(async (kinds: VaultDataKind[], prompt: boolean): Promise<LoadedVaultItem[]> => {
     const items: LoadedVaultItem[] = []
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     for (const kind of kinds) {
-      const loaded = await loadDataFromLocalVault(kind, { requestPermission: prompt && items.length === 0 })
+      const loaded = await loadDataFromLocalVault(wikiId, kind, { requestPermission: prompt && items.length === 0 })
       if (loaded.status === "ok") items.push({ kind, header: loaded.header, data: loaded.data })
     }
     return items
@@ -381,9 +398,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
    * pergunta (mesclar, substituir ou manter). Vem antes de qualquer sincronização de notas.
    */
   const inspectVault = useCallback(async (options: { prompt?: boolean; interactive: boolean }): Promise<"restored" | "offered" | "nothing"> => {
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     const found: Array<{ kind: VaultDataKind; header: VaultDataHeader; ours: boolean }> = []
     for (const kind of ["knowledge", "bestiary"] as const) {
-      const inspection = await inspectLocalVaultData(kind, { requestPermission: options.prompt && kind === "knowledge" })
+      const inspection = await inspectLocalVaultData(wikiId, kind, { requestPermission: options.prompt && kind === "knowledge" })
       if (inspection.status === "no-vault" || inspection.status === "permission") { setVaultStatus(describeSaveOutcome(inspection)); return "nothing" }
       if (inspection.status === "unsupported") { setVaultStatus(describeSaveOutcome(inspection)); return "nothing" }
       if (inspection.status === "unreadable") { setVaultStatus(describeSaveOutcome({ status: "conflict", reason: "unreadable", existing: null })); return "nothing" }
@@ -421,7 +439,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     let running = false
     const syncVault = async () => {
       if (running || stopped || document.visibilityState === "hidden") return
-      if (!await localVaultName()) return
+      const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+      if (!await localVaultName(wikiId)) return
       running = true
       setSyncState("syncing")
       try {
@@ -429,7 +448,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
           vaultInspectedRef.current = true
           await withVaultLock(() => inspectVault({ interactive: false }))
         }
-        const result = await withVaultLock(() => syncWorkspaceToLocalVault(stateRef.current, false))
+        const result = await withVaultLock(() => syncWorkspaceToLocalVault(wikiId, stateRef.current, false))
         if (stopped) return
         // A sincronização lê o vault em segundos; edições feitas nesse meio
         // tempo (como trocar a imagem da campanha em Estilo) já avançaram
@@ -466,7 +485,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   /** Abre o diálogo de importação já com as versões que a nuvem guarda. */
   async function openCloudImport() {
-    const meta = await fetchCloudMeta("knowledge", readBackupToken())
+    const meta = await fetchCloudMeta("knowledge", readBackupToken(), stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID)
     if (!meta.ok) { if (meta.reason === "unauthorized") clearBackupToken(); setNotice(meta.message); return }
     if (!meta.head) { setNotice(meta.localOnly ? "No preview local não há nuvem." : "Ainda não existe backup na nuvem."); return }
     setCloudVersions(meta.versions)
@@ -484,9 +503,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   /** "Restaurar…": mostra o que o vault guarda e deixa escolher como aplicar. */
   async function openVaultRestore() {
     setVaultBusy(true)
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     const items: VaultRestoreItem[] = []
     for (const kind of ["knowledge", "bestiary"] as const) {
-      const inspection = await withVaultLock(() => inspectLocalVaultData(kind, { requestPermission: items.length === 0 }))
+      const inspection = await withVaultLock(() => inspectLocalVaultData(wikiId, kind, { requestPermission: items.length === 0 }))
       if (inspection.status === "ok") items.push({ kind, header: inspection.header })
       else if (inspection.status === "permission") { setNotice("Conceda a permissão de escrita no vault (Importar e sincronizar) e tente de novo."); setVaultBusy(false); return }
     }
@@ -516,6 +536,70 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   async function onVaultConnected() {
     const outcome = await withVaultLock(() => inspectVault({ prompt: true, interactive: true }))
     if (outcome === "nothing") await withVaultLock(() => persistVaultData({ prompt: true, bestiary: true }))
+  }
+
+  /** Troca a wiki ativa: grava o registro e recarrega a página — a forma mais simples e segura de reiniciar toda a sincronização. */
+  function switchWiki(id: string) {
+    if (!wikiRegistry || id === wikiRegistry.activeCollectionId) return
+    void saveWikiRegistry({ ...wikiRegistry, activeCollectionId: id }).then(() => window.location.reload())
+  }
+
+  function createWiki(name: string) {
+    const collection = createWikiCollection(name)
+    const next: WikiRegistry = wikiRegistry
+      ? { ...wikiRegistry, collections: [...wikiRegistry.collections, collection], activeCollectionId: collection.id }
+      : { version: 1, collections: [collection], activeCollectionId: collection.id }
+    setCreateWikiOpen(false)
+    void saveWikiRegistry(next).then(() => window.location.reload())
+  }
+
+  /** "Conectar pasta existente" no seletor de wikis: decide sozinho quando dá, pergunta quando não dá. */
+  async function connectFolderForWiki() {
+    let handle: DirectoryHandle
+    try { handle = await pickVaultFolder() } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setNotice(error instanceof Error ? error.message : "Não foi possível acessar a pasta.")
+      return
+    }
+    const info = await peekLocalVaultFolder(handle)
+    if (!info.empty) {
+      // Pasta com conteúdo: associa à wiki ativa, do mesmo jeito que "Obsidian › Selecionar existente".
+      await adoptVaultFolder(activeCollectionId, handle)
+      setNotice(`Vault “${info.name}” conectado a esta wiki.`)
+      void onVaultConnected()
+      return
+    }
+    const known = wikiRegistry?.collections ?? []
+    const match = known.find((collection) => collection.name.localeCompare(info.name, "pt-BR", { sensitivity: "base" }) === 0)
+    if (match) {
+      // Pasta vazia, mas o nome bate com uma wiki já conhecida: associa direto, sem perguntar.
+      await adoptVaultFolder(match.id, handle)
+      if (match.id === activeCollectionId) { setNotice("Pasta conectada a esta wiki."); void onVaultConnected() }
+      else switchWiki(match.id)
+      return
+    }
+    setUnknownFolder({ handle, name: info.name })
+  }
+
+  function resolveUnknownFolderCreate() {
+    if (!unknownFolder) return
+    const collection = createWikiCollection(unknownFolder.name)
+    const next: WikiRegistry = wikiRegistry
+      ? { ...wikiRegistry, collections: [...wikiRegistry.collections, collection], activeCollectionId: collection.id }
+      : { version: 1, collections: [collection], activeCollectionId: collection.id }
+    const handle = unknownFolder.handle
+    setUnknownFolder(null)
+    void (async () => { await adoptVaultFolder(collection.id, handle); await saveWikiRegistry(next); window.location.reload() })()
+  }
+
+  function resolveUnknownFolderReplace(wikiId: string) {
+    if (!unknownFolder) return
+    const handle = unknownFolder.handle
+    setUnknownFolder(null)
+    void (async () => {
+      await adoptVaultFolder(wikiId, handle)
+      if (wikiId === activeCollectionId) { setNotice("Pasta conectada a esta wiki."); void onVaultConnected() }
+      else switchWiki(wikiId)
+    })()
   }
 
   /** Exportação manual: os mesmos arquivos do vault, num ZIP — útil sem vault ou para tirar dados de um navegador antigo. */
@@ -562,7 +646,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   async function importFromCloud(mode: CloudImportMode, version?: number) {
     setCloudImportOpen(false)
     setCloudConflict(null)
-    const result = await fetchCloudBackup<unknown>("knowledge", readBackupToken(), version)
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+    const result = await fetchCloudBackup<unknown>("knowledge", readBackupToken(), version, wikiId)
     if (!result.ok) { if (result.reason === "unauthorized") clearBackupToken(); setNotice(result.message); return }
     if (result.empty) { setNotice(result.localOnly ? "No preview local não há nuvem." : "Ainda não existe backup na nuvem."); return }
     try {
@@ -570,9 +655,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       stateRef.current = imported
       setState(imported)
       await saveKnowledgeWorkspace(imported)
-      writeCloudBase("knowledge", result.head.version)
+      writeCloudBase("knowledge", result.head.version, wikiId)
       // Substituir tudo deixa este dispositivo idêntico à nuvem: não há nada novo a enviar.
-      if (mode === "replace") writeCloudSignature("knowledge", hashText(knowledgeSignature(knowledgeSnapshotForStorage(imported))))
+      if (mode === "replace") writeCloudSignature("knowledge", hashText(knowledgeSignature(knowledgeSnapshotForStorage(imported))), wikiId)
       cloudBlockedRef.current = false
       setCloudResume((count) => count + 1)
       setCloud({ phase: "idle", message: "" })
@@ -663,16 +748,17 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     // recriar a campanha na sincronização seguinte.
     const syncedPages = removedPages.filter((page) => page.obsidianPath)
     if (obsidianPreferences.enabled) {
+      const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
       // Sequencial de propósito: pedir permissão de escrita concorrentemente
       // em várias chamadas arrisca disparar mais de um prompt do navegador
       // ao mesmo tempo.
       void withVaultLock(async () => {
         let failed = 0
         for (const page of syncedPages) {
-          try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
+          try { await deletePageFromLocalVault(wikiId, page, true) } catch { failed += 1 }
         }
         let hubNotes = 0
-        try { hubNotes = await deleteCampaignHubNotesFromLocalVault(selectedCampaign.title, true) } catch { failed += 1 }
+        try { hubNotes = await deleteCampaignHubNotesFromLocalVault(wikiId, selectedCampaign.title, true) } catch { failed += 1 }
         const totalNotes = syncedPages.length + hubNotes
         const message = failed
           ? `Campanha excluída do site. ${Math.max(0, totalNotes - failed)} de ${totalNotes} notas excluídas do vault.`
@@ -702,7 +788,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     // partir do clique em "Salvar", então ainda está dentro da janela de
     // ativação do usuário que a File System Access API exige para pedir
     // permissão sem interação explícita adicional.
-    void withVaultLock(() => syncWorkspaceToLocalVault(next, true, undefined, "site"))
+    void withVaultLock(() => syncWorkspaceToLocalVault(stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID, next, true, undefined, "site"))
       .then(async (result) => {
         const merged = mergeKnowledgeWorkspaces(stateRef.current, result.state)
         stateRef.current = merged
@@ -735,10 +821,11 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (!obsidianPreferences.enabled || synced.length === 0) return
     // Sequencial de propósito: pedir permissão de escrita concorrentemente
     // arrisca disparar mais de um prompt do navegador ao mesmo tempo.
+    const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     void withVaultLock(async () => {
       let failed = 0
       for (const page of synced) {
-        try { await deletePageFromLocalVault(page, true) } catch { failed += 1 }
+        try { await deletePageFromLocalVault(wikiId, page, true) } catch { failed += 1 }
       }
       setNotice(failed
         ? `Registro excluído do site. ${synced.length - failed} de ${synced.length} notas excluídas do vault.`
@@ -851,7 +938,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     // Sem apagar a nota no vault, a próxima sincronização a encontra intacta
     // e a reimporta como se fosse nova, revivendo a página excluída.
     if (removed?.obsidianPath && obsidianPreferences.enabled) {
-      void withVaultLock(() => deletePageFromLocalVault(removed, true))
+      void withVaultLock(() => deletePageFromLocalVault(stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID, removed, true))
         .then(() => setNotice(`“${removed.title}” excluída também do vault.`))
         .catch((error: unknown) => setNotice(error instanceof Error ? `Página excluída do site. ${error.message}` : "Página excluída do site; o vault será atualizado quando estiver disponível."))
     }
@@ -905,7 +992,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     mutate((current) => removePagesById(current, targets.map((page) => page.id)))
     setNotice(`${targets.length} cópia${targets.length === 1 ? "" : "s"} em conflito removida${targets.length === 1 ? "" : "s"}.`)
     if (obsidianPreferences.enabled && withFile.length > 0) {
-      void withVaultLock(async () => { for (const page of withFile) await deletePageFromLocalVault(page, true) })
+      void withVaultLock(async () => { const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID; for (const page of withFile) await deletePageFromLocalVault(wikiId, page, true) })
         .then(() => setNotice(`${targets.length} cópia${targets.length === 1 ? "" : "s"} em conflito removida${targets.length === 1 ? "" : "s"} do site e do vault.`))
         .catch((error: unknown) => setNotice(error instanceof Error ? `Removidas do site. ${error.message}` : "Removidas do site; o vault será atualizado quando estiver disponível."))
     }
@@ -1016,23 +1103,30 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
         : syncState === "syncing" || syncState === "loading" || cloud.phase === "uploading" ? { tone: "busy", label: "Sincronizando" }
           : syncState === "synced" || cloud.phase === "synced" ? { tone: "good", label: "Sincronizado" }
             : { tone: "idle", label: "Salvo localmente" }
+  const activeCollectionId = state.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+  // Primeira vez do mestre neste dispositivo: a única wiki que existe é a padrão, ainda sem
+  // nenhum dado do mestre e sem vault conectado. Uma wiki criada de propósito, mesmo vazia,
+  // nunca mostra este convite de novo — só a que nasceu sozinha ao abrir o site pela primeira vez.
+  const showWikiOnboarding = area === "wiki" && hydrated
+    && wikiRegistry !== null && wikiRegistry.collections.length === 1 && wikiRegistry.activeCollectionId === DEFAULT_WIKI_COLLECTION_ID
+    && isPristineKnowledge(state) && vaultStatus.phase === "no-vault"
   const headerDetails: TopbarDetail[] = []
   if (readBackupToken()) {
     if (cloud.message) headerDetails.push({ text: cloud.message, attention: cloud.phase === "blocked" || cloud.phase === "error" })
-    else if (readCloudBase("knowledge") === null) headerDetails.push({ text: "Nuvem: este dispositivo ainda não foi sincronizado. Use “Backup na nuvem”." })
+    else if (readCloudBase("knowledge", activeCollectionId) === null) headerDetails.push({ text: "Nuvem: este dispositivo ainda não foi sincronizado. Use “Backup na nuvem”." })
   }
   if (vaultStatus.message) headerDetails.push({ text: vaultStatus.message, attention: vaultStatus.attention })
   return <main className={`knowledge-shell knowledge-app grid-size-${gridDensity} ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
-    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} />
+    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} wikiRegistry={wikiRegistry} onSwitchWiki={switchWiki} onCreateWiki={() => setCreateWikiOpen(true)} onConnectFolder={() => void connectFolderForWiki()} />
     {area === "campaigns" ? <CampaignPortal campaigns={state.campaigns} selectedCampaignId={selectedCampaignId} pageCounts={campaignPageCounts} onCreate={addCampaign} onReorder={reorderCampaigns} onSelect={(id) => { setSelectedCampaignId(id); navigateRoute({ campaignId: id, page: String(selectedKind) }) }}><>
       {selectedCampaign ? <CampaignHeading campaign={selectedCampaign} onChange={updateCampaign} onDelete={removeCampaign} /> : <div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>Campanhas</h1><p>Organize aventuras, sessões e encontros em um único lugar.</p></div><button className="primary-button" onClick={addCampaign}><Plus size={17} /> Criar campanha</button></div>}
       {selectedCampaign && <nav className="knowledge-tabs" aria-label="Seções da campanha">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as PortalKind); setOpenStoryId(null); navigateRoute({ campaignId: selectedCampaign.id, page: String(kind.id) }); setStatusFilter("all"); setCategoryFilter("all"); setSearch(""); setTagFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>}
       {conflictPages.length > 0 && !selectedCampaign && <ConflictCopiesNotice count={conflictPages.length} onRemoveAll={() => removeConflicts(conflictPages, "do sistema e do Obsidian")} />}{selectedCampaign && openStory ?<StoryDocument key={openStory.id} story={openStory} pages={state.pages} categories={state.categories.filter((category) => category.scope === "wiki")} eras={eras} bestiary={bestiary} onChangeStory={(values) => changeStory(openStory.id, values)} onDeleteStory={() => removeStory(openStory.id)} onSaveEvent={(event) => saveStoryEvent(openStory.id, event)} onDeleteEvent={(id) => deleteStoryEvent(openStory.id, id)} onMoveEvent={(id, offset) => moveStoryEvent(openStory.id, id, offset)} onBack={() => setOpenStoryId(null)} onOpenPage={openPage} /> : selectedCampaign && selectedKind === "campaign-stories" ? <CampaignStory stories={campaignStories} allStories={state.pages.filter((page) => page.scope === "wiki" && page.kind === "story")} pages={state.pages} eras={eras} onCreate={createCampaignStory} onLink={linkStory} onUnlink={unlinkStory} onOpenStory={(story) => setOpenStoryId(story.id)} /> : selectedCampaign && selectedKind === "world" ? <CampaignWorld pages={campaignWorldPages} allWikiPages={state.pages.filter((page) => page.scope === "wiki")} linkedIds={selectedCampaign.worldPageIds} section={campaignWorldSection} onSection={(section) => navigateRoute({ campaignId: selectedCampaign.id, page: "world", section })} onCreate={createWorldPage} onLink={linkWorldPage} onOpen={openPage} onUnlink={unlinkWorldPage} onBack={() => navigateRoute({ campaignId: selectedCampaign.id, page: "world" })} /> : selectedCampaign && selectedKind === "adventure" ? <CampaignAdventure section={campaignAdventureSection} onSection={(section) => navigateRoute({ campaignId: selectedCampaign.id, page: "adventure", section })} onBack={() => navigateRoute({ campaignId: selectedCampaign.id, page: "adventure" })} organizer={selectedCampaign.organizer} onOrganizerChange={updateOrganizer} counts={campaignAdventureCounts}>{campaignAdventureSection && campaignAdventureSection !== "organizer" && <div className="campaign-page-content"><div className="knowledge-toolbar"><label className="knowledge-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no título, texto, tag ou resumo…" /><kbd>{filteredPages.length}</kbd></label><div className="knowledge-filters"><label><Filter size={14} /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">Todas as tags</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos os status</option>{CAMPAIGN_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label><label><CalendarDays size={14} /><select aria-label="Organizar por data" value={dateSort} onChange={(event) => setDateSort(event.target.value as PageSort)}><option value="recent">Mais Recentes</option><option value="oldest">Mais Antigas</option>{campaignAdventureSection === "mission" && <option value="order">Ordem das missões</option>}</select></label><button className="filter-clear" title="Limpar filtros" onClick={() => { setSearch(""); setTagFilter("all"); setStatusFilter("all"); setDateSort("recent") }}><X size={15} /></button></div><div className="category-creator"><button className="primary-button" onClick={addPage}><Plus size={17} /> {campaignAdventureSection === "encounter" ? "Novo encontro" : campaignAdventureSection === "mission" ? "Nova missão" : "Novo evento"}</button></div></div><PageGrid pages={filteredPages} allPages={scopedPages} categories={scopedCategories} eras={eras} onOpen={openPage} onCreate={addPage} /></div>}</CampaignAdventure> : selectedCampaign && selectedKind === "campaign-notes" ? campaignNotesTag ? <TagPage onRemoveConflicts={removeConflicts} pages={state.pages} section={campaignNotesSection} tag={campaignNotesTag} onBack={() => navigateRoute({ campaignId: selectedCampaign.id, page: "campaign-notes" })} onOpen={openPage} onCreate={() => { const created = createKnowledgePage("campaign", "gm-note", selectedCampaign.id); setEditing({ ...created, tags: [campaignNotesTag] }) }} /> : <TagGrid tags={campaignTags} counts={Object.fromEntries(campaignTags.map((tag) => [tag.id, pagesForTag(state.pages, campaignNotesSection, tag.name).length]))} onSelect={(tag) => navigateRoute({ campaignId: selectedCampaign.id, page: "campaign-notes", tag: tag.name })} onCreate={() => openTag(campaignNotesSection)} onEdit={(tag) => openTag(campaignNotesSection, tag)} onRemove={(tag) => removeTag(tag, campaignNotesSection)} /> : selectedCampaign && selectedKind === "appearance" ? <CampaignAppearance key={selectedCampaign.id} campaign={selectedCampaign} onChange={updateCampaign} /> : selectedCampaign && selectedKind === "graph" ? <KnowledgeGraph pages={campaignGraphPages} scope="campaign" onOpen={openPage} /> : null}
-    </></CampaignPortal> : <div className="knowledge-layout wiki-layout"><section className="knowledge-workspace"><div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>Wiki</h1><p>Seu mundo interligado, pesquisável e compatível com Obsidian.</p></div></div>{conflictPages.length > 0 && <ConflictCopiesNotice count={conflictPages.length} onRemoveAll={() => removeConflicts(conflictPages, "do sistema e do Obsidian")} />}{outsidePages.length > 0 && <OutsidePagesNotice pages={outsidePages} onRemove={removeOutsidePage} onRemoveAll={removeAllOutsidePages} />}<nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as PortalKind); setOpenStoryId(null); navigateRoute({ campaignId: String(kind.id) }); setStatusFilter("all"); setCategoryFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>{openStory ?<StoryDocument key={openStory.id} story={openStory} pages={state.pages} categories={scopedCategories} eras={eras} bestiary={bestiary} onChangeStory={(values) => changeStory(openStory.id, values)} onDeleteStory={() => removeStory(openStory.id)} onSaveEvent={(event) => saveStoryEvent(openStory.id, event)} onDeleteEvent={(id) => deleteStoryEvent(openStory.id, id)} onMoveEvent={(id, offset) => moveStoryEvent(openStory.id, id, offset)} onBack={() => setOpenStoryId(null)} onOpenPage={openPage} /> : wikiSection === "chronology" && selectedTagName ? <ChronologyEraPage page={selectedEraPage} legacyEra={selectedLegacyEra} eras={eras} pages={state.pages} onBack={() => navigateRoute({ campaignId: "chronology" })} onEdit={setEditing} onChangeLegacy={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} onOpen={openPage} /> : wikiSection === "story" ? <TagPage onRemoveConflicts={removeConflicts} pages={state.pages} section="story" tag="" onOpen={openPage} onCreate={() => createStory()} /> : wikiSection && selectedTagName ? <TagPage onRemoveConflicts={removeConflicts} pages={state.pages} section={wikiSection} tag={selectedTagName} onBack={() => navigateRoute({ campaignId: wikiSection })} onOpen={openPage} onCreate={() => { const created = createKnowledgePage("wiki", wikiSection as KnowledgePageKind, null); setEditing({ ...created, tags: [selectedTagName] }) }} /> : wikiSection ? <WikiPortal state={state} section={wikiSection} onOpenTag={(tag) => navigateRoute({ campaignId: wikiSection, tag: tag.name })} onCreateTag={() => openTag(wikiSection)} onEditTag={(tag) => openTag(wikiSection, tag)} onRemoveTag={(tag) => removeTag(tag, wikiSection)} onOpenPage={(page) => navigateRoute({ campaignId: "chronology", tag: page.id })} onCreateEra={addPage} onSaveEra={savePage} onDeleteEra={removePage} /> : <KnowledgeGraph pages={state.pages} scope="wiki" onOpen={openPage} />}</section></div>}
+    </></CampaignPortal> : showWikiOnboarding ? <div className="knowledge-layout wiki-layout"><section className="knowledge-workspace"><WikiOnboarding onCreateNew={() => setCreateWikiOpen(true)} /></section></div> : <div className="knowledge-layout wiki-layout"><section className="knowledge-workspace"><div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>Wiki</h1><p>Seu mundo interligado, pesquisável e compatível com Obsidian.</p></div></div>{conflictPages.length > 0 && <ConflictCopiesNotice count={conflictPages.length} onRemoveAll={() => removeConflicts(conflictPages, "do sistema e do Obsidian")} />}{outsidePages.length > 0 && <OutsidePagesNotice pages={outsidePages} onRemove={removeOutsidePage} onRemoveAll={removeAllOutsidePages} />}<nav className="knowledge-tabs" aria-label="Tipos de página">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as PortalKind); setOpenStoryId(null); navigateRoute({ campaignId: String(kind.id) }); setStatusFilter("all"); setCategoryFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>{openStory ?<StoryDocument key={openStory.id} story={openStory} pages={state.pages} categories={scopedCategories} eras={eras} bestiary={bestiary} onChangeStory={(values) => changeStory(openStory.id, values)} onDeleteStory={() => removeStory(openStory.id)} onSaveEvent={(event) => saveStoryEvent(openStory.id, event)} onDeleteEvent={(id) => deleteStoryEvent(openStory.id, id)} onMoveEvent={(id, offset) => moveStoryEvent(openStory.id, id, offset)} onBack={() => setOpenStoryId(null)} onOpenPage={openPage} /> : wikiSection === "chronology" && selectedTagName ? <ChronologyEraPage page={selectedEraPage} legacyEra={selectedLegacyEra} eras={eras} pages={state.pages} onBack={() => navigateRoute({ campaignId: "chronology" })} onEdit={setEditing} onChangeLegacy={(nextEra) => mutate((current) => ({ ...current, eras: eras.map((era) => era.id === nextEra.id ? nextEra : era) }))} onOpen={openPage} /> : wikiSection === "story" ? <TagPage onRemoveConflicts={removeConflicts} pages={state.pages} section="story" tag="" onOpen={openPage} onCreate={() => createStory()} /> : wikiSection && selectedTagName ? <TagPage onRemoveConflicts={removeConflicts} pages={state.pages} section={wikiSection} tag={selectedTagName} onBack={() => navigateRoute({ campaignId: wikiSection })} onOpen={openPage} onCreate={() => { const created = createKnowledgePage("wiki", wikiSection as KnowledgePageKind, null); setEditing({ ...created, tags: [selectedTagName] }) }} /> : wikiSection ? <WikiPortal state={state} section={wikiSection} onOpenTag={(tag) => navigateRoute({ campaignId: wikiSection, tag: tag.name })} onCreateTag={() => openTag(wikiSection)} onEditTag={(tag) => openTag(wikiSection, tag)} onRemoveTag={(tag) => removeTag(tag, wikiSection)} onOpenPage={(page) => navigateRoute({ campaignId: "chronology", tag: page.id })} onCreateEra={addPage} onSaveEra={savePage} onDeleteEra={removePage} /> : <KnowledgeGraph pages={state.pages} scope="wiki" onOpen={openPage} />}</section></div>}
     {notice && <button className="knowledge-toast" onClick={() => setNotice("")}><Check size={15} /> {notice}<X size={14} /></button>}
     {editing && <KnowledgeEditor eras={eras} page={editing} pages={editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages} categories={editing.scope === "wiki" ? state.categories.filter((category) => category.scope === "wiki") : scopedCategories} tags={tagsForSection(state, editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} onCreateTag={() => openTag(editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} bestiary={bestiary} backlinks={(editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages).filter((page) => effectivePageLinks(page, editing.scope === "wiki" ? state.pages.filter((candidate) => candidate.scope === "wiki") : scopedPages).includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
     {tagEditor && <div className="knowledge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setTagEditor(null) }}><section className="knowledge-modal"><header><h2>{tagEditor.tag ? "Editar tag" : "Nova tag"}</h2><button className="icon-button" onClick={() => setTagEditor(null)} aria-label="Fechar"><X size={18} /></button></header><TagEditor tag={tagEditor.tag} onSave={saveTag} /></section></div>}
-    {obsidianOpen && <ObsidianDialog state={state} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
+    {obsidianOpen && <ObsidianDialog state={state} collectionId={activeCollectionId} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
       // Mesmo problema do sincronismo automático: sem mesclar pelo estado
       // mais recente, o botão "Importar e sincronizar" também sobrescrevia
       // cegamente qualquer edição feita durante a leitura do vault.
@@ -1045,16 +1139,19 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     {pendingCloudAction && <BackupTokenDialog onClose={() => setPendingCloudAction(null)} onSubmit={submitBackupToken} />}
     {cloudImportOpen && <CloudImportDialog versions={cloudVersions} onClose={() => setCloudImportOpen(false)} onSelect={(mode, version) => void importFromCloud(mode, version)} />}
     {cloudConflict && <CloudConflictDialog conflict={cloudConflict} local={knowledgeStats(knowledgeSnapshotForStorage(state))} onClose={() => setCloudConflict(null)} onImport={() => void importFromCloud("merge")} onForce={() => { setCloudConflict(null); void uploadKnowledge({ force: true, manual: true }) }} />}
+    {createWikiOpen && <CreateWikiDialog existingNames={wikiRegistry?.collections.map((collection) => collection.name) ?? []} onCreate={createWiki} onClose={() => setCreateWikiOpen(false)} />}
+    {unknownFolder && <UnknownFolderDialog folderName={unknownFolder.name} knownWikis={wikiRegistry?.collections ?? []} onCreateNew={resolveUnknownFolderCreate} onReplaceExisting={resolveUnknownFolderReplace} onClose={() => setUnknownFolder(null)} />}
   </main>
 }
 
-function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void }) {
+function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport, wikiRegistry, onSwitchWiki, onCreateWiki, onConnectFolder }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void; wikiRegistry: WikiRegistry | null; onSwitchWiki: (id: string) => void; onCreateWiki: () => void; onConnectFolder: () => void }) {
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Arquivo do mestre</small></span><b className="topbar-badge">DM</b></a>
     <KnowledgeNavigation area={area} />
     <div className="top-actions knowledge-header-actions">
       <TopbarMenu status={status} details={details}>
         {(close) => <>
+          {wikiRegistry && <WikiSwitcher collections={wikiRegistry.collections} activeId={wikiRegistry.activeCollectionId} onSwitch={(id) => { close(); onSwitchWiki(id) }} onCreateNew={() => { close(); onCreateWiki() }} onConnectFolder={() => { close(); onConnectFolder() }} />}
           <GridSizeControl value={gridDensity} onChange={onChangeGridDensity} />
           <ThemeToggle variant="menu" />
           <button className="topbar-menu-item" onClick={() => { close(); onCloudBackup() }}><CloudUpload size={18} /><span>Backup na nuvem</span></button>

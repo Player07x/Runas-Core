@@ -3,12 +3,26 @@ import type { KnowledgePage, KnowledgeWorkspaceState } from "./knowledge-model"
 import { getDeviceId } from "./cloud-backup"
 import { inspectVaultData, knownRevisionOf, loadVaultData, saveVaultData, type KnownRevision, type VaultDataAdapter, type VaultDataHeader, type VaultDataKind, type VaultInspection, type VaultLoadResult, type VaultSaveInput, type VaultSaveOutcome } from "./vault-data"
 
+/**
+ * Cada wiki (`collectionId`) tem seu próprio vault conectado neste
+ * dispositivo — nunca um vault só, compartilhado entre todas. A coleção
+ * padrão (a wiki que já existia antes de wikis múltiplas existirem) mantém
+ * a chave antiga (`"selected-vault"`), sem `collectionId` nenhum: nenhum
+ * dispositivo já conectado perde o vault ao atualizar.
+ */
+
 const DATABASE_NAME = "runas-dm-local-vault"
 const STORE_NAME = "handles"
-const HANDLE_KEY = "selected-vault"
+const LEGACY_HANDLE_KEY = "selected-vault"
+/** O bestiário não tem vault próprio: usa sempre o handle da wiki ativa (decisão de produto). */
+const DEFAULT_WIKI_COLLECTION_ID = "default"
+
+function handleKey(collectionId: string): string {
+  return collectionId === DEFAULT_WIKI_COLLECTION_ID ? LEGACY_HANDLE_KEY : `selected-vault.${collectionId}`
+}
 
 type PermissionStateValue = "granted" | "denied" | "prompt"
-type DirectoryHandle = FileSystemDirectoryHandle & {
+export type DirectoryHandle = FileSystemDirectoryHandle & {
   values(): AsyncIterableIterator<FileSystemHandle>
   queryPermission(options: { mode: "readwrite" }): Promise<PermissionStateValue>
   requestPermission(options: { mode: "readwrite" }): Promise<PermissionStateValue>
@@ -20,7 +34,7 @@ declare global {
   }
 }
 
-let memoryHandle: DirectoryHandle | null = null
+const memoryHandles = new Map<string, DirectoryHandle>()
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,25 +47,30 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
-async function storeHandle(handle: DirectoryHandle): Promise<void> {
-  memoryHandle = handle
+async function storeHandle(collectionId: string, handle: DirectoryHandle): Promise<void> {
+  memoryHandles.set(collectionId, handle)
   const database = await openDatabase()
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite")
-    transaction.objectStore(STORE_NAME).put(handle, HANDLE_KEY)
+    transaction.objectStore(STORE_NAME).put(handle, handleKey(collectionId))
     transaction.oncomplete = () => { database.close(); resolve() }
     transaction.onerror = () => { database.close(); reject(transaction.error) }
   })
 }
 
-export async function readLocalVaultHandle(): Promise<DirectoryHandle | null> {
-  if (memoryHandle) return memoryHandle
+export async function readLocalVaultHandle(collectionId: string): Promise<DirectoryHandle | null> {
+  const cached = memoryHandles.get(collectionId)
+  if (cached) return cached
   if (typeof indexedDB === "undefined") return null
   const database = await openDatabase()
   return new Promise((resolve) => {
     const transaction = database.transaction(STORE_NAME, "readonly")
-    const request = transaction.objectStore(STORE_NAME).get(HANDLE_KEY)
-    request.onsuccess = () => { memoryHandle = (request.result as DirectoryHandle | undefined) ?? null; resolve(memoryHandle) }
+    const request = transaction.objectStore(STORE_NAME).get(handleKey(collectionId))
+    request.onsuccess = () => {
+      const handle = (request.result as DirectoryHandle | undefined) ?? null
+      if (handle) memoryHandles.set(collectionId, handle)
+      resolve(handle)
+    }
     request.onerror = () => resolve(null)
     transaction.oncomplete = () => database.close()
   })
@@ -113,12 +132,34 @@ export async function prepareLocalVault(handle: DirectoryHandle): Promise<void> 
   }
 }
 
-/** O seletor do navegador também oferece “Nova pasta”, cobrindo criação e seleção. */
-export async function selectLocalVault(): Promise<DirectoryHandle> {
+/** Abre o seletor do navegador (que também oferece “Nova pasta”) sem decidir nada ainda: nem prepara, nem associa a uma coleção. */
+export async function pickVaultFolder(): Promise<DirectoryHandle> {
   if (!window.showDirectoryPicker) throw new Error("Este navegador não permite selecionar pastas. Use Chrome ou Edge.")
-  const handle = await window.showDirectoryPicker({ id: "runas-dm-vault", mode: "readwrite", startIn: "documents" }) as DirectoryHandle
+  return await window.showDirectoryPicker({ id: "runas-dm-vault", mode: "readwrite", startIn: "documents" }) as DirectoryHandle
+}
+
+/** Só inspeciona: não cria nada na pasta. Usado para decidir se ela está vazia antes de perguntar o que fazer. */
+export async function peekLocalVaultFolder(handle: DirectoryHandle): Promise<{ name: string; empty: boolean; hasRunasDmData: boolean }> {
+  const empty = Boolean((await handle.values().next()).done)
+  const hasRunasDmData = !empty && await fileExists(handle, "Runas DM/wiki-e-campanhas.json")
+  return { name: handle.name, empty, hasRunasDmData }
+}
+
+/** Depois de decidido a quem a pasta pertence: prepara a estrutura e a associa a esta coleção (wiki). */
+export async function adoptVaultFolder(collectionId: string, handle: DirectoryHandle): Promise<void> {
   await prepareLocalVault(handle)
-  await storeHandle(handle)
+  await storeHandle(collectionId, handle)
+}
+
+/**
+ * Fluxo de sempre, usado pelo diálogo "Obsidian" da wiki já aberta:
+ * selecionar (ou criar, pelo próprio seletor) uma pasta sempre a associa à
+ * coleção informada, sem perguntar nada — é o que "Selecionar existente" e
+ * "Criar novo vault" já faziam antes de wikis múltiplas existirem.
+ */
+export async function selectLocalVault(collectionId: string): Promise<DirectoryHandle> {
+  const handle = await pickVaultFolder()
+  await adoptVaultFolder(collectionId, handle)
   return handle
 }
 
@@ -168,12 +209,12 @@ export function createLocalVaultAdapter(handle: DirectoryHandle): VaultAdapter {
   }
 }
 
-export async function localVaultName(): Promise<string> {
-  return (await readLocalVaultHandle())?.name ?? ""
+export async function localVaultName(collectionId: string): Promise<string> {
+  return (await readLocalVaultHandle(collectionId))?.name ?? ""
 }
 
-export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, requestPermission = false, onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
-  const handle = await readLocalVaultHandle()
+export async function syncWorkspaceToLocalVault(collectionId: string, state: KnowledgeWorkspaceState, requestPermission = false, onProgress?: (done: number, total: number) => void, priority: VaultSyncPriority = "obsidian"): Promise<VaultSyncResult> {
+  const handle = await readLocalVaultHandle(collectionId)
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   await prepareLocalVault(handle)
@@ -181,16 +222,16 @@ export async function syncWorkspaceToLocalVault(state: KnowledgeWorkspaceState, 
 }
 
 /** Sem isso, a nota apagada no site continua no vault e a próxima sincronização a traz de volta. */
-export async function deletePageFromLocalVault(page: KnowledgePage, requestPermission = false): Promise<void> {
-  const handle = await readLocalVaultHandle()
+export async function deletePageFromLocalVault(collectionId: string, page: KnowledgePage, requestPermission = false): Promise<void> {
+  const handle = await readLocalVaultHandle(collectionId)
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   await deleteVaultNote(page, createLocalVaultAdapter(handle), "")
 }
 
 /** Cobre a nota-hub "<Nome> (Campanha)", que pode nunca ter sido rastreada como página vinculada à campanha. */
-export async function deleteCampaignHubNotesFromLocalVault(campaignTitle: string, requestPermission = false): Promise<number> {
-  const handle = await readLocalVaultHandle()
+export async function deleteCampaignHubNotesFromLocalVault(collectionId: string, campaignTitle: string, requestPermission = false): Promise<number> {
+  const handle = await readLocalVaultHandle(collectionId)
   if (!handle) throw new Error("Selecione ou crie uma pasta de vault primeiro.")
   if (!await ensureWritePermission(handle, requestPermission)) throw new Error("O navegador revogou a permissão de escrita no vault. Abra Obsidian > Importar e sincronizar para concedê-la de novo.")
   return deleteCampaignHubNotes(campaignTitle, createLocalVaultAdapter(handle), "")
@@ -228,12 +269,13 @@ async function withCrossTabLock<T>(task: () => Promise<T>): Promise<T> {
   return locks ? locks.request("runas-dm-vault-data", task) : task()
 }
 
-const knownKey = (vaultName: string, kind: VaultDataKind) => `runas-dm.vault-data.${vaultName}.${kind}`
+/** `collectionId` entra na chave para que duas wikis diferentes, apontando em momentos diferentes para pastas de mesmo nome, nunca compartilhem a "revisão conhecida" uma da outra. */
+const knownKey = (collectionId: string, vaultName: string, kind: VaultDataKind) => `runas-dm.vault-data.${collectionId}.${vaultName}.${kind}`
 
-/** A revisão do arquivo que este navegador escreveu ou leu por último, por vault e por arquivo. */
-export function readKnownVaultRevision(vaultName: string, kind: VaultDataKind): KnownRevision | null {
+/** A revisão do arquivo que este navegador escreveu ou leu por último, por wiki, vault e arquivo. */
+export function readKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind): KnownRevision | null {
   try {
-    const raw = localStorage.getItem(knownKey(vaultName, kind))
+    const raw = localStorage.getItem(knownKey(collectionId, vaultName, kind))
     const value = raw ? JSON.parse(raw) as Partial<KnownRevision> : null
     return value && Number.isInteger(value.revision) && typeof value.writerId === "string" ? { revision: value.revision as number, writerId: value.writerId } : null
   } catch {
@@ -241,44 +283,44 @@ export function readKnownVaultRevision(vaultName: string, kind: VaultDataKind): 
   }
 }
 
-export function writeKnownVaultRevision(vaultName: string, kind: VaultDataKind, known: KnownRevision): void {
-  try { localStorage.setItem(knownKey(vaultName, kind), JSON.stringify(known)) } catch { /* no máximo uma pergunta a mais */ }
+export function writeKnownVaultRevision(collectionId: string, vaultName: string, kind: VaultDataKind, known: KnownRevision): void {
+  try { localStorage.setItem(knownKey(collectionId, vaultName, kind), JSON.stringify(known)) } catch { /* no máximo uma pergunta a mais */ }
 }
 
 export type VaultDataAccess = { status: "no-vault" } | { status: "permission" }
 
-async function openVaultData(requestPermission: boolean): Promise<{ status: "ok"; name: string; adapter: VaultDataAdapter } | VaultDataAccess> {
-  const handle = await readLocalVaultHandle()
+async function openVaultData(collectionId: string, requestPermission: boolean): Promise<{ status: "ok"; name: string; adapter: VaultDataAdapter } | VaultDataAccess> {
+  const handle = await readLocalVaultHandle(collectionId)
   if (!handle) return { status: "no-vault" }
   if (!await ensureWritePermission(handle, requestPermission)) return { status: "permission" }
   return { status: "ok", name: handle.name, adapter: createVaultDataAdapter(handle) }
 }
 
 /** Grava o arquivo de dados. Sem permissão de escrita ele não pede sozinho (só com `requestPermission`, a partir de um clique). */
-export async function saveDataToLocalVault(kind: VaultDataKind, input: VaultSaveInput, options: { requestPermission?: boolean; force?: boolean } = {}): Promise<VaultSaveOutcome | VaultDataAccess> {
-  const opened = await openVaultData(options.requestPermission === true)
+export async function saveDataToLocalVault(collectionId: string, kind: VaultDataKind, input: VaultSaveInput, options: { requestPermission?: boolean; force?: boolean } = {}): Promise<VaultSaveOutcome | VaultDataAccess> {
+  const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
   return withCrossTabLock(async () => {
-    const outcome = await saveVaultData(opened.adapter, kind, input, { writerId: getDeviceId(), known: readKnownVaultRevision(opened.name, kind), force: options.force })
-    if (outcome.status === "saved" || outcome.status === "unchanged") writeKnownVaultRevision(opened.name, kind, outcome.known)
+    const outcome = await saveVaultData(opened.adapter, kind, input, { writerId: getDeviceId(), known: readKnownVaultRevision(collectionId, opened.name, kind), force: options.force })
+    if (outcome.status === "saved" || outcome.status === "unchanged") writeKnownVaultRevision(collectionId, opened.name, kind, outcome.known)
     return outcome
   })
 }
 
-export async function inspectLocalVaultData(kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultInspection | VaultDataAccess> {
-  const opened = await openVaultData(options.requestPermission === true)
+export async function inspectLocalVaultData(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultInspection | VaultDataAccess> {
+  const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
-  return inspectVaultData(opened.adapter, kind, readKnownVaultRevision(opened.name, kind))
+  return inspectVaultData(opened.adapter, kind, readKnownVaultRevision(collectionId, opened.name, kind))
 }
 
-export async function loadDataFromLocalVault<T = unknown>(kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultLoadResult<T> | VaultDataAccess> {
-  const opened = await openVaultData(options.requestPermission === true)
+export async function loadDataFromLocalVault<T = unknown>(collectionId: string, kind: VaultDataKind, options: { requestPermission?: boolean } = {}): Promise<VaultLoadResult<T> | VaultDataAccess> {
+  const opened = await openVaultData(collectionId, options.requestPermission === true)
   if (opened.status !== "ok") return opened
   return loadVaultData<T>(opened.adapter, kind)
 }
 
 /** Depois de aplicar um arquivo neste dispositivo, a revisão dele passa a ser "conhecida": as próximas gravações continuam dele, sem conflito. */
-export async function adoptVaultDataRevision(kind: VaultDataKind, header: VaultDataHeader): Promise<void> {
-  const name = await localVaultName()
-  if (name) writeKnownVaultRevision(name, kind, knownRevisionOf(header))
+export async function adoptVaultDataRevision(collectionId: string, kind: VaultDataKind, header: VaultDataHeader): Promise<void> {
+  const name = await localVaultName(collectionId)
+  if (name) writeKnownVaultRevision(collectionId, name, kind, knownRevisionOf(header))
 }

@@ -18,7 +18,7 @@ function resultMessage(result: VaultSyncResult): string {
   return `Sincronização concluída: ${parts.join(", ")}.`
 }
 
-export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateChange, vaultData, onVaultConnected, zipDataFiles }: { state: KnowledgeWorkspaceState; zipDataFiles?: () => ZipEntry[]; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void; vaultData?: Omit<VaultDataPanelProps, "connected">; onVaultConnected?: () => void }) {
+export function ObsidianDialog({ state, collectionId, onClose, onPreferencesChange, onStateChange, vaultData, onVaultConnected, zipDataFiles }: { state: KnowledgeWorkspaceState; collectionId: string; zipDataFiles?: () => ZipEntry[]; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void; vaultData?: Omit<VaultDataPanelProps, "connected">; onVaultConnected?: () => void }) {
   useEscapeToClose(onClose)
   const [preferences, setPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
   const [message, setMessage] = useState("")
@@ -26,7 +26,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
   const [folderName, setFolderName] = useState("")
   const localFolderSupported = supportsLocalVault()
 
-  useEffect(() => { void localVaultName().then(setFolderName) }, [])
+  useEffect(() => { void localVaultName(collectionId).then(setFolderName) }, [collectionId])
 
   useEffect(() => {
     localStorage.setItem(OBSIDIAN_PREFERENCES_KEY, JSON.stringify(preferences))
@@ -36,7 +36,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
   async function synchronize() {
     setWorking(true); setMessage("Lendo documentos antes de gravar…")
     try {
-      const result = await syncWorkspaceToLocalVault(state, true, (done, total) => setMessage(`Sincronizando ${done} de ${total} páginas…`))
+      const result = await syncWorkspaceToLocalVault(collectionId, state, true, (done, total) => setMessage(`Sincronizando ${done} de ${total} páginas…`))
       onStateChange(result.state)
       setMessage(resultMessage(result))
     } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível sincronizar com o vault.") }
@@ -47,7 +47,7 @@ export function ObsidianDialog({ state, onClose, onPreferencesChange, onStateCha
     setWorking(true)
     setMessage(kind === "new" ? "No seletor, crie uma nova pasta e escolha-a como vault…" : "Escolha a pasta raiz do vault existente…")
     try {
-      const handle = await selectLocalVault()
+      const handle = await selectLocalVault(collectionId)
       setFolderName(handle.name)
       setPreferences((current) => ({ ...current, enabled: true }))
       setMessage(`Vault “${handle.name}” conectado. Assets e as preferências ausentes foram configurados sem substituir arquivos existentes.`)

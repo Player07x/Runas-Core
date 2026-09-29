@@ -135,8 +135,10 @@ export function DmDashboard() {
   const saveBestiaryToVault = useCallback(async (current: RunasDmState, prompt: boolean): Promise<VaultStatus> => {
     if (!readObsidianPreferences().enabled) return { phase: "off", message: "", attention: false }
     try {
-      const [{ saveDataToLocalVault }, { bestiaryVaultInput }, { describeSaveOutcome }] = await Promise.all([import("../lib/local-vault"), import("../lib/bestiary-scope"), import("../lib/vault-status")])
-      return describeSaveOutcome(await saveDataToLocalVault("bestiary", bestiaryVaultInput(normalizeRunasDmState(current)), { requestPermission: prompt }))
+      const [{ saveDataToLocalVault }, { bestiaryVaultInput }, { describeSaveOutcome }, { loadWikiRegistry }] = await Promise.all([import("../lib/local-vault"), import("../lib/bestiary-scope"), import("../lib/vault-status"), import("../lib/knowledge-storage")])
+      // O bestiário não tem vault próprio (decisão de produto): usa sempre o handle da wiki ativa.
+      const { activeCollectionId } = await loadWikiRegistry()
+      return describeSaveOutcome(await saveDataToLocalVault(activeCollectionId, "bestiary", bestiaryVaultInput(normalizeRunasDmState(current)), { requestPermission: prompt }))
     } catch (error) {
       return { phase: "error", message: `Vault: ${error instanceof Error ? error.message : "não foi possível gravar o bestiário."}`, attention: true }
     }
