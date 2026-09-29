@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createEmptyKnowledgeWorkspace, createKnowledgePage, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -258,5 +258,47 @@ describe("identidade da wiki (collectionId)", () => {
     const backup = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-remota" }
     expect(applyCloudBackup(local, backup, "merge").collectionId).toBe("wiki-local")
     expect(applyCloudBackup(local, backup, "replace").collectionId).toBe("wiki-local")
+  })
+})
+
+describe("registro de wikis", () => {
+  it("um dispositivo novo começa só com a wiki padrão", () => {
+    const registry = createDefaultWikiRegistry()
+    expect(registry.collections).toEqual([expect.objectContaining({ id: DEFAULT_WIKI_COLLECTION_ID, name: "Wiki" })])
+    expect(registry.activeCollectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("criar uma wiki nova gera um id próprio, mesmo com o mesmo nome", () => {
+    const a = createWikiCollection("Ordem x Caos")
+    const b = createWikiCollection("Ordem x Caos")
+    expect(a.id).not.toBe(b.id)
+    expect(a.name).toBe("Ordem x Caos")
+  })
+
+  it("normaliza um valor qualquer (dado legado, ausente) para o registro padrão, sem perder nada", () => {
+    expect(normalizeWikiRegistry(null).collections).toHaveLength(1)
+    expect(normalizeWikiRegistry(undefined).activeCollectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("preserva coleções válidas, descarta as malformadas e nunca fica com ids repetidos", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [
+        { id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 },
+        { id: "w2", name: "Sagas de Cronos", createdAt: 2, updatedAt: 2 },
+        { id: "w1", name: "Duplicata", createdAt: 3, updatedAt: 3 },
+        { name: "Sem id" },
+      ],
+      activeCollectionId: "w2",
+    })
+    expect(registry.collections.map((collection) => collection.id)).toEqual(["w1", "w2"])
+    expect(registry.activeCollectionId).toBe("w2")
+  })
+
+  it("uma coleção ativa que não existe mais cai na primeira coleção válida", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [{ id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 }],
+      activeCollectionId: "wiki-apagada",
+    })
+    expect(registry.activeCollectionId).toBe("w1")
   })
 })

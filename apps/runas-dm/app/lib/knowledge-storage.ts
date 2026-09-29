@@ -1,9 +1,11 @@
-import { createEmptyKnowledgeWorkspace, DEFAULT_WIKI_COLLECTION_ID, normalizeKnowledgeWorkspace, type KnowledgeWorkspaceState } from "./knowledge-model"
+import { createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, DEFAULT_WIKI_COLLECTION_ID, normalizeKnowledgeWorkspace, normalizeWikiRegistry, type KnowledgeWorkspaceState, type WikiRegistry } from "./knowledge-model"
 
 const DATABASE_NAME = "runas-dm-knowledge"
 const STORE_NAME = "workspace"
 /** Chave usada antes de wikis múltiplas existirem; nunca é apagada por esta migração. */
 const LEGACY_KEY = "primary"
+/** Reservada: nenhum `collectionId` pode valer isto (os ids de coleção vêm de `createKnowledgeId()` ou são `"default"`). */
+const REGISTRY_KEY = "__wiki_registry__"
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -26,10 +28,10 @@ function getEntry(database: IDBDatabase, key: string): Promise<unknown> {
   })
 }
 
-function putEntry(database: IDBDatabase, key: string, state: KnowledgeWorkspaceState): Promise<void> {
+function putEntry(database: IDBDatabase, key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite")
-    transaction.objectStore(STORE_NAME).put(state, key)
+    transaction.objectStore(STORE_NAME).put(value, key)
     transaction.oncomplete = () => { database.close(); resolve() }
     transaction.onerror = () => { database.close(); reject(transaction.error) }
   })
@@ -62,4 +64,19 @@ export async function loadKnowledgeWorkspace(collectionId: string = DEFAULT_WIKI
 
 export async function saveKnowledgeWorkspace(state: KnowledgeWorkspaceState): Promise<void> {
   await putEntry(await openDatabase(), state.collectionId || DEFAULT_WIKI_COLLECTION_ID, state)
+}
+
+/**
+ * O registro de wikis (nomes, qual está ativa) mora na mesma base, numa
+ * chave própria reservada. Um dispositivo que nunca teve registro (todo
+ * mundo antes desta mudança) ganha um só com a wiki padrão — exatamente a
+ * que já existia.
+ */
+export async function loadWikiRegistry(): Promise<WikiRegistry> {
+  const stored = await getEntry(await openDatabase(), REGISTRY_KEY)
+  return stored ? normalizeWikiRegistry(stored) : createDefaultWikiRegistry()
+}
+
+export async function saveWikiRegistry(registry: WikiRegistry): Promise<void> {
+  await putEntry(await openDatabase(), REGISTRY_KEY, registry)
 }
