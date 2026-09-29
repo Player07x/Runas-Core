@@ -32,6 +32,13 @@ export interface InitiativeEntry {
 
 export interface RunasDmState {
   version: 2
+  /**
+   * Id do bestiário dono deste estado. Opcional para não quebrar nenhum
+   * leitor existente (backup antigo, teste, importação) que ainda não sabe
+   * de múltiplos bestiários; `normalizeRunasDmState` sempre devolve um valor
+   * válido, caindo em `DEFAULT_BESTIARY_COLLECTION_ID` na ausência de um.
+   */
+  collectionId?: string
   entries: BestiaryEntry[]
   encounter: EncounterActor[]
   masteryTables: MasteryTable[]
@@ -39,6 +46,9 @@ export interface RunasDmState {
   initiative: InitiativeEntry[]
   updatedAt: number
 }
+
+/** Id do bestiário que já existia antes de bestiários múltiplos existirem. */
+export const DEFAULT_BESTIARY_COLLECTION_ID = "default"
 
 export function createEmptyCharacter(name = "Nova criatura"): Character {
   const character = createCoreCharacter()
@@ -91,6 +101,7 @@ export function createInitialState(): RunasDmState {
   const now = Date.now()
   return {
     version: 2,
+    collectionId: DEFAULT_BESTIARY_COLLECTION_ID,
     entries: [
       { id: SAMPLE_ENTRY_IDS[0], character: sampleSentinel(), masteryTableId: "default", updatedAt: now },
       { id: SAMPLE_ENTRY_IDS[1], character: sampleAshBeast(), masteryTableId: "default", updatedAt: now },
@@ -113,6 +124,7 @@ export function normalizeRunasDmState(state: RunasDmState): RunasDmState {
   return {
     ...state,
     version: 2,
+    collectionId: typeof state.collectionId === "string" && state.collectionId.trim() ? state.collectionId.trim() : DEFAULT_BESTIARY_COLLECTION_ID,
     masteryTables,
     workspaceNotesHtml: typeof state.workspaceNotesHtml === "string" ? state.workspaceNotesHtml : "",
     initiative: Array.isArray(state.initiative) ? state.initiative.flatMap((entry, index) => {

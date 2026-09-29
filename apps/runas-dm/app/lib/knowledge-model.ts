@@ -159,8 +159,18 @@ export interface KnowledgePage {
   updatedAt: number
 }
 
+/** Id da wiki que já existia antes de wikis múltiplas existirem. */
+export const DEFAULT_WIKI_COLLECTION_ID = "default"
+
 export interface KnowledgeWorkspaceState {
   version: 3
+  /**
+   * Id da wiki dona deste estado. Opcional para não quebrar nenhum leitor
+   * existente (backup antigo, teste, importação) que ainda não sabe de
+   * múltiplas wikis; `normalizeKnowledgeWorkspace` sempre devolve um valor
+   * válido, caindo em `DEFAULT_WIKI_COLLECTION_ID` na ausência de um.
+   */
+  collectionId?: string
   eras?: UniverseEra[]
   /** Migrações de dados já aplicadas a este espaço de trabalho (cada uma roda uma única vez). */
   migrations?: string[]
@@ -208,7 +218,7 @@ function configuredUniverseEras(value: unknown): UniverseEra[] {
 }
 
 export function createEmptyKnowledgeWorkspace(): KnowledgeWorkspaceState {
-  return { version: 3, eras: [], campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }
+  return { version: 3, collectionId: DEFAULT_WIKI_COLLECTION_ID, eras: [], campaigns: [], categories: [], tags: [], pages: [], deletedIds: [], updatedAt: 0 }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {
@@ -349,7 +359,8 @@ export function normalizeKnowledgeWorkspace(value: unknown): KnowledgeWorkspaceS
   const eraPages = pages.filter((page) => page.scope === "wiki" && page.kind === "chronology" && (page.eraStartYear != null || page.eraEndYear != null))
   for (const era of eraPages) ensureTag(era.title, ["chronology"])
   const taggedPages = withEraTags(pages, eraPages)
-  return canonicalizeTags({ version: 3, eras, migrations, campaigns, categories, tags: withUniqueTagIds([...tagsByName.values()]), pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() })
+  const collectionId = typeof candidate.collectionId === "string" && candidate.collectionId.trim() ? candidate.collectionId.trim() : DEFAULT_WIKI_COLLECTION_ID
+  return canonicalizeTags({ version: 3, collectionId, eras, migrations, campaigns, categories, tags: withUniqueTagIds([...tagsByName.values()]), pages: taggedPages, deletedIds, updatedAt: Number.isFinite(candidate.updatedAt) ? candidate.updatedAt as number : Date.now() })
 }
 
 /**
@@ -406,6 +417,8 @@ export function mergeKnowledgeWorkspaces(local: KnowledgeWorkspaceState, remote:
   }
   return {
     version: 3,
+    // A identidade da coleção segue sempre a local: mesclar nunca troca de wiki.
+    collectionId: local.collectionId ?? remote.collectionId ?? DEFAULT_WIKI_COLLECTION_ID,
     eras: configuredUniverseEras(remote.updatedAt >= local.updatedAt ? remote.eras ?? local.eras : local.eras ?? remote.eras),
     campaigns: mergeById(local.campaigns, remote.campaigns),
     categories: mergeById(local.categories, remote.categories),
@@ -429,7 +442,10 @@ export type CloudImportMode = "merge" | "replace"
  */
 export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unknown, mode: CloudImportMode): KnowledgeWorkspaceState {
   const backup = normalizeKnowledgeWorkspace(rawBackup)
-  if (mode === "replace") return backup
+  // A identidade da coleção nunca vem do backup: importar/restaurar troca o
+  // conteúdo desta wiki, nunca qual wiki este dispositivo está vendo.
+  const collectionId = local.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+  if (mode === "replace") return { ...backup, collectionId }
   const deleted = new Set(local.deletedIds)
   const mergeById = <T extends { id: string }>(localItems: T[], backupItems: T[]): T[] => {
     const kept = backupItems.filter((item) => !deleted.has(item.id))
@@ -438,6 +454,7 @@ export function applyCloudBackup(local: KnowledgeWorkspaceState, rawBackup: unkn
   }
   return {
     version: 3,
+    collectionId,
     eras: configuredUniverseEras(backup.eras ?? local.eras),
     campaigns: mergeById(local.campaigns, backup.campaigns),
     categories: mergeById(local.categories, backup.categories),

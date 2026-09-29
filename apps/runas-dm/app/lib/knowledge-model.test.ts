@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createEmptyKnowledgeWorkspace, createKnowledgePage, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createEmptyKnowledgeWorkspace, createKnowledgePage, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, parseList, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -231,5 +231,32 @@ describe("anos das eras canônicas", () => {
     expect(byId("era-alquimistas")).toMatchObject({ eraStartYear: 1489, eraEndYear: 3122 })
     expect(byId("era-magos")).toMatchObject({ eraStartYear: 3000, eraEndYear: 3500 })
     expect(byId("era-runas")?.eraStartYear ?? null).toBeNull()
+  })
+})
+
+describe("identidade da wiki (collectionId)", () => {
+  it("uma wiki nova já nasce com o id padrão", () => {
+    expect(createEmptyKnowledgeWorkspace().collectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("normaliza um estado sem collectionId (dado legado) para o id padrão", () => {
+    expect(normalizeKnowledgeWorkspace({ pages: [] }).collectionId).toBe(DEFAULT_WIKI_COLLECTION_ID)
+  })
+
+  it("preserva um collectionId já existente ao normalizar", () => {
+    expect(normalizeKnowledgeWorkspace({ collectionId: "wiki-outra", pages: [] }).collectionId).toBe("wiki-outra")
+  })
+
+  it("mesclar nunca troca a identidade da wiki: o resultado segue sempre a local", () => {
+    const local = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-local", updatedAt: 5 }
+    const remote = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-remota", updatedAt: 10 }
+    expect(mergeKnowledgeWorkspaces(local, remote).collectionId).toBe("wiki-local")
+  })
+
+  it("importar um backup da nuvem (mesclar ou substituir) nunca troca a identidade da wiki", () => {
+    const local = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-local" }
+    const backup = { ...createEmptyKnowledgeWorkspace(), collectionId: "wiki-remota" }
+    expect(applyCloudBackup(local, backup, "merge").collectionId).toBe("wiki-local")
+    expect(applyCloudBackup(local, backup, "replace").collectionId).toBe("wiki-local")
   })
 })
