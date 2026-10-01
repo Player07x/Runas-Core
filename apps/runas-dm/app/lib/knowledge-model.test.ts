@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, wikiLinkTitles } from "./knowledge-model"
+import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, removeWikiCollection, renameWikiCollection, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -300,5 +300,28 @@ describe("registro de wikis", () => {
       activeCollectionId: "wiki-apagada",
     })
     expect(registry.activeCollectionId).toBe("w1")
+  })
+
+  it("renomeia sem trocar o id nem as demais coleções, e ignora um nome vazio", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [{ id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 }, { id: "w2", name: "Valknut", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "w1",
+    })
+    const renamed = renameWikiCollection(registry, "w2", "Valknut Renovado", 99)
+    expect(renamed.collections).toEqual([registry.collections[0], { id: "w2", name: "Valknut Renovado", createdAt: 2, updatedAt: 99 }])
+    expect(renameWikiCollection(registry, "w2", "   ")).toBe(registry)
+  })
+
+  it("remove sem apagar dado algum (só tira do registro) e nunca remove a última wiki", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [{ id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 }, { id: "w2", name: "Valknut", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "w2",
+    })
+    const removed = removeWikiCollection(registry, "w2")
+    expect(removed.collections.map((collection) => collection.id)).toEqual(["w1"])
+    // A ativa era a removida: a primeira que sobra assume.
+    expect(removed.activeCollectionId).toBe("w1")
+    const onlyOne = normalizeWikiRegistry({ collections: [{ id: "w1", name: "Única", createdAt: 1, updatedAt: 1 }], activeCollectionId: "w1" })
+    expect(removeWikiCollection(onlyOne, "w1")).toBe(onlyOne)
   })
 })

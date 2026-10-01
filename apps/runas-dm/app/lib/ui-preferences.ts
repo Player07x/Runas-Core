@@ -62,5 +62,41 @@ export function applyUiPreferences(preferences: UiPreferences, storage: KeyValue
   write(GRID_DENSITY_STORAGE_KEY, valid.gridDensity)
   write(CHRONOLOGY_COLUMNS_STORAGE_KEY, valid.chronologyColumns)
   write(ITEM_EDITOR_MODE_STORAGE_KEY, valid.itemEditorMode)
+  if (valid.gridDensity) notifyGridDensityChanged()
   return valid
+}
+
+export type GridDensity = NonNullable<UiPreferences["gridDensity"]>
+
+export function readGridDensity(): GridDensity {
+  try {
+    const saved = globalThis.localStorage?.getItem(GRID_DENSITY_STORAGE_KEY)
+    return saved === "small" || saved === "medium" || saved === "large" ? saved : "medium"
+  } catch { return "medium" }
+}
+
+export function writeGridDensity(value: GridDensity): void {
+  try { globalThis.localStorage?.setItem(GRID_DENSITY_STORAGE_KEY, value) } catch { /* a próxima sessão volta ao padrão */ }
+  notifyGridDensityChanged()
+}
+
+const gridDensityListeners = new Set<() => void>()
+
+function notifyGridDensityChanged(): void {
+  gridDensityListeners.forEach((listener) => listener())
+}
+
+/**
+ * Para ler com `useSyncExternalStore`: o servidor não tem `localStorage`,
+ * então seu instantâneo é sempre "medium" — ler o valor real já no primeiro
+ * render do cliente, como um `useState(() => ...)` faria, causaria erro de
+ * hidratação sempre que a grade salva fosse "small" ou "large".
+ */
+export function subscribeGridDensity(listener: () => void): () => void {
+  gridDensityListeners.add(listener)
+  return () => { gridDensityListeners.delete(listener) }
+}
+
+export function getGridDensityServerSnapshot(): GridDensity {
+  return "medium"
 }

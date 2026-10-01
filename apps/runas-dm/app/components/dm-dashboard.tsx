@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import {
-  Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Plus, RefreshCw,
+  Archive, ArrowUpDown, Bolt, BookMarked, BookOpenText, ChevronDown, Cloud, CloudOff, Copy, Database, Download, Edit3, FileArchive, Filter, LibraryBig, ListOrdered, Plus, RefreshCw,
   Save, Search, Send, Shield, Sparkles, Swords, Trash2, Upload, X,
 } from "lucide-react"
 import type { VttLogEntry } from "@runas/vtt-bridge"
@@ -28,7 +28,7 @@ import type { AttributeKey, Character, CharacterSkill, CharacterSpell, Secondary
 import type { SkillRoll, SkillRollOutcome, SpecialDieId } from "@runas/core/types/skillTest"
 import {
   characterImage, cloneCharacter, createBestiaryCollection, createEmptyCharacter, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, essenceYield,
-  normalizeRunasDmState, type BestiaryEntry, type BestiaryRegistry, type EncounterActor, type InitiativeEntry, type MasteryTable, type RunasDmState,
+  normalizeRunasDmState, removeBestiaryCollection, renameBestiaryCollection, type BestiaryEntry, type BestiaryRegistry, type EncounterActor, type InitiativeEntry, type MasteryTable, type RunasDmState,
 } from "../lib/model"
 import { getRulesetDefinition } from "@runas/ruleset-contracts/definitions"
 import type { RulesetId } from "@runas/ruleset-contracts"
@@ -49,10 +49,11 @@ import { BatchExportDialog } from "./batch-export-dialog"
 import { TokenEditorDialog } from "./token-editor-dialog"
 import { exportCharacterJson } from "../lib/export"
 import { createRunasDmBackup, synchronizeRunasDmState } from "../lib/backup-sync"
-import { bestiaryStats } from "../lib/bestiary-scope"
-import { clearBackupToken, fetchCloudBackup, putCloudBackup, readBackupToken, saveBackupToken, writeCloudBase, type CloudPutResult } from "../lib/cloud-backup"
+import { bestiarySignature, bestiaryStats, isPristineBestiary } from "../lib/bestiary-scope"
+import { clearBackupToken, fetchCloudBackup, fetchCloudMeta, hashText, putCloudBackup, readBackupToken, readCloudBase, readCloudSignature, saveBackupToken, writeCloudBase, writeCloudSignature, type CloudPutResult } from "../lib/cloud-backup"
 import { describeStats } from "../lib/snapshot-policy"
 import { readObsidianPreferences } from "../lib/obsidian-preferences"
+import { getLocalOnlyModeServerSnapshot, LOCAL_ONLY_MESSAGE, readLocalOnlyMode, subscribeLocalOnlyMode, writeLocalOnlyMode } from "../lib/sync-preferences"
 import type { VaultStatus } from "../lib/vault-status"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
 import { BackupTokenDialog } from "./backup-token-dialog"
@@ -64,6 +65,12 @@ import { createId } from "@runas/core/lib/ids"
 type WorkspaceView = "gallery" | "encounter"
 type SaveStatus = "loading" | "saving" | "saved" | "error"
 type CloudAction = "backup" | "synchronize"
+
+/** Espera sem novas mudanças antes de enviar, e o máximo que uma sequência contínua de edições pode adiar o envio — como em knowledge-portal.tsx. */
+const CLOUD_UPLOAD_DELAY_MS = 15_000
+const CLOUD_UPLOAD_MAX_WAIT_MS = 120_000
+const CLOUD_RETRY_MS = 60_000
+const CLOUD_MERGE_INTERVAL_MS = 30_000
 
 const secondaryAttributes: Array<{ key: SecondaryAttributeKey; label: string }> = attributeGroups.flatMap((group) =>
   group.attributes.map((attribute) => ({ key: attribute.key as SecondaryAttributeKey, label: attribute.name })),
@@ -98,6 +105,13 @@ export function DmDashboard() {
   const [syncMessage, setSyncMessage] = useState("")
   const [batchExportOpen, setBatchExportOpen] = useState(false)
   const [pendingCloudAction, setPendingCloudAction] = useState<CloudAction | null>(null)
+  // Interruptor persistente: enquanto ativo, nenhuma chamada à nuvem sai deste
+  // dispositivo (`lib/sync-preferences.ts`). Lido como fonte externa (igual a
+  // `theme-toggle.tsx`): o servidor não tem `localStorage`, então seu
+  // instantâneo é sempre `false`, sem causar erro de hidratação quando o modo
+  // local já está ligado neste navegador.
+  const localOnly = useSyncExternalStore(subscribeLocalOnlyMode, readLocalOnlyMode, getLocalOnlyModeServerSnapshot)
+  function setLocalOnly(value: boolean) { writeLocalOnlyMode(value); if (value) setSyncMessage(LOCAL_ONLY_MESSAGE) }
   const [vaultStatus, setVaultStatus] = useState<VaultStatus>({ phase: "no-vault", message: "", attention: false })
   // A lista de bestiários deste dispositivo e qual está aberto agora. Trocar
   // de bestiário (ou criar um novo) grava o registro e recarrega a página —
@@ -109,6 +123,15 @@ export function DmDashboard() {
   const vttMesa = useVttMesa(setSyncMessage)
   const encounterActors = vttMesa?.actors ?? state.encounter
   const activeSystem = bestiaryRegistry?.collections.find((collection) => collection.id === bestiaryRegistry.activeCollectionId)?.system ?? "runas-blue"
+  const stateRef = useRef(state)
+  useEffect(() => { stateRef.current = state }, [state])
+  // Envio à nuvem do bestiário: um por vez; pausado enquanto o usuário não resolve um encolhimento;
+  // agendado a partir da primeira mudança pendente — como em knowledge-portal.tsx.
+  const cloudUploadingRef = useRef(false)
+  const cloudBlockedRef = useRef(false)
+  const dirtySinceRef = useRef<number | null>(null)
+  const cloudRetryRef = useRef<number | null>(null)
+  const cloudMergingRef = useRef(false)
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -138,6 +161,23 @@ export function DmDashboard() {
   function switchBestiary(id: string) {
     if (!bestiaryRegistry || id === bestiaryRegistry.activeCollectionId) return
     void saveBestiaryRegistry({ ...bestiaryRegistry, activeCollectionId: id }).then(() => window.location.reload())
+  }
+
+  function renameBestiary(id: string, name: string) {
+    if (!bestiaryRegistry) return
+    const next = renameBestiaryCollection(bestiaryRegistry, id, name)
+    setBestiaryRegistry(next)
+    void saveBestiaryRegistry(next)
+  }
+
+  /** Só tira o bestiário do registro (as fichas continuam no IndexedDB, vault e nuvem). Recarrega só se era o ativo. */
+  function deleteBestiaryCollection(id: string) {
+    if (!bestiaryRegistry) return
+    const wasActive = bestiaryRegistry.activeCollectionId === id
+    const next = removeBestiaryCollection(bestiaryRegistry, id)
+    if (next === bestiaryRegistry) return
+    if (wasActive) void saveBestiaryRegistry(next).then(() => window.location.reload())
+    else { setBestiaryRegistry(next); void saveBestiaryRegistry(next) }
   }
 
   function createBestiary({ name, system }: { name: string; system: RulesetId }) {
@@ -339,12 +379,13 @@ export function DmDashboard() {
   }
 
   function requestCloudAction(action: CloudAction) {
+    if (readLocalOnlyMode()) { setSyncMessage(LOCAL_ONLY_MESSAGE); return }
     const token = readBackupToken()
     if (!token) {
       setPendingCloudAction(action)
       return
     }
-    if (action === "backup") void backupToCloud(token)
+    if (action === "backup") void uploadBestiary({ manual: true })
     else void synchronizeFromCloud(token)
   }
 
@@ -363,7 +404,7 @@ export function DmDashboard() {
     const action = pendingCloudAction
     saveBackupToken(token)
     setPendingCloudAction(null)
-    if (action === "backup") void backupToCloud(token)
+    if (action === "backup") void uploadBestiary({ manual: true })
     if (action === "synchronize") void synchronizeFromCloud(token)
   }
 
@@ -374,31 +415,139 @@ export function DmDashboard() {
     return result.message
   }
 
-  async function backupToCloud(token: string) {
-    setSyncMessage("Enviando backup…")
-    // Traz a cópia que a nuvem já tem, une com as fichas locais (a local vence conflitos) e envia
-    // com a versão lida como base: nada que está na nuvem se perde, e uma gravação concorrente de
-    // outro dispositivo é recusada em vez de sobrescrita. Só fichas e tabelas de maestria vão à
-    // nuvem; a Mesa (encontro, iniciativa, notas) é estado de sessão e fica no dispositivo.
-    const collectionId = state.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
-    const current = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
-    if (!current.ok) {
-      if (current.reason === "unauthorized") clearBackupToken()
-      setSyncMessage(current.message)
-      return
+  /**
+   * Busca a nuvem e funde com o estado local por identidade (nome + raça +
+   * elemento, como `synchronizeFromCloud`), mas sem perguntar — igual ao
+   * auto-merge de Campanhas/Wiki. Usado pelo ciclo automático em segundo
+   * plano e para resolver um `409` do envio sem interromper o mestre.
+   */
+  const autoMergeBestiaryFromCloud = useCallback(async (): Promise<"merged" | "nothing" | "error"> => {
+    if (readLocalOnlyMode()) return "nothing"
+    const token = readBackupToken()
+    if (!token || cloudMergingRef.current) return "nothing"
+    cloudMergingRef.current = true
+    try {
+      const collectionId = stateRef.current.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+      const base = readCloudBase("bestiary", collectionId)
+      const meta = await fetchCloudMeta("bestiary", token, collectionId)
+      if (!meta.ok) return "error"
+      if (!meta.head || meta.head.version === base) return "nothing"
+      const result = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
+      if (!result.ok) return "error"
+      if (result.empty) return "nothing"
+      const merged = synchronizeRunasDmState(stateRef.current, result.data)
+      stateRef.current = merged
+      setState(merged)
+      writeCloudBase("bestiary", result.head.version, collectionId)
+      return "merged"
+    } catch {
+      return "error"
+    } finally {
+      cloudMergingRef.current = false
     }
-    if (!current.empty) writeCloudBase("bestiary", current.head.version, collectionId)
-    const completeBackup = createRunasDmBackup(state, current.empty ? null : current.data)
-    const stats = bestiaryStats(completeBackup)
-    let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats }, collectionId)
-    if (!result.ok && result.reason === "shrink" && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
-      result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true }, collectionId)
+  }, [])
+
+  /** Envio automático (debounced após editar) ou manual, por trás do mesmo botão "Backup". */
+  const uploadBestiary = useCallback(async (options: { force?: boolean; manual?: boolean; retried?: boolean } = {}): Promise<"ok" | "skipped" | "blocked" | "error"> => {
+    const { force = false, manual = false, retried = false } = options
+    if (readLocalOnlyMode()) { if (manual) setSyncMessage(LOCAL_ONLY_MESSAGE); return "skipped" }
+    const token = readBackupToken()
+    if (!token) return "skipped"
+    if (cloudUploadingRef.current || (cloudBlockedRef.current && !manual && !force)) return "skipped"
+    const current = stateRef.current
+    if (isPristineBestiary(current)) { dirtySinceRef.current = null; return "skipped" }
+    const collectionId = current.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+    const signature = hashText(bestiarySignature(current))
+    if (!force && readCloudBase("bestiary", collectionId) !== null && signature === readCloudSignature("bestiary", collectionId)) {
+      dirtySinceRef.current = null
+      if (manual) setSyncMessage("A nuvem já está atualizada.")
+      return "skipped"
     }
-    if (result.ok) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
-    else setSyncMessage(cloudFailureMessage(result))
-  }
+    cloudUploadingRef.current = true
+    dirtySinceRef.current = null
+    if (manual) setSyncMessage("Enviando backup…")
+    try {
+      // Mesmo caminho do envio manual: traz a cópia que a nuvem já tem, une com as fichas locais
+      // (a local vence conflitos) e envia com a versão lida como base.
+      const remoteBefore = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
+      if (!remoteBefore.ok) {
+        if (remoteBefore.reason === "unauthorized") clearBackupToken()
+        if (manual) setSyncMessage(remoteBefore.message)
+        return "error"
+      }
+      if (!remoteBefore.empty) writeCloudBase("bestiary", remoteBefore.head.version, collectionId)
+      const completeBackup = createRunasDmBackup(current, remoteBefore.empty ? null : remoteBefore.data)
+      const stats = bestiaryStats(completeBackup)
+      let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force }, collectionId)
+      if (!result.ok && result.reason === "shrink" && manual && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
+        result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true }, collectionId)
+      }
+      if (result.ok) {
+        cloudBlockedRef.current = false
+        if (!result.localOnly) writeCloudSignature("bestiary", signature, collectionId)
+        if (manual) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
+        return "ok"
+      }
+      // A nuvem mudou (ou encolheria demais) desde a base conhecida: tenta trazer e fundir a
+      // versão nova antes de pausar — só pergunta/bloqueia se isso não resolver.
+      if ((result.reason === "stale" || result.reason === "shrink") && !retried && !force) {
+        const merged = await autoMergeBestiaryFromCloud()
+        if (merged !== "error") {
+          cloudUploadingRef.current = false
+          return await uploadBestiary({ ...options, retried: true })
+        }
+      }
+      if (result.reason === "stale" || result.reason === "shrink") {
+        cloudBlockedRef.current = true
+        if (manual) setSyncMessage(cloudFailureMessage(result))
+        return "blocked"
+      }
+      if (manual) setSyncMessage(cloudFailureMessage(result))
+      // Uma falha de rede ou do servidor tenta de novo sozinha; o backup local já está salvo.
+      if (result.reason === "unavailable" && cloudRetryRef.current === null) {
+        cloudRetryRef.current = window.setTimeout(() => { cloudRetryRef.current = null; void uploadBestiaryRef.current() }, CLOUD_RETRY_MS)
+      }
+      return "error"
+    } finally {
+      cloudUploadingRef.current = false
+    }
+  }, [autoMergeBestiaryFromCloud])
+
+  const uploadBestiaryRef = useRef<(options?: { force?: boolean; manual?: boolean; retried?: boolean }) => Promise<unknown>>(async () => undefined)
+  useEffect(() => { uploadBestiaryRef.current = uploadBestiary }, [uploadBestiary])
+
+  // Envio automático: espera 15s sem novas mudanças (no máximo 2 min desde a primeira pendente).
+  useEffect(() => {
+    if (!ready || !readBackupToken() || cloudBlockedRef.current) return
+    dirtySinceRef.current ??= Date.now()
+    const wait = Math.max(0, Math.min(CLOUD_UPLOAD_DELAY_MS, dirtySinceRef.current + CLOUD_UPLOAD_MAX_WAIT_MS - Date.now()))
+    const timeout = window.setTimeout(() => void uploadBestiary(), wait)
+    return () => window.clearTimeout(timeout)
+  }, [ready, state, uploadBestiary])
+
+  // Ao esconder a aba, envia o que estiver pendente sem esperar o intervalo.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === "hidden" && dirtySinceRef.current !== null) void uploadBestiary() }
+    document.addEventListener("visibilitychange", flush)
+    return () => document.removeEventListener("visibilitychange", flush)
+  }, [uploadBestiary])
+
+  /**
+   * Traz a nuvem para este dispositivo sozinho, sem esperar "Sincronizar": ao
+   * abrir/voltar para a aba e a cada 30s, igual a Campanhas/Wiki e ao vault.
+   */
+  useEffect(() => {
+    if (!ready) return
+    const run = () => { if (!cloudUploadingRef.current && !cloudBlockedRef.current) void autoMergeBestiaryFromCloud() }
+    run()
+    const interval = window.setInterval(run, CLOUD_MERGE_INTERVAL_MS)
+    document.addEventListener("visibilitychange", run)
+    window.addEventListener("focus", run)
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", run); window.removeEventListener("focus", run) }
+  }, [ready, autoMergeBestiaryFromCloud])
 
   async function synchronizeFromCloud(token: string) {
+    if (readLocalOnlyMode()) { setSyncMessage(LOCAL_ONLY_MESSAGE); return }
     setSyncMessage("Consultando backup remoto…")
     const collectionId = state.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
     const result = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
@@ -432,8 +581,9 @@ export function DmDashboard() {
         <div className="top-actions">
           <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }} details={vaultStatus.message ? [{ text: vaultStatus.message, attention: vaultStatus.attention } satisfies TopbarDetail] : []}>
             {(close) => <>
-              {bestiaryRegistry && <BestiarySwitcher collections={bestiaryRegistry.collections} activeId={bestiaryRegistry.activeCollectionId} onSwitch={(id) => { close(); switchBestiary(id) }} onCreateNew={() => { close(); setCreateBestiaryOpen(true) }} />}
+              {bestiaryRegistry && <BestiarySwitcher collections={bestiaryRegistry.collections} activeId={bestiaryRegistry.activeCollectionId} onSwitch={(id) => { close(); switchBestiary(id) }} onCreateNew={() => { close(); setCreateBestiaryOpen(true) }} onRename={renameBestiary} onDelete={deleteBestiaryCollection} />}
               <ThemeToggle variant="menu" />
+              <button className="topbar-menu-item" onClick={() => setLocalOnly(!localOnly)} title={localOnly ? "Ligar a sincronização com a nuvem" : "Desligar a sincronização com a nuvem: nenhum envio ou importação automática ou manual sai deste dispositivo"}>{localOnly ? <CloudOff size={18} /> : <Cloud size={18} />}<span>{localOnly ? "Modo local (nuvem desligada)" : "Sincronização com a nuvem ligada"}</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); void saveBestiaryToVault(state, true).then((status) => { setVaultStatus(status); setSyncMessage(status.message || "Conecte um vault em Wiki › ⋯ › Obsidian para salvar o bestiário nele.") }) }}><Save size={18} /><span>Salvar bestiário no vault</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); exportWorkspace() }}><Download size={18} /><span>Exportar backup</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); importRef.current?.click() }}><Upload size={18} /><span>Importar fichas JSON ou ZIP</span></button>
@@ -454,7 +604,7 @@ export function DmDashboard() {
           {!vttMesa && <PwaInstallCard />}
           <div className="workspace-heading">
             <div><p className="eyebrow">Galeria de fichas</p><h1>Seu bestiário, pronto para agir.</h1><p>{state.entries.length} {state.entries.length === 1 ? "ficha salva" : "fichas salvas"}.</p></div>
-            <div className="heading-actions"><button className="secondary-button" disabled={state.entries.length === 0} onClick={() => setBatchExportOpen(true)}>{vttMesa ? <><Send size={16} /> Enviar fichas ao VTT</> : <><FileArchive size={16} /> Exportar fichas</>}</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload size={16} /> Importar fichas</button><button className="secondary-button" onClick={() => requestCloudAction("synchronize")}><RefreshCw size={16} /> Sincronizar</button><button className="secondary-button" onClick={() => requestCloudAction("backup")}><Database size={17} /> Backup</button><button className="primary-button" onClick={createSheet}><Plus size={18} /> Nova ficha</button></div>
+            <div className="heading-actions"><button className="secondary-button" disabled={state.entries.length === 0} onClick={() => setBatchExportOpen(true)}>{vttMesa ? <><Send size={16} /> Enviar fichas ao VTT</> : <><FileArchive size={16} /> Exportar fichas</>}</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload size={16} /> Importar fichas</button>{!localOnly && <button className="secondary-button" onClick={() => requestCloudAction("synchronize")}><RefreshCw size={16} /> Sincronizar</button>}{!localOnly && <button className="secondary-button" onClick={() => requestCloudAction("backup")}><Database size={17} /> Backup</button>}<button className="primary-button" onClick={createSheet}><Plus size={18} /> Nova ficha</button></div>
           </div>
           {syncMessage && <div className="inline-notice">{syncMessage}</div>}
           <div className="gallery-toolbar">
@@ -992,7 +1142,7 @@ function SheetEditor({ entry, tables, onClose, onSave, onTablesChange, onSendToV
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section style={modalStyle} className={`sheet-modal ${tab === "advanced" ? "advanced-mode" : "simple-mode"}`} role="dialog" aria-modal="true" aria-label="Editor de ficha">
     {tab === "simple" && <><ResizeHandle side="left" onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onKeyDown={resizeWithKeyboard} /><ResizeHandle side="right" onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onKeyDown={resizeWithKeyboard} /></>}
     <header><div><p className="eyebrow">{entry.character.name ? "Editar criatura" : "Nova criatura"}</p><h2>{character.name || "Ficha sem nome"}</h2></div><div className="editor-tabs"><button className={tab === "simple" ? "active" : ""} onClick={() => switchTab("simple")}>Simplificada</button><button className={tab === "advanced" ? "active" : ""} onClick={() => switchTab("advanced")}>Avançada</button></div><button className="icon-button" onClick={onClose}><X size={20} /></button></header>
-    {tab === "simple" ? <div className="editor-body simple-sheet-editor"><section className="form-section hero-fields simple-identity-card"><div className={`editor-rune portrait-editor ${characterImage(character) ? "has-portrait" : ""}`}>{characterImage(character) ? <img src={characterImage(character)} alt={`Imagem de ${character.name || "criatura"}`} /> : <><span>{character.name.slice(0, 1) || "R"}</span><small>RUNAS</small></>}<label title="Escolher imagem do token"><Upload size={14} /><span className="sr-only">Escolher imagem do token</span><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file?.type.startsWith("image/")) setPortraitFile(file); event.currentTarget.value = "" }} /></label>{characterImage(character) && <button aria-label="Remover token da ficha" title={character.tokenImageDataUrl ? "Remover token" : "Remover retrato"} onClick={() => mutate((draft) => { if (draft.tokenImageDataUrl) delete draft.tokenImageDataUrl; else delete draft.portraitDataUrl })}><Trash2 size={13} /><span className="sr-only">Remover token</span></button>}</div><Field label="Nome" value={character.name} onChange={(value) => mutate((draft) => { draft.name = value })} /><Field label="Raça" value={character.info.race} onChange={(value) => mutate((draft) => { draft.info.race = value })} /><Field label="Afinidade" value={character.info.affinity} onChange={(value) => mutate((draft) => { draft.info.affinity = value })} /><PercentField label="Eficiência" value={character.info.efficiency} onChange={(value) => mutate((draft) => { draft.info.efficiency = value })} /><Field label="Essências totais" value={character.info.essences} onChange={(value) => mutate((draft) => { draft.info.essences = value })} /></section>
+    {tab === "simple" ? <div className="editor-body simple-sheet-editor"><section className="form-section hero-fields simple-identity-card"><div className={`editor-rune portrait-editor ${characterImage(character) ? "has-portrait" : ""}`}>{characterImage(character) ? <img src={characterImage(character)} alt={`Imagem de ${character.name || "criatura"}`} /> : <><span>{character.name.slice(0, 1) || "R"}</span><small>RUNAS</small></>}<label title="Escolher imagem do token"><Upload size={14} /><span className="sr-only">Escolher imagem do token</span><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file?.type.startsWith("image/")) setPortraitFile(file); event.currentTarget.value = "" }} /></label>{characterImage(character) && <button aria-label="Remover token da ficha" title={character.tokenImageDataUrl ? "Remover token" : "Remover retrato"} onClick={() => mutate((draft) => { if (draft.tokenImageDataUrl) delete draft.tokenImageDataUrl; else delete draft.portraitDataUrl })}><Trash2 size={13} /><span className="sr-only">Remover token</span></button>}</div><Field label="Nome" value={character.name} onChange={(value) => mutate((draft) => { draft.name = value })} /><Field label="Raça" value={character.info.race} onChange={(value) => mutate((draft) => { draft.info.race = value })} /><Field label="Afinidade" value={character.info.affinity} readOnly /><PercentField label="Eficiência" value={character.info.efficiency} readOnly /><Field label="Essências totais" value={character.info.essences} onChange={(value) => mutate((draft) => { draft.info.essences = value })} /></section>
       <SimpleSection className="attribute-section" title="Atributos" note="Organização histórica do sistema Runas" collapsed={collapsed.attributes} onToggle={() => toggleSection("attributes")}><AttributeBands attributes={character.attributes} onChange={(key: AttributeKey, value) => mutate((draft) => { draft.attributes[key] = value })} /></SimpleSection>
       <SimpleSection className="statistics-section" title="Estatísticas" collapsed={collapsed.statistics} onToggle={() => toggleSection("statistics")} action={<button className="restore-stats-button simple" onClick={restoreStats}><RefreshCw size={14} /> Restaurar estatísticas</button>}><div className="field-grid six resource-ribbon"><ResourceField label="PV" value={character.stats.pv} maximum={snapshot.pvMax} onChange={(value) => mutate((draft) => { draft.stats.pv = value })} /><ResourceField label="PA" value={character.stats.pa} maximum={snapshot.paMax} onChange={(value) => mutate((draft) => { draft.stats.pa = value })} /><ResourceField label="PA extra" value={character.stats.paExtra} maximum={snapshot.paExtraMax} onChange={(value) => mutate((draft) => { draft.stats.paExtra = value })} /><ResourceField label="PE" value={character.stats.pe} maximum={snapshot.peMax} onChange={(value) => mutate((draft) => { draft.stats.pe = value })} /><ResourceField label="PE temporário" value={character.stats.peTemporary} maximum={snapshot.peTemporaryMax} onChange={(value) => mutate((draft) => { draft.stats.peTemporary = value })} /><div className="calculated-field"><span>Deslocamento</span><strong>{snapshot.movement} m</strong></div></div><div className="field-grid defense-grid"><label className="field"><span>Elemento principal</span><select value={character.stats.elementId} onChange={(event) => mutate((draft) => { const element = getCharacterElement(event.target.value); draft.stats.elementId = event.target.value; draft.stats.resistances = [...(element?.resistances ?? [])]; draft.stats.weaknesses = [...(element?.weaknesses ?? [])] })}><option value="none">Nenhum</option>{characterElements.map((element) => <option key={element.id} value={element.id}>{element.name}</option>)}</select></label><Field label="Resistências" value={character.stats.resistances.join(", ")} onChange={(value) => mutate((draft) => { draft.stats.resistances = listFromText(value) })} /><Field label="Fraquezas" value={character.stats.weaknesses.join(", ")} onChange={(value) => mutate((draft) => { draft.stats.weaknesses = listFromText(value) })} /></div><section className="compact-mastery"><div className="compact-mastery-title"><div><h4>Melhorias</h4><span>Pontos definidos por Afinidade, Eficiência e tabela selecionada.</span></div><MasterySummary total={availableMastery} spent={spentMastery} remaining={remainingMastery} /></div><div className="mastery-toolbar"><select value={tableId} onChange={(event) => setTableId(event.target.value)}>{tables.map((table) => <option key={table.id} value={table.id}>{table.name}</option>)}</select><button className="secondary-button" onClick={() => { const table = { id: id("table"), name: `Tabela ${tables.length + 1}`, multiplier: 1 }; onTablesChange([...tables, table]); setTableId(table.id) }}><Plus size={15} /> Nova tabela</button>{selectedTable && !["default", "double"].includes(selectedTable.id) && <><input value={selectedTable.name} onChange={(event) => onTablesChange(tables.map((table) => table.id === selectedTable.id ? { ...table, name: event.target.value } : table))} /><label className="mini-field">Multiplicador <DeferredNumberInput value={selectedTable.multiplier} min={0.1} defaultValue={1} onChange={(multiplier) => onTablesChange(tables.map((table) => table.id === selectedTable.id ? { ...table, multiplier } : table))} /></label><button className="secondary-button danger-icon" title="Remover tabela customizada" onClick={() => { onTablesChange(tables.filter((table) => table.id !== selectedTable.id)); setTableId("default") }}><Trash2 size={15} /> Remover</button></>}</div><div className="mastery-grid">{masteryImprovementOptions.map((option) => { const current = character.stats.masteryImprovements[option.key]; const maximum = Math.floor(Math.max(0, remainingMastery + current * option.cost) / option.cost); return <NumberField key={option.key} label={`${option.name} / ${option.cost} pontos`} value={current} min={0} max={maximum} onChange={(next) => mutate((draft) => { draft.stats.masteryImprovements[option.key] = clampMasteryImprovementQuantity(draft.stats.masteryImprovements, option.key, next, availableMastery) })} /> })}</div>{remainingMastery < 0 && <p className="mastery-overage" role="alert">As melhorias excedem o limite da tabela. Reduza compras ou aumente os pontos disponíveis.</p>}</section></SimpleSection>
       <SimpleSection className="linked-section" title="Perícias, características e ações" note="Registros vinculados à ficha completa" collapsed={collapsed.connections} onToggle={() => toggleSection("connections")}><SimpleConnections character={character} mutate={mutate} /></SimpleSection>
@@ -1174,8 +1324,9 @@ function createQuickAbility(name: string, category: string): Character["abilitie
 function createQuickSpell(): CharacterSpell { return { id: id("spell"), category: "Elemental", name: "Nova magia", description: "", costType: "none", costMode: "fixed", costValue: 0, costText: "", magicType: "spell", rangeType: "personal", rangeText: "", area: "", duration: "", castingSkill: "" } }
 function createQuickItem(name: string, usage: Character["inventory"][number]["usage"], type: Character["inventory"][number]["type"]): Character["inventory"][number] { return { id: id("item"), usage, name, type, affinity: 0, bondPoints: 0, baseWeight: 0, size: 0, mt: 0, quantity: 1, applyScaleWeight: false, damage: "", rdf: 0, rdm: 0, equippedAsArmor: false, prCurrent: null, prMaximum: null, abilityIds: [], spellIds: [], bondId: "", skillId: "", description: "" } }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field"><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
-function PercentField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="field percent-field"><span>{label}</span><span className="percent-input"><input inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value.replace(/%/g, ""))} /><b>%</b></span></label> }
+/** `readOnly` marca um campo derivado (calculado por `synchronizeCharacterDerivedValues`): digitar nele nunca teria efeito. */
+function Field({ label, value, onChange, readOnly = false }: { label: string; value: string; onChange?: (value: string) => void; readOnly?: boolean }) { return <label className="field"><span>{label}</span><input value={value} readOnly={readOnly} title={readOnly ? "Campo calculado automaticamente" : undefined} onChange={readOnly ? undefined : (event) => onChange?.(event.target.value)} /></label> }
+function PercentField({ label, value, onChange, readOnly = false }: { label: string; value: string; onChange?: (value: string) => void; readOnly?: boolean }) { return <label className="field percent-field"><span>{label}</span><span className="percent-input"><input inputMode="decimal" value={value} readOnly={readOnly} title={readOnly ? "Campo calculado automaticamente" : undefined} onChange={readOnly ? undefined : (event) => onChange?.(event.target.value.replace(/%/g, ""))} /><b>%</b></span></label> }
 function DeferredNumberInput({ value, onChange, defaultValue = 0, min, max, ariaLabel, className }: { value: number | null; onChange: (value: number) => void; defaultValue?: number; min?: number; max?: number; ariaLabel?: string; className?: string }) {
   const [draft, setDraft] = useState(value === null ? "" : String(value))
   const [focused, setFocused] = useState(false)

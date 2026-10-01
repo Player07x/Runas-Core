@@ -2,18 +2,19 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages, @next/next/no-location-assign-relative-destination -- Vinext beta's RSC router is not reliable in the Pages production bundle. */
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Archive, BookMarked, BookOpen, CalendarDays, Check, CloudDownload, CloudUpload, Filter, Grid2X2, LibraryBig, Minus, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { Archive, BookMarked, BookOpen, CalendarDays, Check, Cloud, CloudDownload, CloudOff, CloudUpload, Filter, Grid2X2, LibraryBig, Minus, Network, Plus, Search, Settings2, Swords, Trash2, X } from "lucide-react"
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
 import { cloneCharacter, createEmptyRunasDmState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadBestiaryRegistry, loadLocalState, saveLocalState } from "../lib/storage"
-import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, effectivePageLinks, isChronologyPage, pageKindLabel, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
+import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, isChronologyPage, pageKindLabel, removeWikiCollection, renameWikiCollection, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
-import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
+import { getObsidianPreferencesServerSnapshot, readObsidianPreferences, subscribeObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
 import { CloudConflictDialog, type CloudConflict } from "./cloud-conflict-dialog"
 import { BackupTokenDialog } from "./backup-token-dialog"
 import { clearBackupToken, fetchCloudBackup, fetchCloudMeta, getDeviceId, hashText, putCloudBackup, readBackupToken, readCloudBase, readCloudSignature, saveBackupToken, writeCloudBase, writeCloudSignature, type CloudHead } from "../lib/cloud-backup"
+import { getLocalOnlyModeServerSnapshot, LOCAL_ONLY_MESSAGE, readLocalOnlyMode, subscribeLocalOnlyMode, writeLocalOnlyMode } from "../lib/sync-preferences"
 import { isPristineKnowledge, knowledgeSignature, knowledgeSnapshotForStorage, knowledgeStats, knowledgeVaultInput } from "../lib/knowledge-scope"
 import { bestiaryStats, bestiaryVaultInput, isPristineBestiary } from "../lib/bestiary-scope"
 import { describeStats } from "../lib/snapshot-policy"
@@ -39,7 +40,7 @@ import { StoryDocument } from "./story-document"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
 import { ThemeToggle } from "./theme-toggle"
 import { TopbarMenu, type TopbarDetail, type TopbarStatus } from "./topbar-menu"
-import { GRID_DENSITY_STORAGE_KEY, applyUiPreferences, collectUiPreferences, type UiPreferences } from "../lib/ui-preferences"
+import { applyUiPreferences, collectUiPreferences, getGridDensityServerSnapshot, readGridDensity, subscribeGridDensity, writeGridDensity, type GridDensity, type UiPreferences } from "../lib/ui-preferences"
 import { useKnowledgeRoute } from "../lib/knowledge-route"
 import { ensureTagsForPage, normalizedTagName, pagesForTag, removeTagFromSection, renameTag, tagsForSection } from "../lib/knowledge-tags"
 import { TagEditor } from "./tag-editor"
@@ -65,7 +66,6 @@ function browserStorage(): Storage | null {
   try { return typeof window === "undefined" ? null : window.localStorage } catch { return null }
 }
 type CloudAction = "backup" | "import"
-type GridDensity = "small" | "medium" | "large"
 
 // Campanhas e Wiki são locais e abrem sem login. O token só ativa o backup na
 // nuvem e é o mesmo do Bestiário: fica apenas na sessão desta aba
@@ -130,14 +130,21 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [editing, setEditing] = useState<KnowledgePage | null>(null)
   const [openStoryId, setOpenStoryId] = useState<string | null>(null)
   const [obsidianOpen, setObsidianOpen] = useState(false)
-  const [obsidianPreferences, setObsidianPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
+  // Lido como fonte externa (igual a `theme-toggle.tsx`): evita erro de
+  // hidratação quando a preferência salva (ex.: integração desativada)
+  // diverge dos padrões, que é tudo que o servidor consegue ver.
+  const obsidianPreferences = useSyncExternalStore(subscribeObsidianPreferences, readObsidianPreferences, getObsidianPreferencesServerSnapshot)
+  // Interruptor persistente: enquanto ativo, nenhuma chamada à nuvem sai deste
+  // dispositivo, nem automática nem manual (`lib/sync-preferences.ts`). Lido
+  // como fonte externa (igual a `theme-toggle.tsx`): o servidor não tem
+  // `localStorage`, então seu instantâneo é sempre `false`, sem causar erro
+  // de hidratação quando o modo local já está ligado neste navegador.
+  const localOnly = useSyncExternalStore(subscribeLocalOnlyMode, readLocalOnlyMode, getLocalOnlyModeServerSnapshot)
   const [cloudImportOpen, setCloudImportOpen] = useState(false)
   const [notice, setNotice] = useState("")
-  const [gridDensity, setGridDensity] = useState<GridDensity>(() => {
-    if (typeof window === "undefined") return "medium"
-    const saved = window.localStorage.getItem(GRID_DENSITY_STORAGE_KEY)
-    return saved === "small" || saved === "medium" || saved === "large" ? saved : "medium"
-  })
+  // Lido como fonte externa (igual a `theme-toggle.tsx`): evita erro de
+  // hidratação quando a grade salva não é a padrão "medium".
+  const gridDensity = useSyncExternalStore(subscribeGridDensity, readGridDensity, getGridDensityServerSnapshot)
   const [tagEditor, setTagEditor] = useState<{ tag?: KnowledgeTag; section: string } | null>(null)
   const [route, navigateRoute] = useKnowledgeRoute(area === "wiki" ? "/wiki" : "/campaigns")
   // A lista de wikis deste dispositivo e qual está aberta agora. Trocar de
@@ -155,7 +162,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const cloudBlockedRef = useRef(false)
   const dirtySinceRef = useRef<number | null>(null)
   const cloudRetryRef = useRef<number | null>(null)
-  const uploadKnowledgeRef = useRef<(options?: { force?: boolean; manual?: boolean }) => Promise<unknown>>(async () => undefined)
+  const cloudMergingRef = useRef(false)
+  const uploadKnowledgeRef = useRef<(options?: { force?: boolean; manual?: boolean; retried?: boolean }) => Promise<unknown>>(async () => undefined)
   const obsidianPreferencesRef = useRef<ObsidianPreferences>(obsidianPreferences)
   const vaultInspectedRef = useRef(false)
   // Serializa qualquer operação que leia ou grave o vault: sem isso, apagar
@@ -247,8 +255,44 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
    * cópia e mantém o histórico. Um dispositivo sem nenhum dado (computador novo)
    * não envia nada; um conflito pausa o envio até o usuário decidir.
    */
-  const uploadKnowledge = useCallback(async (options: { force?: boolean; manual?: boolean } = {}): Promise<"ok" | "skipped" | "blocked" | "error"> => {
-    const { force = false, manual = false } = options
+  /**
+   * Busca a nuvem e funde por `id`/`updatedAt` com o estado local
+   * (`mergeKnowledgeWorkspaces`, o mesmo merge automático que o vault já
+   * aplica sozinho a cada 30s) — sem diálogo. Usado pelo ciclo automático em
+   * segundo plano e para resolver um `409` do envio sem interromper o
+   * mestre: mesclar primeiro e só perguntar se isso não bastar.
+   */
+  const autoMergeFromCloud = useCallback(async (): Promise<"merged" | "nothing" | "error"> => {
+    if (readLocalOnlyMode()) return "nothing"
+    const token = readBackupToken()
+    if (!token || cloudMergingRef.current) return "nothing"
+    cloudMergingRef.current = true
+    try {
+      const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
+      const base = readCloudBase("knowledge", wikiId)
+      const meta = await fetchCloudMeta("knowledge", token, wikiId)
+      if (!meta.ok) return "error"
+      // Sem nada na nuvem, ou a nuvem já está na versão que este dispositivo conhece: nada a trazer.
+      if (!meta.head || meta.head.version === base) return "nothing"
+      const result = await fetchCloudBackup<unknown>("knowledge", token, undefined, wikiId)
+      if (!result.ok) return "error"
+      if (result.empty) return "nothing"
+      const merged = mergeKnowledgeWorkspaces(stateRef.current, normalizeKnowledgeWorkspace(result.data))
+      stateRef.current = merged
+      setState(merged)
+      await saveKnowledgeWorkspace(merged)
+      writeCloudBase("knowledge", result.head.version, wikiId)
+      return "merged"
+    } catch {
+      return "error"
+    } finally {
+      cloudMergingRef.current = false
+    }
+  }, [])
+
+  const uploadKnowledge = useCallback(async (options: { force?: boolean; manual?: boolean; retried?: boolean } = {}): Promise<"ok" | "skipped" | "blocked" | "error"> => {
+    const { force = false, manual = false, retried = false } = options
+    if (readLocalOnlyMode()) { setCloud({ phase: "off", message: LOCAL_ONLY_MESSAGE }); return "skipped" }
     const token = readBackupToken()
     if (!token) { setCloud((current) => current.phase === "off" ? current : { phase: "off", message: "" }); return "skipped" }
     if (cloudUploadingRef.current || (cloudBlockedRef.current && !manual && !force)) return "skipped"
@@ -282,6 +326,19 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       }
       if (result.reason === "unauthorized") { clearBackupToken(); setCloud({ phase: "off", message: "" }); setNotice(result.message); return "skipped" }
       if (result.reason === "stale" || result.reason === "shrink") {
+        // A nuvem mudou (ou encolheria demais) desde a nossa base: antes de
+        // interromper o mestre, tenta trazer e fundir a versão nova (por
+        // `id`/`updatedAt`, nunca descartando o que só existe aqui) e reenviar
+        // com a base atualizada. Só pausa e pergunta se isso não resolver —
+        // ou seja, se os dois lados mudaram o MESMO registro, o único caso em
+        // que nenhuma fusão automática (nem a de um OneDrive) decide sozinha.
+        if (!retried && !force) {
+          const merged = await autoMergeFromCloud()
+          if (merged !== "error") {
+            cloudUploadingRef.current = false
+            return await uploadKnowledge({ ...options, retried: true })
+          }
+        }
         const firstBlock = !cloudBlockedRef.current
         cloudBlockedRef.current = true
         setCloud({ phase: "blocked", message: "Nuvem: ação necessária — envio pausado para não sobrescrever nada." })
@@ -298,7 +355,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     } finally {
       cloudUploadingRef.current = false
     }
-  }, [])
+  }, [autoMergeFromCloud])
 
   useEffect(() => { uploadKnowledgeRef.current = uploadKnowledge }, [uploadKnowledge])
 
@@ -317,11 +374,27 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     return () => document.removeEventListener("visibilitychange", flush)
   }, [uploadKnowledge])
 
+  /**
+   * Traz a nuvem para este dispositivo sozinho, sem esperar "Importar da
+   * nuvem": ao abrir/voltar para a aba e a cada 30s, igual ao vault. É o que
+   * faz o notebook editar, a nuvem atualizar, e o desktop (que estava
+   * desatualizado) se atualizar solo na próxima vez que for aberto.
+   */
+  useEffect(() => {
+    if (!hydrated) return
+    const run = () => { if (!cloudUploadingRef.current && !cloudBlockedRef.current) void autoMergeFromCloud() }
+    run()
+    const interval = window.setInterval(run, 30_000)
+    document.addEventListener("visibilitychange", run)
+    window.addEventListener("focus", run)
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", run); window.removeEventListener("focus", run) }
+  }, [hydrated, autoMergeFromCloud])
+
   useEffect(() => { obsidianPreferencesRef.current = obsidianPreferences }, [obsidianPreferences])
 
   const applyPreferencesLive = useCallback((preferences: UiPreferences) => {
     if (preferences.theme) applyTheme(preferences.theme)
-    if (preferences.gridDensity) setGridDensity(preferences.gridDensity)
+    if (preferences.gridDensity) writeGridDensity(preferences.gridDensity)
     if (preferences.chronologyColumns) setChronologyColumns(preferences.chronologyColumns)
   }, [])
 
@@ -498,6 +571,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   /** Abre o diálogo de importação já com as versões que a nuvem guarda. */
   async function openCloudImport() {
+    if (readLocalOnlyMode()) { setNotice(LOCAL_ONLY_MESSAGE); return }
     const meta = await fetchCloudMeta("knowledge", readBackupToken(), stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID)
     if (!meta.ok) { if (meta.reason === "unauthorized") clearBackupToken(); setNotice(meta.message); return }
     if (!meta.head) { setNotice(meta.localOnly ? "No preview local não há nuvem." : "Ainda não existe backup na nuvem."); return }
@@ -556,6 +630,23 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   function switchWiki(id: string) {
     if (!wikiRegistry || id === wikiRegistry.activeCollectionId) return
     void saveWikiRegistry({ ...wikiRegistry, activeCollectionId: id }).then(() => window.location.reload())
+  }
+
+  function renameWiki(id: string, name: string) {
+    if (!wikiRegistry) return
+    const next = renameWikiCollection(wikiRegistry, id, name)
+    setWikiRegistry(next)
+    void saveWikiRegistry(next)
+  }
+
+  /** Só tira a wiki do registro (páginas e campanhas continuam no IndexedDB, vault e nuvem). Recarrega só se era a ativa. */
+  function deleteWikiCollection(id: string) {
+    if (!wikiRegistry) return
+    const wasActive = wikiRegistry.activeCollectionId === id
+    const next = removeWikiCollection(wikiRegistry, id)
+    if (next === wikiRegistry) return
+    if (wasActive) void saveWikiRegistry(next).then(() => window.location.reload())
+    else { setWikiRegistry(next); void saveWikiRegistry(next) }
   }
 
   function createWiki(name: string) {
@@ -643,7 +734,14 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setVaultRestore({ source: "arquivo", items: loaded.map(({ kind, header }) => ({ kind, header })), loaded })
   }
 
+  /** Liga/desliga o modo local. Ligar também limpa qualquer diálogo de conflito pendente: a nuvem para de ser consultada. */
+  function setLocalOnly(value: boolean) {
+    writeLocalOnlyMode(value)
+    if (value) { setCloudConflict(null); setCloud({ phase: "off", message: LOCAL_ONLY_MESSAGE }) }
+  }
+
   function requestCloudAction(action: CloudAction) {
+    if (readLocalOnlyMode()) { setNotice(LOCAL_ONLY_MESSAGE); return }
     if (!readBackupToken()) { setPendingCloudAction(action); return }
     if (action === "backup") void uploadKnowledge({ manual: true })
     else void openCloudImport()
@@ -661,6 +759,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   async function importFromCloud(mode: CloudImportMode, version?: number) {
     setCloudImportOpen(false)
     setCloudConflict(null)
+    if (readLocalOnlyMode()) { setNotice(LOCAL_ONLY_MESSAGE); return }
     const wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID
     const result = await fetchCloudBackup<unknown>("knowledge", readBackupToken(), version, wikiId)
     if (!result.ok) { if (result.reason === "unauthorized") clearBackupToken(); setNotice(result.message); return }
@@ -1107,8 +1206,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const campaignPageCounts = useMemo(() => new Map(state.campaigns.map((campaign) => [campaign.id, state.pages.filter((page) => page.campaignId === campaign.id || campaign.worldPageIds.includes(page.id) || campaign.storyIds?.includes(page.id)).length])), [state.campaigns, state.pages])
   const campaignAdventureCounts = { mission: scopedPages.filter((page) => page.kind === "mission").length, event: scopedPages.filter((page) => page.kind === "event").length, encounter: scopedPages.filter((page) => page.kind === "encounter").length, organizer: selectedCampaign?.organizer?.nodes.length ?? 0 }
   function changeGridDensity(value: GridDensity) {
-    setGridDensity(value)
-    window.localStorage.setItem(GRID_DENSITY_STORAGE_KEY, value)
+    writeGridDensity(value)
   }
   // O ponto do botão ⋯ resume tudo: gravação local, vault e nuvem. Falha ou pendência da nuvem
   // nunca aparece como "Salvo localmente": o usuário precisa saber que o backup remoto não está em dia.
@@ -1132,7 +1230,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }
   if (vaultStatus.message) headerDetails.push({ text: vaultStatus.message, attention: vaultStatus.attention })
   return <main className={`knowledge-shell knowledge-app grid-size-${gridDensity} ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
-    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} wikiRegistry={wikiRegistry} onSwitchWiki={switchWiki} onCreateWiki={() => setCreateWikiOpen(true)} onConnectFolder={() => void connectFolderForWiki()} />
+    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} wikiRegistry={wikiRegistry} onSwitchWiki={switchWiki} onCreateWiki={() => setCreateWikiOpen(true)} onConnectFolder={() => void connectFolderForWiki()} onRenameWiki={renameWiki} onDeleteWiki={deleteWikiCollection} localOnly={localOnly} onSetLocalOnly={setLocalOnly} />
     {area === "campaigns" ? <CampaignPortal campaigns={state.campaigns} selectedCampaignId={selectedCampaignId} pageCounts={campaignPageCounts} onCreate={addCampaign} onReorder={reorderCampaigns} onSelect={(id) => { setSelectedCampaignId(id); navigateRoute({ campaignId: id, page: String(selectedKind) }) }}><>
       {selectedCampaign ? <CampaignHeading campaign={selectedCampaign} onChange={updateCampaign} onDelete={removeCampaign} /> : <div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>Campanhas</h1><p>Organize aventuras, sessões e encontros em um único lugar.</p></div><button className="primary-button" onClick={addCampaign}><Plus size={17} /> Criar campanha</button></div>}
       {selectedCampaign && <nav className="knowledge-tabs" aria-label="Seções da campanha">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as PortalKind); setOpenStoryId(null); navigateRoute({ campaignId: selectedCampaign.id, page: String(kind.id) }); setStatusFilter("all"); setCategoryFilter("all"); setSearch(""); setTagFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>}
@@ -1141,7 +1239,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     {notice && <button className="knowledge-toast" onClick={() => setNotice("")}><Check size={15} /> {notice}<X size={14} /></button>}
     {editing && <KnowledgeEditor eras={eras} page={editing} pages={editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages} categories={editing.scope === "wiki" ? state.categories.filter((category) => category.scope === "wiki") : scopedCategories} tags={tagsForSection(state, editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} onCreateTag={() => openTag(editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} bestiary={bestiary} backlinks={(editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages).filter((page) => effectivePageLinks(page, editing.scope === "wiki" ? state.pages.filter((candidate) => candidate.scope === "wiki") : scopedPages).includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
     {tagEditor && <div className="knowledge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setTagEditor(null) }}><section className="knowledge-modal"><header><h2>{tagEditor.tag ? "Editar tag" : "Nova tag"}</h2><button className="icon-button" onClick={() => setTagEditor(null)} aria-label="Fechar"><X size={18} /></button></header><TagEditor tag={tagEditor.tag} onSave={saveTag} /></section></div>}
-    {obsidianOpen && <ObsidianDialog state={state} collectionId={activeCollectionId} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
+    {obsidianOpen && <ObsidianDialog state={state} collectionId={activeCollectionId} onClose={() => setObsidianOpen(false)} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
       // Mesmo problema do sincronismo automático: sem mesclar pelo estado
       // mais recente, o botão "Importar e sincronizar" também sobrescrevia
       // cegamente qualquer edição feita durante a leitura do vault.
@@ -1159,18 +1257,19 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   </main>
 }
 
-function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport, wikiRegistry, onSwitchWiki, onCreateWiki, onConnectFolder }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void; wikiRegistry: WikiRegistry | null; onSwitchWiki: (id: string) => void; onCreateWiki: () => void; onConnectFolder: () => void }) {
+function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport, wikiRegistry, onSwitchWiki, onCreateWiki, onConnectFolder, onRenameWiki, onDeleteWiki, localOnly, onSetLocalOnly }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void; wikiRegistry: WikiRegistry | null; onSwitchWiki: (id: string) => void; onCreateWiki: () => void; onConnectFolder: () => void; onRenameWiki: (id: string, name: string) => void; onDeleteWiki: (id: string) => void; localOnly: boolean; onSetLocalOnly: (value: boolean) => void }) {
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Arquivo do mestre</small></span><b className="topbar-badge">DM</b></a>
     <KnowledgeNavigation area={area} />
     <div className="top-actions knowledge-header-actions">
       <TopbarMenu status={status} details={details}>
         {(close) => <>
-          {wikiRegistry && <WikiSwitcher collections={wikiRegistry.collections} activeId={wikiRegistry.activeCollectionId} onSwitch={(id) => { close(); onSwitchWiki(id) }} onCreateNew={() => { close(); onCreateWiki() }} onConnectFolder={() => { close(); onConnectFolder() }} />}
+          {wikiRegistry && <WikiSwitcher collections={wikiRegistry.collections} activeId={wikiRegistry.activeCollectionId} onSwitch={(id) => { close(); onSwitchWiki(id) }} onCreateNew={() => { close(); onCreateWiki() }} onConnectFolder={() => { close(); onConnectFolder() }} onRename={onRenameWiki} onDelete={onDeleteWiki} />}
           <GridSizeControl value={gridDensity} onChange={onChangeGridDensity} />
           <ThemeToggle variant="menu" />
-          <button className="topbar-menu-item" onClick={() => { close(); onCloudBackup() }}><CloudUpload size={18} /><span>Backup na nuvem</span></button>
-          <button className="topbar-menu-item" onClick={() => { close(); onCloudImport() }}><CloudDownload size={18} /><span>Importar da nuvem</span></button>
+          <button className="topbar-menu-item" onClick={() => onSetLocalOnly(!localOnly)} title={localOnly ? "Ligar a sincronização com a nuvem" : "Desligar a sincronização com a nuvem: nenhum envio ou importação automática ou manual sai deste dispositivo"}>{localOnly ? <CloudOff size={18} /> : <Cloud size={18} />}<span>{localOnly ? "Modo local (nuvem desligada)" : "Sincronização com a nuvem ligada"}</span></button>
+          {!localOnly && <button className="topbar-menu-item" onClick={() => { close(); onCloudBackup() }}><CloudUpload size={18} /><span>Backup na nuvem</span></button>}
+          {!localOnly && <button className="topbar-menu-item" onClick={() => { close(); onCloudImport() }}><CloudDownload size={18} /><span>Importar da nuvem</span></button>}
           <button className="topbar-menu-item" onClick={() => { close(); onObsidian() }}><Settings2 size={18} /><span>Obsidian</span></button>
           <a className="topbar-menu-item" href="https://runas-book.pages.dev/dm" onClick={close}><BookOpen size={18} /><span>Runas Book DM</span></a>
         </>}

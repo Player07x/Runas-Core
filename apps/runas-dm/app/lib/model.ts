@@ -82,6 +82,27 @@ export function createBestiaryCollection(name: string, system: RulesetId, now = 
   return { id: createId(), name: name.trim() || DEFAULT_BESTIARY_NAME, system, createdAt: now, updatedAt: now }
 }
 
+export function renameBestiaryCollection(registry: BestiaryRegistry, id: string, name: string, now = Date.now()): BestiaryRegistry {
+  const trimmed = name.trim()
+  if (!trimmed) return registry
+  return { ...registry, collections: registry.collections.map((collection) => collection.id === id ? { ...collection, name: trimmed, updatedAt: now } : collection) }
+}
+
+/**
+ * Tira um bestiário do registro (ele some do seletor) sem apagar dado
+ * algum: o IndexedDB, o vault e o backup na nuvem dele continuam intactos.
+ * Nunca remove o último bestiário restante. Se o removido era o ativo, o
+ * primeiro que sobrar assume — quem chama ainda precisa recarregar a
+ * página, pelo mesmo motivo de trocar ou criar um bestiário.
+ */
+export function removeBestiaryCollection(registry: BestiaryRegistry, id: string): BestiaryRegistry {
+  if (registry.collections.length <= 1) return registry
+  const collections = registry.collections.filter((collection) => collection.id !== id)
+  if (collections.length === registry.collections.length) return registry
+  const activeCollectionId = registry.activeCollectionId === id ? collections[0].id : registry.activeCollectionId
+  return { ...registry, collections, activeCollectionId }
+}
+
 /**
  * Normaliza um registro salvo (ou lido de outro dispositivo). Sempre garante
  * pelo menos o bestiário padrão e uma coleção ativa que exista de verdade —
