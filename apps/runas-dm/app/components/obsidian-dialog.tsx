@@ -6,10 +6,10 @@ import type { KnowledgeWorkspaceState } from "../lib/knowledge-model"
 import { exportKnowledgeZip, type VaultSyncResult, type ZipEntry } from "../lib/obsidian-sync"
 import { localVaultName, selectLocalVault, supportsLocalVault, syncWorkspaceToLocalVault } from "../lib/local-vault"
 import { useEscapeToClose } from "../lib/use-escape-to-close"
-import { OBSIDIAN_PREFERENCES_KEY, readObsidianPreferences, type ObsidianPreferences } from "../lib/obsidian-preferences"
+import { getObsidianPreferencesServerSnapshot, notifyObsidianPreferencesChanged, OBSIDIAN_PREFERENCES_KEY, readObsidianPreferences, subscribeObsidianPreferences, type ObsidianPreferences } from "../lib/obsidian-preferences"
 import { VaultDataPanel, type VaultDataPanelProps } from "./vault-data-panel"
 
-export { readObsidianPreferences }
+export { getObsidianPreferencesServerSnapshot, readObsidianPreferences, subscribeObsidianPreferences }
 export type { ObsidianPreferences }
 
 function resultMessage(result: VaultSyncResult): string {
@@ -18,7 +18,7 @@ function resultMessage(result: VaultSyncResult): string {
   return `Sincronização concluída: ${parts.join(", ")}.`
 }
 
-export function ObsidianDialog({ state, collectionId, onClose, onPreferencesChange, onStateChange, vaultData, onVaultConnected, zipDataFiles }: { state: KnowledgeWorkspaceState; collectionId: string; zipDataFiles?: () => ZipEntry[]; onClose: () => void; onPreferencesChange: (value: ObsidianPreferences) => void; onStateChange: (value: KnowledgeWorkspaceState) => void; vaultData?: Omit<VaultDataPanelProps, "connected">; onVaultConnected?: () => void }) {
+export function ObsidianDialog({ state, collectionId, onClose, onStateChange, vaultData, onVaultConnected, zipDataFiles }: { state: KnowledgeWorkspaceState; collectionId: string; zipDataFiles?: () => ZipEntry[]; onClose: () => void; onStateChange: (value: KnowledgeWorkspaceState) => void; vaultData?: Omit<VaultDataPanelProps, "connected">; onVaultConnected?: () => void }) {
   useEscapeToClose(onClose)
   const [preferences, setPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
   const [message, setMessage] = useState("")
@@ -30,8 +30,10 @@ export function ObsidianDialog({ state, collectionId, onClose, onPreferencesChan
 
   useEffect(() => {
     localStorage.setItem(OBSIDIAN_PREFERENCES_KEY, JSON.stringify(preferences))
-    onPreferencesChange(preferences)
-  }, [onPreferencesChange, preferences])
+    // Quem lê a preferência como fonte externa (knowledge-portal.tsx, via
+    // useSyncExternalStore) é avisado aqui, em vez de um prop de callback.
+    notifyObsidianPreferencesChanged()
+  }, [preferences])
 
   async function synchronize() {
     setWorking(true); setMessage("Lendo documentos antes de gravar…")

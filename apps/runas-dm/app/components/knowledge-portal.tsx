@@ -9,7 +9,7 @@ import { cloneCharacter, createEmptyRunasDmState, DEFAULT_BESTIARY_COLLECTION_ID
 import { loadBestiaryRegistry, loadLocalState, saveLocalState } from "../lib/storage"
 import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, isChronologyPage, pageKindLabel, removeWikiCollection, renameWikiCollection, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
-import { readObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
+import { getObsidianPreferencesServerSnapshot, readObsidianPreferences, subscribeObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
 import { CloudConflictDialog, type CloudConflict } from "./cloud-conflict-dialog"
 import { BackupTokenDialog } from "./backup-token-dialog"
@@ -40,7 +40,7 @@ import { StoryDocument } from "./story-document"
 import { wikiTitlesFromRichText } from "./rich-text-editor"
 import { ThemeToggle } from "./theme-toggle"
 import { TopbarMenu, type TopbarDetail, type TopbarStatus } from "./topbar-menu"
-import { GRID_DENSITY_STORAGE_KEY, applyUiPreferences, collectUiPreferences, type UiPreferences } from "../lib/ui-preferences"
+import { applyUiPreferences, collectUiPreferences, getGridDensityServerSnapshot, readGridDensity, subscribeGridDensity, writeGridDensity, type GridDensity, type UiPreferences } from "../lib/ui-preferences"
 import { useKnowledgeRoute } from "../lib/knowledge-route"
 import { ensureTagsForPage, normalizedTagName, pagesForTag, removeTagFromSection, renameTag, tagsForSection } from "../lib/knowledge-tags"
 import { TagEditor } from "./tag-editor"
@@ -66,7 +66,6 @@ function browserStorage(): Storage | null {
   try { return typeof window === "undefined" ? null : window.localStorage } catch { return null }
 }
 type CloudAction = "backup" | "import"
-type GridDensity = "small" | "medium" | "large"
 
 // Campanhas e Wiki são locais e abrem sem login. O token só ativa o backup na
 // nuvem e é o mesmo do Bestiário: fica apenas na sessão desta aba
@@ -131,7 +130,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [editing, setEditing] = useState<KnowledgePage | null>(null)
   const [openStoryId, setOpenStoryId] = useState<string | null>(null)
   const [obsidianOpen, setObsidianOpen] = useState(false)
-  const [obsidianPreferences, setObsidianPreferences] = useState<ObsidianPreferences>(() => readObsidianPreferences())
+  // Lido como fonte externa (igual a `theme-toggle.tsx`): evita erro de
+  // hidratação quando a preferência salva (ex.: integração desativada)
+  // diverge dos padrões, que é tudo que o servidor consegue ver.
+  const obsidianPreferences = useSyncExternalStore(subscribeObsidianPreferences, readObsidianPreferences, getObsidianPreferencesServerSnapshot)
   // Interruptor persistente: enquanto ativo, nenhuma chamada à nuvem sai deste
   // dispositivo, nem automática nem manual (`lib/sync-preferences.ts`). Lido
   // como fonte externa (igual a `theme-toggle.tsx`): o servidor não tem
@@ -140,11 +142,9 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const localOnly = useSyncExternalStore(subscribeLocalOnlyMode, readLocalOnlyMode, getLocalOnlyModeServerSnapshot)
   const [cloudImportOpen, setCloudImportOpen] = useState(false)
   const [notice, setNotice] = useState("")
-  const [gridDensity, setGridDensity] = useState<GridDensity>(() => {
-    if (typeof window === "undefined") return "medium"
-    const saved = window.localStorage.getItem(GRID_DENSITY_STORAGE_KEY)
-    return saved === "small" || saved === "medium" || saved === "large" ? saved : "medium"
-  })
+  // Lido como fonte externa (igual a `theme-toggle.tsx`): evita erro de
+  // hidratação quando a grade salva não é a padrão "medium".
+  const gridDensity = useSyncExternalStore(subscribeGridDensity, readGridDensity, getGridDensityServerSnapshot)
   const [tagEditor, setTagEditor] = useState<{ tag?: KnowledgeTag; section: string } | null>(null)
   const [route, navigateRoute] = useKnowledgeRoute(area === "wiki" ? "/wiki" : "/campaigns")
   // A lista de wikis deste dispositivo e qual está aberta agora. Trocar de
@@ -394,7 +394,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
 
   const applyPreferencesLive = useCallback((preferences: UiPreferences) => {
     if (preferences.theme) applyTheme(preferences.theme)
-    if (preferences.gridDensity) setGridDensity(preferences.gridDensity)
+    if (preferences.gridDensity) writeGridDensity(preferences.gridDensity)
     if (preferences.chronologyColumns) setChronologyColumns(preferences.chronologyColumns)
   }, [])
 
@@ -1206,8 +1206,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const campaignPageCounts = useMemo(() => new Map(state.campaigns.map((campaign) => [campaign.id, state.pages.filter((page) => page.campaignId === campaign.id || campaign.worldPageIds.includes(page.id) || campaign.storyIds?.includes(page.id)).length])), [state.campaigns, state.pages])
   const campaignAdventureCounts = { mission: scopedPages.filter((page) => page.kind === "mission").length, event: scopedPages.filter((page) => page.kind === "event").length, encounter: scopedPages.filter((page) => page.kind === "encounter").length, organizer: selectedCampaign?.organizer?.nodes.length ?? 0 }
   function changeGridDensity(value: GridDensity) {
-    setGridDensity(value)
-    window.localStorage.setItem(GRID_DENSITY_STORAGE_KEY, value)
+    writeGridDensity(value)
   }
   // O ponto do botão ⋯ resume tudo: gravação local, vault e nuvem. Falha ou pendência da nuvem
   // nunca aparece como "Salvo localmente": o usuário precisa saber que o backup remoto não está em dia.
@@ -1240,7 +1239,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     {notice && <button className="knowledge-toast" onClick={() => setNotice("")}><Check size={15} /> {notice}<X size={14} /></button>}
     {editing && <KnowledgeEditor eras={eras} page={editing} pages={editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages} categories={editing.scope === "wiki" ? state.categories.filter((category) => category.scope === "wiki") : scopedCategories} tags={tagsForSection(state, editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} onCreateTag={() => openTag(editing.scope === "campaign" && editing.kind === "gm-note" ? `campaign-notes:${editing.campaignId}` : editing.kind)} bestiary={bestiary} backlinks={(editing.scope === "wiki" ? state.pages.filter((page) => page.scope === "wiki") : scopedPages).filter((page) => effectivePageLinks(page, editing.scope === "wiki" ? state.pages.filter((candidate) => candidate.scope === "wiki") : scopedPages).includes(editing.id) || [...wikiLinkTitles(plainTextFromHtml(page.contentHtml)), ...wikiTitlesFromRichText(page.contentHtml)].some((title) => title.toLocaleLowerCase("pt-BR") === editing.title.toLocaleLowerCase("pt-BR")))} onSave={savePage} onDelete={removePage} onClose={() => setEditing(null)} onLaunchEncounter={(page) => void launchEncounter(page)} />}
     {tagEditor && <div className="knowledge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setTagEditor(null) }}><section className="knowledge-modal"><header><h2>{tagEditor.tag ? "Editar tag" : "Nova tag"}</h2><button className="icon-button" onClick={() => setTagEditor(null)} aria-label="Fechar"><X size={18} /></button></header><TagEditor tag={tagEditor.tag} onSave={saveTag} /></section></div>}
-    {obsidianOpen && <ObsidianDialog state={state} collectionId={activeCollectionId} onClose={() => setObsidianOpen(false)} onPreferencesChange={setObsidianPreferences} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
+    {obsidianOpen && <ObsidianDialog state={state} collectionId={activeCollectionId} onClose={() => setObsidianOpen(false)} zipDataFiles={zipDataFiles} vaultData={{ status: vaultStatus, knowledge: vaultHeaders.knowledge, bestiary: vaultHeaders.bestiary, busy: vaultBusy, onSave: () => void saveVaultNow(), onRestore: () => void openVaultRestore(), onExport: () => void exportVaultDataFiles(), onImport: (files) => void importVaultDataFiles(files) }} onVaultConnected={() => void onVaultConnected()} onStateChange={(next) => {
       // Mesmo problema do sincronismo automático: sem mesclar pelo estado
       // mais recente, o botão "Importar e sincronizar" também sobrescrevia
       // cegamente qualquer edição feita durante a leitura do vault.
