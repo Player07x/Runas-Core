@@ -49,8 +49,8 @@ import { BatchExportDialog } from "./batch-export-dialog"
 import { TokenEditorDialog } from "./token-editor-dialog"
 import { exportCharacterJson } from "../lib/export"
 import { createRunasDmBackup, synchronizeRunasDmState } from "../lib/backup-sync"
-import { bestiaryStats } from "../lib/bestiary-scope"
-import { clearBackupToken, fetchCloudBackup, putCloudBackup, readBackupToken, saveBackupToken, writeCloudBase, type CloudPutResult } from "../lib/cloud-backup"
+import { bestiarySignature, bestiaryStats, isPristineBestiary } from "../lib/bestiary-scope"
+import { clearBackupToken, fetchCloudBackup, fetchCloudMeta, hashText, putCloudBackup, readBackupToken, readCloudBase, readCloudSignature, saveBackupToken, writeCloudBase, writeCloudSignature, type CloudPutResult } from "../lib/cloud-backup"
 import { describeStats } from "../lib/snapshot-policy"
 import { readObsidianPreferences } from "../lib/obsidian-preferences"
 import { getLocalOnlyModeServerSnapshot, LOCAL_ONLY_MESSAGE, readLocalOnlyMode, subscribeLocalOnlyMode, writeLocalOnlyMode } from "../lib/sync-preferences"
@@ -65,6 +65,12 @@ import { createId } from "@runas/core/lib/ids"
 type WorkspaceView = "gallery" | "encounter"
 type SaveStatus = "loading" | "saving" | "saved" | "error"
 type CloudAction = "backup" | "synchronize"
+
+/** Espera sem novas mudanças antes de enviar, e o máximo que uma sequência contínua de edições pode adiar o envio — como em knowledge-portal.tsx. */
+const CLOUD_UPLOAD_DELAY_MS = 15_000
+const CLOUD_UPLOAD_MAX_WAIT_MS = 120_000
+const CLOUD_RETRY_MS = 60_000
+const CLOUD_MERGE_INTERVAL_MS = 30_000
 
 const secondaryAttributes: Array<{ key: SecondaryAttributeKey; label: string }> = attributeGroups.flatMap((group) =>
   group.attributes.map((attribute) => ({ key: attribute.key as SecondaryAttributeKey, label: attribute.name })),
@@ -117,6 +123,15 @@ export function DmDashboard() {
   const vttMesa = useVttMesa(setSyncMessage)
   const encounterActors = vttMesa?.actors ?? state.encounter
   const activeSystem = bestiaryRegistry?.collections.find((collection) => collection.id === bestiaryRegistry.activeCollectionId)?.system ?? "runas-blue"
+  const stateRef = useRef(state)
+  useEffect(() => { stateRef.current = state }, [state])
+  // Envio à nuvem do bestiário: um por vez; pausado enquanto o usuário não resolve um encolhimento;
+  // agendado a partir da primeira mudança pendente — como em knowledge-portal.tsx.
+  const cloudUploadingRef = useRef(false)
+  const cloudBlockedRef = useRef(false)
+  const dirtySinceRef = useRef<number | null>(null)
+  const cloudRetryRef = useRef<number | null>(null)
+  const cloudMergingRef = useRef(false)
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -370,7 +385,7 @@ export function DmDashboard() {
       setPendingCloudAction(action)
       return
     }
-    if (action === "backup") void backupToCloud(token)
+    if (action === "backup") void uploadBestiary({ manual: true })
     else void synchronizeFromCloud(token)
   }
 
@@ -389,7 +404,7 @@ export function DmDashboard() {
     const action = pendingCloudAction
     saveBackupToken(token)
     setPendingCloudAction(null)
-    if (action === "backup") void backupToCloud(token)
+    if (action === "backup") void uploadBestiary({ manual: true })
     if (action === "synchronize") void synchronizeFromCloud(token)
   }
 
@@ -400,30 +415,136 @@ export function DmDashboard() {
     return result.message
   }
 
-  async function backupToCloud(token: string) {
-    if (readLocalOnlyMode()) { setSyncMessage(LOCAL_ONLY_MESSAGE); return }
-    setSyncMessage("Enviando backup…")
-    // Traz a cópia que a nuvem já tem, une com as fichas locais (a local vence conflitos) e envia
-    // com a versão lida como base: nada que está na nuvem se perde, e uma gravação concorrente de
-    // outro dispositivo é recusada em vez de sobrescrita. Só fichas e tabelas de maestria vão à
-    // nuvem; a Mesa (encontro, iniciativa, notas) é estado de sessão e fica no dispositivo.
-    const collectionId = state.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
-    const current = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
-    if (!current.ok) {
-      if (current.reason === "unauthorized") clearBackupToken()
-      setSyncMessage(current.message)
-      return
+  /**
+   * Busca a nuvem e funde com o estado local por identidade (nome + raça +
+   * elemento, como `synchronizeFromCloud`), mas sem perguntar — igual ao
+   * auto-merge de Campanhas/Wiki. Usado pelo ciclo automático em segundo
+   * plano e para resolver um `409` do envio sem interromper o mestre.
+   */
+  const autoMergeBestiaryFromCloud = useCallback(async (): Promise<"merged" | "nothing" | "error"> => {
+    if (readLocalOnlyMode()) return "nothing"
+    const token = readBackupToken()
+    if (!token || cloudMergingRef.current) return "nothing"
+    cloudMergingRef.current = true
+    try {
+      const collectionId = stateRef.current.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+      const base = readCloudBase("bestiary", collectionId)
+      const meta = await fetchCloudMeta("bestiary", token, collectionId)
+      if (!meta.ok) return "error"
+      if (!meta.head || meta.head.version === base) return "nothing"
+      const result = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
+      if (!result.ok) return "error"
+      if (result.empty) return "nothing"
+      const merged = synchronizeRunasDmState(stateRef.current, result.data)
+      stateRef.current = merged
+      setState(merged)
+      writeCloudBase("bestiary", result.head.version, collectionId)
+      return "merged"
+    } catch {
+      return "error"
+    } finally {
+      cloudMergingRef.current = false
     }
-    if (!current.empty) writeCloudBase("bestiary", current.head.version, collectionId)
-    const completeBackup = createRunasDmBackup(state, current.empty ? null : current.data)
-    const stats = bestiaryStats(completeBackup)
-    let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats }, collectionId)
-    if (!result.ok && result.reason === "shrink" && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
-      result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true }, collectionId)
+  }, [])
+
+  /** Envio automático (debounced após editar) ou manual, por trás do mesmo botão "Backup". */
+  const uploadBestiary = useCallback(async (options: { force?: boolean; manual?: boolean; retried?: boolean } = {}): Promise<"ok" | "skipped" | "blocked" | "error"> => {
+    const { force = false, manual = false, retried = false } = options
+    if (readLocalOnlyMode()) { if (manual) setSyncMessage(LOCAL_ONLY_MESSAGE); return "skipped" }
+    const token = readBackupToken()
+    if (!token) return "skipped"
+    if (cloudUploadingRef.current || (cloudBlockedRef.current && !manual && !force)) return "skipped"
+    const current = stateRef.current
+    if (isPristineBestiary(current)) { dirtySinceRef.current = null; return "skipped" }
+    const collectionId = current.collectionId ?? DEFAULT_BESTIARY_COLLECTION_ID
+    const signature = hashText(bestiarySignature(current))
+    if (!force && readCloudBase("bestiary", collectionId) !== null && signature === readCloudSignature("bestiary", collectionId)) {
+      dirtySinceRef.current = null
+      if (manual) setSyncMessage("A nuvem já está atualizada.")
+      return "skipped"
     }
-    if (result.ok) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
-    else setSyncMessage(cloudFailureMessage(result))
-  }
+    cloudUploadingRef.current = true
+    dirtySinceRef.current = null
+    if (manual) setSyncMessage("Enviando backup…")
+    try {
+      // Mesmo caminho do envio manual: traz a cópia que a nuvem já tem, une com as fichas locais
+      // (a local vence conflitos) e envia com a versão lida como base.
+      const remoteBefore = await fetchCloudBackup<RunasDmState>("bestiary", token, undefined, collectionId)
+      if (!remoteBefore.ok) {
+        if (remoteBefore.reason === "unauthorized") clearBackupToken()
+        if (manual) setSyncMessage(remoteBefore.message)
+        return "error"
+      }
+      if (!remoteBefore.empty) writeCloudBase("bestiary", remoteBefore.head.version, collectionId)
+      const completeBackup = createRunasDmBackup(current, remoteBefore.empty ? null : remoteBefore.data)
+      const stats = bestiaryStats(completeBackup)
+      let result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force }, collectionId)
+      if (!result.ok && result.reason === "shrink" && manual && window.confirm(`Este backup levaria ${describeStats(stats)} e a nuvem tem ${describeStats(result.head?.stats)}. Enviar mesmo assim? A versão atual fica guardada no histórico da nuvem.`)) {
+        result = await putCloudBackup("bestiary", token, { payload: completeBackup, stats, force: true }, collectionId)
+      }
+      if (result.ok) {
+        cloudBlockedRef.current = false
+        if (!result.localOnly) writeCloudSignature("bestiary", signature, collectionId)
+        if (manual) setSyncMessage(result.localOnly ? "Preview local: a nuvem não é usada aqui" : `Backup remoto atualizado (${describeStats(stats)})`)
+        return "ok"
+      }
+      // A nuvem mudou (ou encolheria demais) desde a base conhecida: tenta trazer e fundir a
+      // versão nova antes de pausar — só pergunta/bloqueia se isso não resolver.
+      if ((result.reason === "stale" || result.reason === "shrink") && !retried && !force) {
+        const merged = await autoMergeBestiaryFromCloud()
+        if (merged !== "error") {
+          cloudUploadingRef.current = false
+          return await uploadBestiary({ ...options, retried: true })
+        }
+      }
+      if (result.reason === "stale" || result.reason === "shrink") {
+        cloudBlockedRef.current = true
+        if (manual) setSyncMessage(cloudFailureMessage(result))
+        return "blocked"
+      }
+      if (manual) setSyncMessage(cloudFailureMessage(result))
+      // Uma falha de rede ou do servidor tenta de novo sozinha; o backup local já está salvo.
+      if (result.reason === "unavailable" && cloudRetryRef.current === null) {
+        cloudRetryRef.current = window.setTimeout(() => { cloudRetryRef.current = null; void uploadBestiaryRef.current() }, CLOUD_RETRY_MS)
+      }
+      return "error"
+    } finally {
+      cloudUploadingRef.current = false
+    }
+  }, [autoMergeBestiaryFromCloud])
+
+  const uploadBestiaryRef = useRef<(options?: { force?: boolean; manual?: boolean; retried?: boolean }) => Promise<unknown>>(async () => undefined)
+  useEffect(() => { uploadBestiaryRef.current = uploadBestiary }, [uploadBestiary])
+
+  // Envio automático: espera 15s sem novas mudanças (no máximo 2 min desde a primeira pendente).
+  useEffect(() => {
+    if (!ready || !readBackupToken() || cloudBlockedRef.current) return
+    dirtySinceRef.current ??= Date.now()
+    const wait = Math.max(0, Math.min(CLOUD_UPLOAD_DELAY_MS, dirtySinceRef.current + CLOUD_UPLOAD_MAX_WAIT_MS - Date.now()))
+    const timeout = window.setTimeout(() => void uploadBestiary(), wait)
+    return () => window.clearTimeout(timeout)
+  }, [ready, state, uploadBestiary])
+
+  // Ao esconder a aba, envia o que estiver pendente sem esperar o intervalo.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === "hidden" && dirtySinceRef.current !== null) void uploadBestiary() }
+    document.addEventListener("visibilitychange", flush)
+    return () => document.removeEventListener("visibilitychange", flush)
+  }, [uploadBestiary])
+
+  /**
+   * Traz a nuvem para este dispositivo sozinho, sem esperar "Sincronizar": ao
+   * abrir/voltar para a aba e a cada 30s, igual a Campanhas/Wiki e ao vault.
+   */
+  useEffect(() => {
+    if (!ready) return
+    const run = () => { if (!cloudUploadingRef.current && !cloudBlockedRef.current) void autoMergeBestiaryFromCloud() }
+    run()
+    const interval = window.setInterval(run, CLOUD_MERGE_INTERVAL_MS)
+    document.addEventListener("visibilitychange", run)
+    window.addEventListener("focus", run)
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", run); window.removeEventListener("focus", run) }
+  }, [ready, autoMergeBestiaryFromCloud])
 
   async function synchronizeFromCloud(token: string) {
     if (readLocalOnlyMode()) { setSyncMessage(LOCAL_ONLY_MESSAGE); return }

@@ -15,6 +15,12 @@ export function bestiaryStats(state: RunasDmState): SnapshotStats {
   return { total: state.entries.length, entries: state.entries.length, tables: state.masteryTables.length }
 }
 
+/** Como `knowledgeSignature`: compara o conteúdo do backup sem o timestamp, para não reenviar o que não mudou de verdade. */
+export function bestiarySignature(state: RunasDmState): string {
+  const payload = bestiaryBackupPayload(state)
+  return JSON.stringify(payload, (key, value: unknown) => key === "updatedAt" ? undefined : value)
+}
+
 /** O que o arquivo `bestiario.json` do vault guarda: fichas e tabelas (sem a Mesa), com a data do estado fora da assinatura. */
 export function bestiaryVaultInput(state: RunasDmState): VaultSaveInput {
   const payload = bestiaryBackupPayload(state)
