@@ -14,6 +14,7 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
   const [nodes, setNodes] = useState(inputNodes)
   const [edges, setEdges] = useState(inputEdges)
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null)
   const [editing, setEditing] = useState<OrganizerNode | null>(null)
   const [linkTarget, setLinkTarget] = useState("")
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 })
@@ -50,6 +51,7 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
     if (!selected) return
     commit(nodes.filter((node) => node.id !== selected), edges.filter((edge) => edge.fromId !== selected && edge.toId !== selected))
     setSelected(null)
+    setSelectedEdge(null)
     setEditing(null)
   }
 
@@ -58,6 +60,13 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
     const edge: OrganizerEdge = { id: createKnowledgeId("organizer-edge"), fromId: selected, toId: linkTarget }
     commit(nodes, [...edges, edge])
     setLinkTarget("")
+  }
+
+  /** Remove só a seta selecionada, sem apagar os nós que ela liga. */
+  function removeEdge() {
+    if (!selectedEdge) return
+    commit(nodes, edges.filter((edge) => edge.id !== selectedEdge))
+    setSelectedEdge(null)
   }
 
   function position(event: ReactPointerEvent<SVGSVGElement>) {
@@ -72,6 +81,7 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
     drag.current = { id, pointerId: event.pointerId, x: (event.clientX - bounds.left) * WIDTH / bounds.width, y: (event.clientY - bounds.top) * HEIGHT / bounds.height }
     stage.current?.setPointerCapture(event.pointerId)
     setSelected(id)
+    setSelectedEdge(null)
   }
 
   function moveDrag(event: ReactPointerEvent<SVGSVGElement>) {
@@ -114,14 +124,23 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
   }, [])
 
   return <section className="knowledge-organizer" aria-label="Organizador da campanha">
-    <header className="organizer-toolbar"><div><p className="eyebrow">Aventura</p><h2>Organizador</h2><p>Arraste os nós para montar a relação entre cenas, pistas e personagens.</p></div><div className="organizer-actions"><button className="primary-button" onClick={addNode}><Plus size={16} /> Novo nó</button><button className="secondary-button" disabled={!selected || !linkTarget} onClick={linkSelected}><Link2 size={16} /> Ligar</button><button className="icon-button" disabled={!selected} onClick={() => { const node = nodes.find((item) => item.id === selected); if (node) setEditing(node) }} aria-label="Editar nó"><Pencil size={16} /></button><button className="icon-button danger-icon" disabled={!selected} onClick={removeSelected} aria-label="Apagar nó"><Trash2 size={16} /></button></div></header>
+    <header className="organizer-toolbar"><div><p className="eyebrow">Aventura</p><h2>Organizador</h2><p>Arraste os nós para montar a relação entre cenas, pistas e personagens.</p></div><div className="organizer-actions"><button className="primary-button" onClick={addNode}><Plus size={16} /> Novo nó</button><button className="secondary-button" disabled={!selected || !linkTarget} onClick={linkSelected}><Link2 size={16} /> Ligar</button><button className="icon-button" disabled={!selected} onClick={() => { const node = nodes.find((item) => item.id === selected); if (node) setEditing(node) }} aria-label="Editar nó"><Pencil size={16} /></button><button className="icon-button danger-icon" disabled={!selected} onClick={removeSelected} aria-label="Apagar nó"><Trash2 size={16} /></button><button className="icon-button danger-icon" disabled={!selectedEdge} onClick={removeEdge} aria-label="Apagar ligação selecionada" title="Apagar ligação selecionada"><Trash2 size={16} /></button></div></header>
     <div className="organizer-workspace">
     {editing && <form className="organizer-editor" onSubmit={(event) => { event.preventDefault(); saveNode() }}><label><span>Título</span><input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} /></label><label><span>Texto</span><textarea value={editing.body} onChange={(event) => setEditing({ ...editing, body: event.target.value })} /></label><label><span>Cor</span><input type="color" value={editing.color || "#8d79d6"} onChange={(event) => setEditing({ ...editing, color: event.target.value })} /></label><footer><button type="button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button">Salvar nó</button></footer></form>}
     <div className="organizer-stage">
       <div className="organizer-controls"><button onClick={() => zoom(0.8)} aria-label="Diminuir zoom"><ZoomOut size={16} /></button><button onClick={() => setView({ x: 0, y: 0, scale: 1 })} aria-label="Centralizar organizador"><Focus size={16} /></button><button onClick={() => zoom(1.2)} aria-label="Aumentar zoom"><ZoomIn size={16} /></button></div>
       <svg ref={stage} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`${nodes.length} nós e ${edges.length} ligações`} onPointerDown={(event) => { if (event.target !== event.currentTarget) return; const point = position(event); drag.current = { id: "", pointerId: event.pointerId, ...point }; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null }}>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-          <g className="organizer-edges">{edges.map((edge) => { const from = nodes.find((node) => node.id === edge.fromId); const to = nodes.find((node) => node.id === edge.toId); return from && to ? <line key={edge.id} x1={from.x + 100} y1={from.y + 42} x2={to.x + 100} y2={to.y + 42} markerEnd="url(#organizer-arrow)" /> : null })}</g>
+          <g className="organizer-edges">{edges.map((edge) => {
+            const from = nodes.find((node) => node.id === edge.fromId)
+            const to = nodes.find((node) => node.id === edge.toId)
+            if (!from || !to) return null
+            const x1 = from.x + 100, y1 = from.y + 42, x2 = to.x + 100, y2 = to.y + 42
+            return <g key={edge.id} className={`organizer-edge ${selectedEdge === edge.id ? "selected" : ""}`} role="button" tabIndex={0} aria-label={`Ligação de ${from.title || "nó"} para ${to.title || "nó"}`} onPointerDown={(event) => { event.stopPropagation(); setSelectedEdge(edge.id); setSelected(null) }} onKeyDown={(event) => { if (event.key === "Enter") { setSelectedEdge(edge.id); setSelected(null) } }}>
+              <line className="organizer-edge-hit" x1={x1} y1={y1} x2={x2} y2={y2} />
+              <line className="organizer-edge-line" x1={x1} y1={y1} x2={x2} y2={y2} markerEnd="url(#organizer-arrow)" />
+            </g>
+          })}</g>
           <defs><marker id="organizer-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" /></marker></defs>
           <g className="organizer-nodes">{nodes.map((node) => <g key={node.id} transform={`translate(${node.x} ${node.y})`} className={selected === node.id ? "selected" : ""} role="button" tabIndex={0} onPointerDown={(event) => startDrag(event, node.id)} onDoubleClick={() => setEditing(node)} onKeyDown={(event) => { if (event.key === "Enter") setSelected(node.id) }}>
             <rect width="200" height="84" rx="12" fill={node.color || "#8d79d6"} /><text x="14" y="25">{node.title || "Nó sem título"}</text><foreignObject x="14" y="34" width="172" height="40"><p>{node.body || "Sem descrição"}</p></foreignObject>

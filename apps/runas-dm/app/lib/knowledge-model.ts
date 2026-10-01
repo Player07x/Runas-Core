@@ -251,6 +251,27 @@ export function createWikiCollection(name: string, now = Date.now()): WikiCollec
   return { id: createKnowledgeId("wiki"), name: name.trim() || DEFAULT_WIKI_NAME, createdAt: now, updatedAt: now }
 }
 
+export function renameWikiCollection(registry: WikiRegistry, id: string, name: string, now = Date.now()): WikiRegistry {
+  const trimmed = name.trim()
+  if (!trimmed) return registry
+  return { ...registry, collections: registry.collections.map((collection) => collection.id === id ? { ...collection, name: trimmed, updatedAt: now } : collection) }
+}
+
+/**
+ * Tira uma wiki do registro (ela some do seletor) sem apagar dado algum: o
+ * IndexedDB, o vault conectado e o backup na nuvem dela continuam intactos.
+ * Nunca remove a última wiki restante. Se a removida era a ativa, a
+ * primeira que sobrar assume — quem chama ainda precisa recarregar a
+ * página, pelo mesmo motivo de trocar ou criar uma wiki.
+ */
+export function removeWikiCollection(registry: WikiRegistry, id: string): WikiRegistry {
+  if (registry.collections.length <= 1) return registry
+  const collections = registry.collections.filter((collection) => collection.id !== id)
+  if (collections.length === registry.collections.length) return registry
+  const activeCollectionId = registry.activeCollectionId === id ? collections[0].id : registry.activeCollectionId
+  return { ...registry, collections, activeCollectionId }
+}
+
 /**
  * Normaliza um registro salvo (ou lido de outro dispositivo). Sempre garante
  * pelo menos a wiki padrão e uma coleção ativa que exista de verdade — nunca

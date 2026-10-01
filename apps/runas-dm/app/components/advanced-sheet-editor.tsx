@@ -130,30 +130,30 @@ function InformationSection({ character, update }: { character: Character; updat
         <Field label="Espécie" value={info.species} onChange={(value) => updateInfo(update, "species", value)} />
         <Field label="Ofício" value={info.profession} onChange={(value) => updateInfo(update, "profession", value)} />
         <Field label="Nascimento" value={info.birthDate} onChange={(value) => updateInfo(update, "birthDate", value)} />
-        <Field label="Idade" value={info.age} onChange={(value) => updateInfo(update, "age", value)} />
+        <Field label="Idade" value={info.age} readOnly />
         <Field label="Região" value={info.region} onChange={(value) => updateInfo(update, "region", value)} />
         <Field label="Classe" value={info.characterClass} onChange={(value) => updateInfo(update, "characterClass", value)} />
         <Field label="Arquétipo" value={info.archetype} onChange={(value) => updateInfo(update, "archetype", value)} />
-        <Field label="Afinidade" value={info.affinity} onChange={(value) => updateInfo(update, "affinity", value)} />
-        <Field label="Eficiência (%)" value={info.efficiency} onChange={(value) => updateInfo(update, "efficiency", value.replace(/%/g, ""))} />
+        <Field label="Afinidade" value={info.affinity} readOnly />
+        <Field label="Eficiência (%)" value={info.efficiency} readOnly />
         <Field label="Essências" value={info.essences} onChange={(value) => updateInfo(update, "essences", value)} />
         <Field label="Divindade" value={info.deity} onChange={(value) => updateInfo(update, "deity", value)} />
-        <Field label="Alinhamento" value={info.alignment} onChange={(value) => updateInfo(update, "alignment", value)} />
+        <Field label="Alinhamento" value={info.alignment} readOnly />
         <Field label="Carma" value={info.karma} onChange={(value) => updateInfo(update, "karma", value)} />
         <Field label="Legado" value={info.legacy} onChange={(value) => updateInfo(update, "legacy", value)} />
-        <Field label="Raridade" value={info.legacyRarity} onChange={(value) => updateInfo(update, "legacyRarity", value)} />
+        <Field label="Raridade" value={info.legacyRarity} readOnly />
         <Field label="Pontos" value={info.legacyPoints} onChange={(value) => updateInfo(update, "legacyPoints", value)} />
       </div>
       <section className="tools-scale-card"><h4>Escala, dimensões e peso</h4><div className="tools-info-grid scale">
         <Field label="Tamanho real (m)" value={info.sizeReal} onChange={(value) => updateInfo(update, "sizeReal", value)} />
-        <Field label="Modificador de tamanho (MT)" value={info.sizeModifier} onChange={(value) => updateInfo(update, "sizeModifier", value)} />
+        <Field label="Modificador de tamanho (MT)" value={info.sizeModifier} readOnly />
         <Field label="Bônus de MT" value={info.sizeModifierBonus} onChange={(value) => updateInfo(update, "sizeModifierBonus", value)} />
         <Field label="Tamanho base (m)" value={info.sizeBase} onChange={(value) => updateInfo(update, "sizeBase", value)} />
-        <Field label="Peso real (kg)" value={info.weightReal} onChange={(value) => updateInfo(update, "weightReal", value)} />
+        <Field label="Peso real (kg)" value={info.weightReal} readOnly />
         <Field label="Peso base (kg)" value={info.weightBase} onChange={(value) => updateInfo(update, "weightBase", value)} />
         <Field label="Bônus de peso" value={info.weightBonus} onChange={(value) => updateInfo(update, "weightBonus", value)} />
-        <Field label="Multiplicador de escala" value={info.scaleMultiplier} onChange={(value) => updateInfo(update, "scaleMultiplier", value)} />
-        <Field label="Carga base" value={info.loadBase} onChange={(value) => updateInfo(update, "loadBase", value)} />
+        <Field label="Multiplicador de escala" value={info.scaleMultiplier} readOnly />
+        <Field label="Carga base" value={info.loadBase} readOnly />
       </div></section>
     </section>
   </AdvancedSection>
@@ -195,7 +195,7 @@ function StatisticsSection({ character, update }: { character: Character; update
       <Field label="Fraquezas" value={stats.weaknesses.join(", ")} onChange={(value) => update((draft) => { draft.stats.weaknesses = splitList(value) })} />
       <NumberField label="RDF natural" value={stats.naturalRdf} onChange={(value) => updateStat(update, "naturalRdf", value)} />
       <NumberField label="RDM natural" value={stats.naturalRdm} onChange={(value) => updateStat(update, "naturalRdm", value)} />
-      <NumberField label="MT" value={stats.mt} onChange={(value) => updateStat(update, "mt", value)} />
+      <NumberField label="MT" value={stats.mt} readOnly />
       <TextArea label="Efeitos" value={stats.effects} onChange={(value) => update((draft) => { draft.stats.effects = value })} />
     </div>
     <section className="tools-mastery"><header><div><h4>Melhoria de Maestria</h4><p>Pontos definidos por Afinidade e Eficiência.</p></div><MasterySummary total={masteryPoints} spent={spentMasteryPoints} remaining={remainingMasteryPoints} /></header><div>{masteryImprovementOptions.map((option) => { const current = stats.masteryImprovements[option.key]; const maximum = Math.floor(Math.max(0, remainingMasteryPoints + current * option.cost) / option.cost); return <NumberField key={option.key} label={`${option.name} / ${option.cost} pontos`} value={current} min={0} max={maximum} onChange={(value) => update((draft) => { draft.stats.masteryImprovements[option.key] = clampMasteryImprovementQuantity(draft.stats.masteryImprovements, option.key, value, masteryPoints) })} /> })}</div>{remainingMasteryPoints < 0 && <p className="mastery-overage" role="alert">As melhorias excedem o limite atual. Reduza compras ou aumente Afinidade/Eficiência.</p>}</section>
@@ -531,9 +531,10 @@ function emptyItem(id: string): CharacterInventoryItem { return { id, usage: "st
 
 function AdvancedSection({ title, description, action, toolbar, children }: { title: string; description: string; action?: () => void; toolbar?: React.ReactNode; children: React.ReactNode }) { return <section className="advanced-section"><header><div><h3>{title}</h3><p>{description}</p></div>{action && <button className="primary-button" onClick={action}><Plus size={16} /> Adicionar</button>}</header>{toolbar}{children}</section> }
 function TableHeader({ labels }: { labels: string[] }) { return <div className="tools-table-header" aria-hidden="true">{labels.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}</div> }
-function Field({ label, value, onChange, className = "" }: { label: string; value: string; onChange: (value: string) => void; className?: string }) { return <label className={`field ${className}`}><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
-function DeferredNumber({ value, onChange, fallback = 0, min, max, ariaLabel }: { value: number; onChange: (value: number) => void; fallback?: number; min?: number; max?: number; ariaLabel?: string }) { const [draft, setDraft] = useState(String(Number.isFinite(value) ? value : fallback)); function commit(raw: string, blur = false) { setDraft(raw); if (raw === "" || raw === "+" || raw === "-") { if (blur) { setDraft(String(fallback)); onChange(fallback) }; return } const parsed = Number(raw.replace(",", ".")); if (!Number.isFinite(parsed)) return; onChange(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed))) } return <input aria-label={ariaLabel} inputMode="decimal" value={draft} onChange={(event) => commit(event.target.value)} onBlur={() => commit(draft, true)} /> }
-function NumberField({ label, value, onChange, min, max }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number }) { return <label className="field number-field"><span>{label}</span><DeferredNumber key={value} value={value} onChange={onChange} fallback={min ?? 0} min={min} max={max} /></label> }
+/** `readOnly` marca um campo derivado (calculado por `synchronizeCharacterDerivedValues`): digitar nele nunca teria efeito, pois o valor volta a ser recalculado na próxima edição. */
+function Field({ label, value, onChange, className = "", readOnly = false }: { label: string; value: string; onChange?: (value: string) => void; className?: string; readOnly?: boolean }) { return <label className={`field ${className}`}><span>{label}</span><input value={value} readOnly={readOnly} title={readOnly ? "Campo calculado automaticamente" : undefined} onChange={readOnly ? undefined : (event) => onChange?.(event.target.value)} /></label> }
+function DeferredNumber({ value, onChange, fallback = 0, min, max, ariaLabel, readOnly = false }: { value: number; onChange?: (value: number) => void; fallback?: number; min?: number; max?: number; ariaLabel?: string; readOnly?: boolean }) { const [draft, setDraft] = useState(String(Number.isFinite(value) ? value : fallback)); function commit(raw: string, blur = false) { setDraft(raw); if (raw === "" || raw === "+" || raw === "-") { if (blur) { setDraft(String(fallback)); onChange?.(fallback) }; return } const parsed = Number(raw.replace(",", ".")); if (!Number.isFinite(parsed)) return; onChange?.(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed))) } return <input aria-label={ariaLabel} inputMode="decimal" value={draft} readOnly={readOnly} title={readOnly ? "Campo calculado automaticamente" : undefined} onChange={readOnly ? undefined : (event) => commit(event.target.value)} onBlur={readOnly ? undefined : () => commit(draft, true)} /> }
+function NumberField({ label, value, onChange, min, max, readOnly = false }: { label: string; value: number; onChange?: (value: number) => void; min?: number; max?: number; readOnly?: boolean }) { return <label className="field number-field"><span>{label}</span><DeferredNumber key={value} value={value} onChange={onChange} fallback={min ?? 0} min={min} max={max} readOnly={readOnly} /></label> }
 function NullableNumber({ label, value, onChange }: { label: string; value: number | null; onChange: (value: number | null) => void }) { return <label className="field number-field"><span>{label}</span><input type="number" value={value ?? ""} placeholder="—" onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} /></label> }
 function SelectField({ label, value, options, onChange }: { label: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void }) { return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label> }
 function Select({ value, options, onChange, ariaLabel }: { value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void; ariaLabel: string }) { return <select aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> }

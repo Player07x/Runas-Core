@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createBestiaryCollection, createDefaultBestiaryRegistry, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, type RunasDmState } from "./model"
+import { createBestiaryCollection, createDefaultBestiaryRegistry, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, removeBestiaryCollection, renameBestiaryCollection, type RunasDmState } from "./model"
 
 describe("identidade do bestiário (collectionId)", () => {
   it("um bestiário novo já nasce com o id padrão", () => {
@@ -68,6 +68,28 @@ describe("registro de bestiários", () => {
 
   it("um registro sem nenhuma coleção válida nunca fica vazio: volta ao padrão", () => {
     expect(normalizeBestiaryRegistry({ collections: [{ name: "sem id" }] }).collections).toHaveLength(1)
+  })
+
+  it("renomeia sem trocar o id nem as demais coleções, e ignora um nome vazio", () => {
+    const registry = normalizeBestiaryRegistry({
+      collections: [{ id: "b1", name: "Feras", system: "runas-blue", createdAt: 1, updatedAt: 1 }, { id: "b2", name: "Sagas de Cronos", system: "cronos", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "b1",
+    })
+    const renamed = renameBestiaryCollection(registry, "b2", "Sagas de Cronos — feras", 99)
+    expect(renamed.collections).toEqual([registry.collections[0], { id: "b2", name: "Sagas de Cronos — feras", system: "cronos", createdAt: 2, updatedAt: 99 }])
+    expect(renameBestiaryCollection(registry, "b2", "   ")).toBe(registry)
+  })
+
+  it("remove sem apagar dado algum (só tira do registro) e nunca remove o último bestiário", () => {
+    const registry = normalizeBestiaryRegistry({
+      collections: [{ id: "b1", name: "Feras", system: "runas-blue", createdAt: 1, updatedAt: 1 }, { id: "b2", name: "Sagas de Cronos", system: "cronos", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "b2",
+    })
+    const removed = removeBestiaryCollection(registry, "b2")
+    expect(removed.collections.map((collection) => collection.id)).toEqual(["b1"])
+    expect(removed.activeCollectionId).toBe("b1")
+    const onlyOne = normalizeBestiaryRegistry({ collections: [{ id: "b1", name: "Único", system: "runas-blue", createdAt: 1, updatedAt: 1 }], activeCollectionId: "b1" })
+    expect(removeBestiaryCollection(onlyOne, "b1")).toBe(onlyOne)
   })
 })
 
