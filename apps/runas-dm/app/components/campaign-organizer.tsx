@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { Focus, Link2, Pencil, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react"
 import { createKnowledgeId, type OrganizerEdge, type OrganizerNode } from "../lib/knowledge-model"
 import { bindGraphWheel } from "../lib/graph-wheel"
 
 const WIDTH = 1200
 const HEIGHT = 620
+const NODE_WIDTH = 200
+const NODE_HEIGHT = 84
+const CANVAS_PADDING = 40
 type View = { x: number; y: number; scale: number }
 type Drag = { id: string; pointerId: number; x: number; y: number } | null
 
@@ -21,6 +24,13 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
   const stage = useRef<SVGSVGElement>(null)
   const drag = useRef<Drag>(null)
   const nodesRef = useRef(nodes)
+  // O canvas cresce conforme o mestre coloca nós à direita ou abaixo dele.
+  // Antes WIDTH/HEIGHT também eram usados como limite de arraste, então um
+  // nó nunca podia ultrapassar a borda invisível de 1200 × 620.
+  const canvas = useMemo(() => ({
+    width: Math.max(WIDTH, ...nodes.map((node) => node.x + NODE_WIDTH + CANVAS_PADDING)),
+    height: Math.max(HEIGHT, ...nodes.map((node) => node.y + NODE_HEIGHT + CANVAS_PADDING)),
+  }), [nodes])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { nodesRef.current = inputNodes; setNodes(inputNodes); setEdges(inputEdges) }, 0)
@@ -35,7 +45,8 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
   }
 
   function addNode() {
-    const node: OrganizerNode = { id: createKnowledgeId("organizer-node"), title: "Novo nó", body: "", x: Math.max(40, WIDTH / 2 - 95), y: Math.max(40, HEIGHT / 2 - 45), color: "#8d79d6" }
+    const lastColor = nodes[nodes.length - 1]?.color
+    const node: OrganizerNode = { id: createKnowledgeId("organizer-node"), title: "Novo nó", body: "", x: Math.max(40, WIDTH / 2 - 95), y: Math.max(40, HEIGHT / 2 - 45), color: lastColor || "#8d79d6" }
     commit([...nodes, node])
     setSelected(node.id)
     setEditing(node)
@@ -71,14 +82,14 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
 
   function position(event: ReactPointerEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect()
-    return { x: (event.clientX - bounds.left) * WIDTH / bounds.width, y: (event.clientY - bounds.top) * HEIGHT / bounds.height }
+    return { x: (event.clientX - bounds.left) * canvas.width / bounds.width, y: (event.clientY - bounds.top) * canvas.height / bounds.height }
   }
 
   function startDrag(event: ReactPointerEvent<SVGGElement>, id: string) {
     event.stopPropagation()
     const bounds = stage.current?.getBoundingClientRect()
     if (!bounds) return
-    drag.current = { id, pointerId: event.pointerId, x: (event.clientX - bounds.left) * WIDTH / bounds.width, y: (event.clientY - bounds.top) * HEIGHT / bounds.height }
+    drag.current = { id, pointerId: event.pointerId, x: (event.clientX - bounds.left) * canvas.width / bounds.width, y: (event.clientY - bounds.top) * canvas.height / bounds.height }
     stage.current?.setPointerCapture(event.pointerId)
     setSelected(id)
     setSelectedEdge(null)
@@ -96,7 +107,9 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
       current.y = point.y
       return
     }
-    const next = nodes.map((node) => node.id === current.id ? { ...node, x: Math.max(8, Math.min(WIDTH - 208, node.x + dx)), y: Math.max(8, Math.min(HEIGHT - 100, node.y + dy)) } : node)
+    // Não há limite máximo: `canvas` aumenta no próximo render e mantém o nó
+    // visível mesmo quando ele é colocado além do tamanho inicial.
+    const next = nodes.map((node) => node.id === current.id ? { ...node, x: Math.max(8, node.x + dx), y: Math.max(8, node.y + dy) } : node)
     current.x = point.x
     current.y = point.y
     nodesRef.current = next
@@ -129,7 +142,7 @@ export function CampaignOrganizer({ nodes: inputNodes, edges: inputEdges, onChan
     {editing && <form className="organizer-editor" onSubmit={(event) => { event.preventDefault(); saveNode() }}><label><span>Título</span><input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} /></label><label><span>Texto</span><textarea value={editing.body} onChange={(event) => setEditing({ ...editing, body: event.target.value })} /></label><label><span>Cor</span><input type="color" value={editing.color || "#8d79d6"} onChange={(event) => setEditing({ ...editing, color: event.target.value })} /></label><footer><button type="button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button">Salvar nó</button></footer></form>}
     <div className="organizer-stage">
       <div className="organizer-controls"><button onClick={() => zoom(0.8)} aria-label="Diminuir zoom"><ZoomOut size={16} /></button><button onClick={() => setView({ x: 0, y: 0, scale: 1 })} aria-label="Centralizar organizador"><Focus size={16} /></button><button onClick={() => zoom(1.2)} aria-label="Aumentar zoom"><ZoomIn size={16} /></button></div>
-      <svg ref={stage} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`${nodes.length} nós e ${edges.length} ligações`} onPointerDown={(event) => { if (event.target !== event.currentTarget) return; const point = position(event); drag.current = { id: "", pointerId: event.pointerId, ...point }; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null }}>
+      <svg ref={stage} viewBox={`0 0 ${canvas.width} ${canvas.height}`} role="img" aria-label={`${nodes.length} nós e ${edges.length} ligações`} onPointerDown={(event) => { if (event.target !== event.currentTarget) return; const point = position(event); drag.current = { id: "", pointerId: event.pointerId, ...point }; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null }}>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
           <g className="organizer-edges">{edges.map((edge) => {
             const from = nodes.find((node) => node.id === edge.fromId)
