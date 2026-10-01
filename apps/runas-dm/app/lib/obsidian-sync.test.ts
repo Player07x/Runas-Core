@@ -503,6 +503,76 @@ describe("Obsidian export", () => {
 })
 
 /**
+ * Caso relatado: uma nota "Acampamento" criada no vault Valknut colidia com
+ * uma nota "Acampamento" já existente na campanha "Ordem x Caos", porque o
+ * fallback de identidade (sem `runas_id`) casava só por título + escopo,
+ * ignorando a campanha. Isso causava sobrescrita silenciosa (quando a página
+ * antiga não tinha alteração local pendente) ou geração de cópias de
+ * conflito a cada ciclo de sincronização (quando tinha).
+ */
+describe("identidade de nota: mesmo título não é a mesma página", () => {
+  it("duas campanhas com uma nota do mesmo título não são tratadas como a mesma página", () => {
+    const local = normalizeKnowledgeWorkspace({
+      campaigns: [
+        { id: "campaign-oc", title: "Ordem x Caos", description: "", tags: [], createdAt: 1, updatedAt: 1 },
+        { id: "campaign-vk", title: "Valknut", description: "", tags: [], createdAt: 1, updatedAt: 1 },
+      ],
+      pages: [{
+        id: "page-oc-acampamento", scope: "campaign" as const, campaignId: "campaign-oc", kind: "gm-note" as const,
+        title: "Acampamento", contentHtml: "<p>Base de Ordem x Caos.</p>",
+        obsidianPath: "Campanhas/Ordem x Caos/Anotações/Acampamento.md",
+        obsidianSourceMarkdown: "# Acampamento\n\nBase de Ordem x Caos.\n",
+        createdAt: 1, updatedAt: 1,
+      }],
+      updatedAt: 1,
+    })
+    local.pages[0].obsidianFingerprint = pageObsidianFingerprint(local.pages[0], local)
+
+    const markdown = '---\ncampanha:\n  - "[[Valknut (Campanha)]]"\n---\n# Acampamento\n\nBase nova de Valknut.\n'
+    const merged = mergeObsidianNotes(local, [
+      { path: "Campanhas/Valknut/Anotações/Acampamento.md", markdown, createdAt: 5, modifiedAt: 5 },
+    ])
+
+    const oldPage = merged.state.pages.find((page) => page.id === "page-oc-acampamento")
+    expect(oldPage?.contentHtml).toBe("<p>Base de Ordem x Caos.</p>")
+    expect(merged.state.pages.some((page) => page.title.includes("cópia local em conflito"))).toBe(false)
+
+    const newPage = merged.state.pages.find((page) => page.campaignId === "campaign-vk" && page.title === "Acampamento")
+    expect(newPage).toBeDefined()
+    expect(newPage?.id).not.toBe("page-oc-acampamento")
+  })
+
+  it("não acumula cópias de conflito repetidas quando o ciclo automático reprocessa a mesma divergência", () => {
+    const base = normalizeKnowledgeWorkspace({
+      campaigns: [{ id: "campaign-1", title: "A Queda de Zotera", description: "", tags: [], createdAt: 1, updatedAt: 1 }],
+      pages: [{
+        id: "page-1", scope: "campaign" as const, campaignId: "campaign-1", kind: "mission" as const,
+        title: "Acampamento", contentHtml: "<p>Conteúdo alterado no site.</p>",
+        obsidianPath: "Campanhas/A Queda de Zotera/Eventos e Missões/Acampamento.md",
+        obsidianSourceMarkdown: "# Versão 1 do Obsidian\n",
+        createdAt: 1, updatedAt: 100,
+      }],
+      updatedAt: 1,
+    })
+    // Assinatura que nunca mais vai bater com o conteúdo real: simula uma
+    // edição do site ainda não reconciliada com o vault.
+    base.pages[0].obsidianFingerprint = "assinatura-antiga-que-nunca-mais-bate"
+
+    const firstCycle = mergeObsidianNotes(base, [
+      { path: "Campanhas/A Queda de Zotera/Eventos e Missões/Acampamento.md", markdown: "# Versão 2 do Obsidian\n", createdAt: 1, modifiedAt: 50 },
+    ])
+    expect(firstCycle.state.pages.filter((page) => page.title.includes("cópia local em conflito"))).toHaveLength(1)
+
+    // Ciclo seguinte (os 30s da sincronização automática, por exemplo): o
+    // arquivo do vault mudou de novo, mas o conteúdo real da página não.
+    const secondCycle = mergeObsidianNotes(firstCycle.state, [
+      { path: "Campanhas/A Queda de Zotera/Eventos e Missões/Acampamento.md", markdown: "# Versão 3 do Obsidian\n", createdAt: 1, modifiedAt: 60 },
+    ])
+    expect(secondCycle.state.pages.filter((page) => page.title.includes("cópia local em conflito"))).toHaveLength(1)
+  })
+})
+
+/**
  * Cronologia guarda eras e acontecimentos. A pasta vencia o frontmatter, e
  * todo acontecimento gravado ali voltava como era.
  */

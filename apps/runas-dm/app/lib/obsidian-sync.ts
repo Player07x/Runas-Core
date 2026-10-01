@@ -299,6 +299,28 @@ export function pageObsidianFingerprint(page: KnowledgePage, state: KnowledgeWor
   })
 }
 
+/**
+ * Assinatura de conteúdo só para decidir se uma cópia de conflito já
+ * existente equivale a uma nova — nunca depende de outras páginas do estado
+ * (ao contrário do fingerprint, que inclui vínculos e o nome da campanha),
+ * para não herdar uma impureza que manteria `localChanged` em `true` e
+ * geraria uma cópia nova a cada ciclo de sincronização automática, mesmo sem
+ * edição real da página original. Sem `title`: quem chama já garante escopo,
+ * campanha e título da cópia iguais antes de comparar a assinatura, e o
+ * título gravado na cópia (`… (cópia local em conflito)`) nunca é o mesmo da
+ * página original que este hash também precisa reconhecer. Sem `tags`
+ * também: `categoryIds`/`tags` podem ganhar a categoria derivada só da pasta
+ * (linhas acima, "correção derivada somente da pasta") entre um ciclo e o
+ * outro, sem que o conteúdo tenha mudado de verdade — incluir `tags` aqui
+ * faria a mesma divergência antiga parecer uma cópia nova a cada vez.
+ */
+function conflictCopyContentSignature(page: KnowledgePage): string {
+  return hashText(JSON.stringify({
+    contentHtml: page.contentHtml, summary: page.summary, status: page.status, date: page.date,
+    eraId: page.eraId ?? null, eventYear: page.eventYear ?? null, storyEventIds: page.storyEventIds,
+  }))
+}
+
 function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
 }
@@ -790,7 +812,27 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
       const isWikiLocation = Boolean(wikiLocation(note.path))
       const campaignTitle = isWikiLocation ? "" : referencedCampaignTitle(noteFrontmatter)
       const scope = isWikiLocation ? "wiki" : (text(noteFrontmatter.runas_scope) === "campaign" || Boolean(campaignTitle) || Boolean(campaignLocation(note.path, state.campaigns)) ? "campaign" : "wiki")
-      const matches = state.pages.map((page, index) => ({ page, index })).filter(({ page }) => page.scope === scope && normalizedLabel(page.title) === normalizedLabel(title))
+      // Mesmo título não basta: "Acampamento" pode existir em duas campanhas (ou
+      // em duas categorias da wiki) sem ser a mesma página. Sem esta checagem,
+      // uma nota nova nesses casos era tratada como divergência da nota antiga —
+      // gerando sobrescrita silenciosa ou cópias de conflito a cada sincronização.
+      // Só bloqueia o match quando os dois lados TÊM uma campanha/categoria
+      // conhecida e ela diverge; sem informação de um dos lados (ex.: página
+      // ainda não exportada), mantém o comportamento permissivo anterior.
+      const notePathCampaignFolder = !isWikiLocation && normalizedLabel(normalizePath(note.path).split("/")[0] ?? "") === normalizedLabel(CAMPAIGN_VAULT_FOLDER) ? normalizePath(note.path).split("/")[1] ?? "" : ""
+      const noteCampaignKey = normalizedLabel(campaignTitle || notePathCampaignFolder)
+      const noteCategoryKey = normalizedLabel(wikiLocation(note.path)?.category ?? "")
+      const matches = state.pages.map((page, index) => ({ page, index })).filter(({ page }) => {
+        if (page.scope !== scope || normalizedLabel(page.title) !== normalizedLabel(title)) return false
+        if (scope === "campaign") {
+          const pageCampaignKey = normalizedLabel(campaignFor(page, state.campaigns)?.title ?? "")
+          if (noteCampaignKey && pageCampaignKey && noteCampaignKey !== pageCampaignKey) return false
+        } else if (page.obsidianPath) {
+          const pageCategoryKey = normalizedLabel(wikiLocation(page.obsidianPath)?.category ?? "")
+          if (noteCategoryKey !== pageCategoryKey) return false
+        }
+        return true
+      })
       if (matches.length === 1) existingIndex = matches[0].index
     }
     const existing = existingIndex >= 0 ? state.pages[existingIndex] : undefined
@@ -801,7 +843,16 @@ export function mergeObsidianNotes(localState: KnowledgeWorkspaceState, notes: V
       const localChanged = hasBaseline && existing.obsidianFingerprint !== pageObsidianFingerprint(existing, state)
       const remoteChanged = !hasBaseline || existing.obsidianSourceMarkdown !== note.markdown
       if (hasBaseline && localChanged && remoteChanged) {
-        state.pages.push({ ...existing, id: createKnowledgeId("page-conflict"), title: `${existing.title} (cópia local em conflito)`, obsidianPath: "", obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0, updatedAt: Date.now() })
+        // Dedup por conteúdo, igual ao backup de arquivo em `Assets/Runas DM
+        // Backups`: sem isso, um laço de sincronização automática (ou um
+        // fingerprint que nunca estabiliza) cria uma cópia nova a cada ciclo,
+        // mesmo quando a página "divergente" não mudou desde a última cópia.
+        const conflictTitle = `${existing.title} (cópia local em conflito)`
+        const signature = conflictCopyContentSignature(existing)
+        const hasEquivalentCopy = state.pages.some((page) => page.scope === existing.scope && page.campaignId === existing.campaignId && page.title === conflictTitle && conflictCopyContentSignature(page) === signature)
+        if (!hasEquivalentCopy) {
+          state.pages.push({ ...existing, id: createKnowledgeId("page-conflict"), title: conflictTitle, obsidianPath: "", obsidianSourceMarkdown: "", obsidianFingerprint: "", obsidianModifiedAt: 0, updatedAt: Date.now() })
+        }
       }
       if (!hasBaseline || (remoteChanged && note.modifiedAt >= existing.updatedAt)) {
         state.pages[existingIndex] = remote
