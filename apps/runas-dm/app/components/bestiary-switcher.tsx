@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Archive, Check, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Archive, Check, CloudDownload, Pencil, Plus, Trash2, X } from "lucide-react"
 import { getRulesetDefinition } from "@runas/ruleset-contracts/definitions"
 import type { BestiaryCollectionMeta } from "../lib/model"
 
@@ -13,11 +13,12 @@ import type { BestiaryCollectionMeta } from "../lib/model"
  * Excluir tira só o registro do seletor: os dados (IndexedDB, vault, nuvem)
  * continuam intactos, como a Lixeira do sistema — nunca uma remoção definitiva.
  */
-export function BestiarySwitcher({ collections, activeId, onSwitch, onCreateNew, onRename, onDelete }: {
+export function BestiarySwitcher({ collections, activeId, onSwitch, onCreateNew, onDiscover, onRename, onDelete }: {
   collections: BestiaryCollectionMeta[]
   activeId: string
   onSwitch: (id: string) => void
   onCreateNew: () => void
+  onDiscover: () => void
   onRename: (id: string, name: string) => void
   onDelete: (id: string) => void
 }) {
@@ -48,5 +49,6 @@ export function BestiarySwitcher({ collections, activeId, onSwitch, onCreateNew,
           </div>)}
     </div>
     <button type="button" className="topbar-menu-item" onClick={onCreateNew}><Plus size={18} /><span>Criar novo bestiário</span></button>
+    <button type="button" className="topbar-menu-item" onClick={onDiscover}><CloudDownload size={18} /><span>Procurar na nuvem…</span></button>
   </div>
 }

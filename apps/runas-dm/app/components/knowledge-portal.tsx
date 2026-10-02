@@ -7,11 +7,13 @@ import { Archive, BookMarked, BookOpen, CalendarDays, Check, Cloud, CloudDownloa
 import { getRunasVtt, toVttCharacter, VTT_MAX_IMPORT_BATCH } from "@runas/vtt-bridge"
 import { cloneCharacter, createEmptyRunasDmState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeRunasDmState, type BestiaryEntry, type EncounterActor } from "../lib/model"
 import { loadBestiaryRegistry, loadLocalState, saveLocalState } from "../lib/storage"
-import { applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, isChronologyPage, pageKindLabel, removeWikiCollection, renameWikiCollection, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
+import { adoptWikiCollection, applyCloudBackup, CAMPAIGN_MAIN_SECTIONS, CAMPAIGN_STATUSES, WIKI_SECTIONS, chronologyEraPages, createCampaign, createKnowledgeId, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, effectivePageLinks, isChronologyPage, pageKindLabel, removeWikiCollection, renameWikiCollection, sortKnowledgePages, storyEventsOf, withRefreshedStories, withStoryEvents, type CampaignMainSection, type CloudImportMode, type PageSort, plainTextFromHtml, wikiLinkTitles, type CampaignRecord, type KnowledgeCategory, type KnowledgePage, type KnowledgePageKind, type KnowledgeTag, type KnowledgeWorkspaceState, type WikiRegistry } from "../lib/knowledge-model"
 import { loadKnowledgeWorkspace, saveKnowledgeWorkspace, loadWikiRegistry, saveWikiRegistry } from "../lib/knowledge-storage"
 import { getObsidianPreferencesServerSnapshot, readObsidianPreferences, subscribeObsidianPreferences, ObsidianDialog, type ObsidianPreferences } from "./obsidian-dialog"
 import { CloudImportDialog } from "./cloud-import-dialog"
 import { CloudConflictDialog, type CloudConflict } from "./cloud-conflict-dialog"
+import { CloudDirectoryDialog } from "./cloud-directory-dialog"
+import { fetchCloudDirectory, pushCollectionDirectory, type CollectionDirectoryEntry } from "../lib/collection-directory"
 import { BackupTokenDialog } from "./backup-token-dialog"
 import { clearBackupToken, fetchCloudBackup, fetchCloudMeta, getDeviceId, hashText, putCloudBackup, readBackupToken, readCloudBase, readCloudSignature, saveBackupToken, writeCloudBase, writeCloudSignature, type CloudHead } from "../lib/cloud-backup"
 import { getLocalOnlyModeServerSnapshot, LOCAL_ONLY_MESSAGE, readLocalOnlyMode, subscribeLocalOnlyMode, writeLocalOnlyMode } from "../lib/sync-preferences"
@@ -65,13 +67,16 @@ interface VaultRestoreOffer { source: "vault" | "arquivo"; items: VaultRestoreIt
 function browserStorage(): Storage | null {
   try { return typeof window === "undefined" ? null : window.localStorage } catch { return null }
 }
-type CloudAction = "backup" | "import"
+type CloudAction = "backup" | "import" | "discover"
 
 // Campanhas e Wiki são locais e abrem sem login. O token só ativa o backup na
 // nuvem e é o mesmo do Bestiário: fica apenas na sessão desta aba
 // (`lib/cloud-backup.ts`).
 type CloudPhase = "off" | "idle" | "uploading" | "synced" | "blocked" | "error"
 interface CloudState { phase: CloudPhase; message: string }
+
+/** Marca, entre o clique em "Importar" de uma wiki descoberta e o recarregamento que a adota, que a importação deve reabrir sozinha — nunca é enviada a lugar nenhum, só lida uma vez por esta aba. */
+const PENDING_CLOUD_IMPORT_KEY = "runas-dm.pending-cloud-import"
 
 /** Espera sem novas mudanças antes de enviar, e o máximo que uma sequência contínua de edições pode adiar o envio. */
 const CLOUD_UPLOAD_DELAY_MS = 15_000
@@ -154,6 +159,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   const [wikiRegistry, setWikiRegistry] = useState<WikiRegistry | null>(null)
   const [createWikiOpen, setCreateWikiOpen] = useState(false)
   const [unknownFolder, setUnknownFolder] = useState<{ handle: DirectoryHandle; name: string } | null>(null)
+  // Wikis que já existem no backup da nuvem deste mestre mas ainda não neste dispositivo (`null` = diálogo fechado).
+  const [discoveredWikis, setDiscoveredWikis] = useState<CollectionDirectoryEntry[] | null>(null)
   const hydratedOnce = useRef(false)
   const stateRef = useRef(state)
   // Envio à nuvem: um por vez; pausado enquanto o usuário não decide um conflito;
@@ -233,6 +240,18 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setSelectedCampaignId((current) => current ?? local.campaigns[0]?.id ?? null)
     setSyncState("local")
     setHydrated(true)
+    const token = readBackupToken()
+    if (token && !readLocalOnlyMode()) {
+      // Autocura: publica (ou atualiza) o diretório da nuvem com as wikis que este dispositivo já
+      // conhece, mesmo as criadas antes desta funcionalidade existir — melhor esforço, nunca bloqueia.
+      void pushCollectionDirectory("knowledge", token, { version: 1, collections: registry.collections.map((collection) => ({ id: collection.id, name: collection.name, updatedAt: collection.updatedAt })) })
+    }
+    let pendingImport: string | null = null
+    try { pendingImport = window.sessionStorage.getItem(PENDING_CLOUD_IMPORT_KEY) } catch { pendingImport = null }
+    if (pendingImport === "knowledge") {
+      try { window.sessionStorage.removeItem(PENDING_CLOUD_IMPORT_KEY) } catch { /* no máximo o mestre reabre "Importar da nuvem" sozinho */ }
+      void openCloudImport(registry.activeCollectionId)
+    }
   }, [])
 
   useEffect(() => {
@@ -569,10 +588,10 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     }
   }, [hydrated, inspectVault, obsidianPreferences.automatic, obsidianPreferences.enabled, persistVaultData, withVaultLock])
 
-  /** Abre o diálogo de importação já com as versões que a nuvem guarda. */
-  async function openCloudImport() {
+  /** Abre o diálogo de importação já com as versões que a nuvem guarda. Sem `wikiId`, usa a wiki ativa agora. */
+  async function openCloudImport(wikiId = stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID) {
     if (readLocalOnlyMode()) { setNotice(LOCAL_ONLY_MESSAGE); return }
-    const meta = await fetchCloudMeta("knowledge", readBackupToken(), stateRef.current.collectionId ?? DEFAULT_WIKI_COLLECTION_ID)
+    const meta = await fetchCloudMeta("knowledge", readBackupToken(), wikiId)
     if (!meta.ok) { if (meta.reason === "unauthorized") clearBackupToken(); setNotice(meta.message); return }
     if (!meta.head) { setNotice(meta.localOnly ? "No preview local não há nuvem." : "Ainda não existe backup na nuvem."); return }
     setCloudVersions(meta.versions)
@@ -626,6 +645,13 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (outcome === "nothing") await withVaultLock(() => persistVaultData({ prompt: true, bestiary: true }))
   }
 
+  /** Publica o registro de wikis no diretório da nuvem (melhor esforço: só com token, nunca bloqueia quem chama). */
+  function syncWikiDirectory(registry: WikiRegistry) {
+    const token = readBackupToken()
+    if (!token || readLocalOnlyMode()) return
+    void pushCollectionDirectory("knowledge", token, { version: 1, collections: registry.collections.map((collection) => ({ id: collection.id, name: collection.name, updatedAt: collection.updatedAt })) })
+  }
+
   /** Troca a wiki ativa: grava o registro e recarrega a página — a forma mais simples e segura de reiniciar toda a sincronização. */
   function switchWiki(id: string) {
     if (!wikiRegistry || id === wikiRegistry.activeCollectionId) return
@@ -637,9 +663,15 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     const next = renameWikiCollection(wikiRegistry, id, name)
     setWikiRegistry(next)
     void saveWikiRegistry(next)
+    syncWikiDirectory(next)
   }
 
-  /** Só tira a wiki do registro (páginas e campanhas continuam no IndexedDB, vault e nuvem). Recarrega só se era a ativa. */
+  /**
+   * Só tira a wiki do registro (páginas e campanhas continuam no IndexedDB, vault e nuvem).
+   * Recarrega só se era a ativa. Nunca publica no diretório da nuvem: a remoção é só deste
+   * dispositivo (outro computador pode legitimamente continuar usando a mesma wiki), então o
+   * diretório — que só cresce — segue intacto para que ela continue descobrível em qualquer lugar.
+   */
   function deleteWikiCollection(id: string) {
     if (!wikiRegistry) return
     const wasActive = wikiRegistry.activeCollectionId === id
@@ -655,6 +687,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       ? { ...wikiRegistry, collections: [...wikiRegistry.collections, collection], activeCollectionId: collection.id }
       : { version: 1, collections: [collection], activeCollectionId: collection.id }
     setCreateWikiOpen(false)
+    syncWikiDirectory(next)
     void saveWikiRegistry(next).then(() => window.location.reload())
   }
 
@@ -693,6 +726,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
       : { version: 1, collections: [collection], activeCollectionId: collection.id }
     const handle = unknownFolder.handle
     setUnknownFolder(null)
+    syncWikiDirectory(next)
     void (async () => { await adoptVaultFolder(collection.id, handle); await saveWikiRegistry(next); window.location.reload() })()
   }
 
@@ -744,7 +778,8 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     if (readLocalOnlyMode()) { setNotice(LOCAL_ONLY_MESSAGE); return }
     if (!readBackupToken()) { setPendingCloudAction(action); return }
     if (action === "backup") void uploadKnowledge({ manual: true })
-    else void openCloudImport()
+    else if (action === "import") void openCloudImport()
+    else void openWikiDiscovery()
   }
 
   function submitBackupToken(token: string) {
@@ -753,6 +788,32 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     setPendingCloudAction(null)
     if (action === "backup") void uploadKnowledge({ manual: true })
     if (action === "import") void openCloudImport()
+    if (action === "discover") void openWikiDiscovery()
+  }
+
+  /** Busca o diretório da nuvem e mostra as wikis que este dispositivo ainda não conhece. */
+  async function openWikiDiscovery() {
+    const token = readBackupToken()
+    const directory = await fetchCloudDirectory("knowledge", token)
+    if (!directory) { setNotice("Não foi possível consultar a nuvem."); return }
+    const known = new Set([...(wikiRegistry?.collections.map((collection) => collection.id) ?? []), ...(wikiRegistry?.deletedCollectionIds ?? [])])
+    setDiscoveredWikis(directory.collections.filter((entry) => !known.has(entry.id)))
+  }
+
+  /**
+   * Recria localmente, com o mesmo id, uma wiki escolhida no diretório da nuvem, e recarrega a
+   * página já apontando para ela — mesmo padrão de `createWiki`/`switchWiki`. A importação do
+   * conteúdo continua manual: só reabre "Importar da nuvem" depois da hidratação (`hydrate`),
+   * quando a coleção certa já está ativa; o clique em "Sincronizar"/"Substituir tudo" é do mestre.
+   */
+  function adoptDiscoveredWiki(entry: CollectionDirectoryEntry) {
+    const collection = adoptWikiCollection(entry.id, entry.name)
+    const next: WikiRegistry = wikiRegistry
+      ? { ...wikiRegistry, collections: [...wikiRegistry.collections, collection], activeCollectionId: collection.id }
+      : { version: 1, collections: [collection], activeCollectionId: collection.id }
+    setDiscoveredWikis(null)
+    try { window.sessionStorage.setItem(PENDING_CLOUD_IMPORT_KEY, "knowledge") } catch { /* sem sessão: o mestre reabre "Importar da nuvem" manualmente */ }
+    void saveWikiRegistry(next).then(() => window.location.reload())
   }
 
   /** Importação manual (nunca automática). Grava a versão-base: a partir daqui este dispositivo "conhece" a nuvem. */
@@ -1248,7 +1309,7 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
   }
   if (vaultStatus.message) headerDetails.push({ text: vaultStatus.message, attention: vaultStatus.attention })
   return <main className={`knowledge-shell knowledge-app grid-size-${gridDensity} ${area === "campaigns" ? "campaign-themed" : ""}`} style={area === "campaigns" ? campaignTheme(selectedCampaign) : undefined}>
-    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} wikiRegistry={wikiRegistry} onSwitchWiki={switchWiki} onCreateWiki={() => setCreateWikiOpen(true)} onConnectFolder={() => void connectFolderForWiki()} onRenameWiki={renameWiki} onDeleteWiki={deleteWikiCollection} localOnly={localOnly} onSetLocalOnly={setLocalOnly} />
+    <KnowledgeHeader area={area} status={headerStatus} details={headerDetails} gridDensity={gridDensity} onChangeGridDensity={changeGridDensity} onObsidian={() => setObsidianOpen(true)} onCloudBackup={() => requestCloudAction("backup")} onCloudImport={() => requestCloudAction("import")} wikiRegistry={wikiRegistry} onSwitchWiki={switchWiki} onCreateWiki={() => setCreateWikiOpen(true)} onConnectFolder={() => void connectFolderForWiki()} onDiscoverWikis={() => requestCloudAction("discover")} onRenameWiki={renameWiki} onDeleteWiki={deleteWikiCollection} localOnly={localOnly} onSetLocalOnly={setLocalOnly} />
     {area === "campaigns" ? <CampaignPortal campaigns={state.campaigns} selectedCampaignId={selectedCampaignId} pageCounts={campaignPageCounts} onCreate={addCampaign} onReorder={reorderCampaigns} onSelect={(id) => { setSelectedCampaignId(id); navigateRoute({ campaignId: id, page: String(selectedKind) }) }}><>
       {selectedCampaign ? <CampaignHeading campaign={selectedCampaign} onChange={updateCampaign} onDelete={removeCampaign} /> : <div className="knowledge-heading"><div><p className="eyebrow">Arquivo de Ordem x Caos</p><h1>Campanhas</h1><p>Organize aventuras, sessões e encontros em um único lugar.</p></div><button className="primary-button" onClick={addCampaign}><Plus size={17} /> Criar campanha</button></div>}
       {selectedCampaign && <nav className="knowledge-tabs" aria-label="Seções da campanha">{kinds.map((kind) => <button key={kind.id} className={selectedKind === kind.id ? "active" : ""} onClick={() => { setSelectedKind(kind.id as PortalKind); setOpenStoryId(null); navigateRoute({ campaignId: selectedCampaign.id, page: String(kind.id) }); setStatusFilter("all"); setCategoryFilter("all"); setSearch(""); setTagFilter("all") }}>{kind.id === "graph" ? <><Network size={16} /> Gráfico</> : kind.label}</button>)}</nav>}
@@ -1272,17 +1333,18 @@ export function KnowledgePortal({ area }: { area: PortalArea }) {
     {cloudConflict && <CloudConflictDialog conflict={cloudConflict} local={knowledgeStats(knowledgeSnapshotForStorage(state))} onClose={() => setCloudConflict(null)} onImport={() => void importFromCloud("merge")} onForce={() => { setCloudConflict(null); void uploadKnowledge({ force: true, manual: true }) }} />}
     {createWikiOpen && <CreateWikiDialog existingNames={wikiRegistry?.collections.map((collection) => collection.name) ?? []} onCreate={createWiki} onClose={() => setCreateWikiOpen(false)} />}
     {unknownFolder && <UnknownFolderDialog folderName={unknownFolder.name} knownWikis={wikiRegistry?.collections ?? []} onCreateNew={resolveUnknownFolderCreate} onReplaceExisting={resolveUnknownFolderReplace} onClose={() => setUnknownFolder(null)} />}
+    {discoveredWikis && <CloudDirectoryDialog title="Wikis na nuvem" introMessage="Encontradas no backup da nuvem deste mestre, mas ainda não neste dispositivo:" emptyMessage="Nenhuma wiki nova encontrada na nuvem." entries={discoveredWikis} onClose={() => setDiscoveredWikis(null)} onImport={adoptDiscoveredWiki} />}
   </main>
 }
 
-function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport, wikiRegistry, onSwitchWiki, onCreateWiki, onConnectFolder, onRenameWiki, onDeleteWiki, localOnly, onSetLocalOnly }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void; wikiRegistry: WikiRegistry | null; onSwitchWiki: (id: string) => void; onCreateWiki: () => void; onConnectFolder: () => void; onRenameWiki: (id: string, name: string) => void; onDeleteWiki: (id: string) => void; localOnly: boolean; onSetLocalOnly: (value: boolean) => void }) {
+function KnowledgeHeader({ area, status, details, gridDensity, onChangeGridDensity, onObsidian, onCloudBackup, onCloudImport, wikiRegistry, onSwitchWiki, onCreateWiki, onConnectFolder, onDiscoverWikis, onRenameWiki, onDeleteWiki, localOnly, onSetLocalOnly }: { area: PortalArea; status: TopbarStatus; details: TopbarDetail[]; gridDensity: GridDensity; onChangeGridDensity: (value: GridDensity) => void; onObsidian: () => void; onCloudBackup: () => void; onCloudImport: () => void; wikiRegistry: WikiRegistry | null; onSwitchWiki: (id: string) => void; onCreateWiki: () => void; onConnectFolder: () => void; onDiscoverWikis: () => void; onRenameWiki: (id: string, name: string) => void; onDeleteWiki: (id: string) => void; localOnly: boolean; onSetLocalOnly: (value: boolean) => void }) {
   return <header className="topbar knowledge-appbar">
     <a className="brand" href="/"><span className="brand-rune">R</span><span className="brand-copy"><strong>Runas DM</strong><small>Arquivo do mestre</small></span><b className="topbar-badge">DM</b></a>
     <KnowledgeNavigation area={area} />
     <div className="top-actions knowledge-header-actions">
       <TopbarMenu status={status} details={details}>
         {(close) => <>
-          {wikiRegistry && <WikiSwitcher collections={wikiRegistry.collections} activeId={wikiRegistry.activeCollectionId} onSwitch={(id) => { close(); onSwitchWiki(id) }} onCreateNew={() => { close(); onCreateWiki() }} onConnectFolder={() => { close(); onConnectFolder() }} onRename={onRenameWiki} onDelete={onDeleteWiki} />}
+          {wikiRegistry && <WikiSwitcher collections={wikiRegistry.collections} activeId={wikiRegistry.activeCollectionId} onSwitch={(id) => { close(); onSwitchWiki(id) }} onCreateNew={() => { close(); onCreateWiki() }} onConnectFolder={() => { close(); onConnectFolder() }} onDiscover={() => { close(); onDiscoverWikis() }} onRename={onRenameWiki} onDelete={onDeleteWiki} />}
           <GridSizeControl value={gridDensity} onChange={onChangeGridDensity} />
           <ThemeToggle variant="menu" />
           <button className="topbar-menu-item" onClick={() => onSetLocalOnly(!localOnly)} title={localOnly ? "Ligar a sincronização com a nuvem" : "Desligar a sincronização com a nuvem: nenhum envio ou importação automática ou manual sai deste dispositivo"}>{localOnly ? <CloudOff size={18} /> : <Cloud size={18} />}<span>{localOnly ? "Modo local (nuvem desligada)" : "Sincronização com a nuvem ligada"}</span></button>

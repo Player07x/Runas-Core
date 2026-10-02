@@ -27,7 +27,7 @@ import { applyDeterminationToRoll, applyDeterminationUsesToRoll, calculateAttrib
 import type { AttributeKey, Character, CharacterSkill, CharacterSpell, SecondaryAttributeKey } from "@runas/core/types/character"
 import type { SkillRoll, SkillRollOutcome, SpecialDieId } from "@runas/core/types/skillTest"
 import {
-  characterImage, cloneCharacter, createBestiaryCollection, createEmptyCharacter, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, essenceYield,
+  adoptBestiaryCollection, characterImage, cloneCharacter, createBestiaryCollection, createEmptyCharacter, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, essenceYield,
   normalizeRunasDmState, removeBestiaryCollection, renameBestiaryCollection, type BestiaryEntry, type BestiaryRegistry, type EncounterActor, type InitiativeEntry, type MasteryTable, type RunasDmState,
 } from "../lib/model"
 import { getRulesetDefinition } from "@runas/ruleset-contracts/definitions"
@@ -37,6 +37,8 @@ import { parseGalleryZip } from "@runas/core/lib/galleryImport"
 import { loadBestiaryRegistry, loadLocalState, saveBestiaryRegistry, saveLocalState } from "../lib/storage"
 import { BestiarySwitcher } from "./bestiary-switcher"
 import { CreateBestiaryDialog } from "./create-bestiary-dialog"
+import { CloudDirectoryDialog } from "./cloud-directory-dialog"
+import { fetchCloudDirectory, pushCollectionDirectory, type CollectionDirectoryEntry } from "../lib/collection-directory"
 import { BestiaryComingSoon } from "./bestiary-coming-soon"
 import { AdvancedSheetEditor } from "./advanced-sheet-editor"
 import { ItemAttachments, abilityAttachment, spellAttachment } from "./item-attachments"
@@ -64,7 +66,10 @@ import { createId } from "@runas/core/lib/ids"
 
 type WorkspaceView = "gallery" | "encounter"
 type SaveStatus = "loading" | "saving" | "saved" | "error"
-type CloudAction = "backup" | "synchronize"
+type CloudAction = "backup" | "synchronize" | "discover"
+
+/** Mesma chave de `knowledge-portal.tsx`: marca, entre adotar um bestiário descoberto e o recarregamento, que a sincronização deve reabrir sozinha. */
+const PENDING_CLOUD_IMPORT_KEY = "runas-dm.pending-cloud-import"
 
 /** Espera sem novas mudanças antes de enviar, e o máximo que uma sequência contínua de edições pode adiar o envio — como em knowledge-portal.tsx. */
 const CLOUD_UPLOAD_DELAY_MS = 15_000
@@ -118,6 +123,8 @@ export function DmDashboard() {
   // mesmo motivo do seletor de wikis.
   const [bestiaryRegistry, setBestiaryRegistry] = useState<BestiaryRegistry | null>(null)
   const [createBestiaryOpen, setCreateBestiaryOpen] = useState(false)
+  // Bestiários que já existem no backup da nuvem deste mestre mas ainda não neste dispositivo (`null` = diálogo fechado).
+  const [discoveredBestiaries, setDiscoveredBestiaries] = useState<CollectionDirectoryEntry[] | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
   // Dentro do RunasVTT, a Mesa opera sobre os tokens da cena aberta nele.
   const vttMesa = useVttMesa(setSyncMessage)
@@ -150,12 +157,38 @@ export function DmDashboard() {
       setState(stored ? normalizeRunasDmState(stored) : createEmptyRunasDmState(registry.activeCollectionId))
       setReady(true)
       setSaveStatus("saved")
+      const token = readBackupToken()
+      if (token && !readLocalOnlyMode()) {
+        // Autocura: publica (ou atualiza) o diretório da nuvem com os bestiários que este
+        // dispositivo já conhece, mesmo os criados antes desta funcionalidade existir.
+        void pushCollectionDirectory("bestiary", token, { version: 1, collections: registry.collections.map((collection) => ({ id: collection.id, name: collection.name, updatedAt: collection.updatedAt, system: collection.system })) })
+      }
     }).catch(() => {
       setReady(true)
       setSaveStatus("error")
     })
     return () => { active = false }
   }, [])
+
+  // Depois de adotar um bestiário descoberto na nuvem e recarregar, reabre a sincronização sozinha,
+  // já na coleção certa — o clique final em "Sincronizar" continua do mestre (`synchronizeFromCloud`).
+  useEffect(() => {
+    if (!ready) return
+    let pending: string | null = null
+    try { pending = window.sessionStorage.getItem(PENDING_CLOUD_IMPORT_KEY) } catch { pending = null }
+    if (pending !== "bestiary") return
+    try { window.sessionStorage.removeItem(PENDING_CLOUD_IMPORT_KEY) } catch { /* no máximo o mestre clica em "Sincronizar" de novo */ }
+    const token = readBackupToken()
+    if (token) void synchronizeFromCloud(token)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma única vez, assim que `ready`; `synchronizeFromCloud` já lê o `state` deste render.
+  }, [ready])
+
+  /** Publica o registro de bestiários no diretório da nuvem (melhor esforço: só com token, nunca bloqueia quem chama). */
+  function syncBestiaryDirectory(registry: BestiaryRegistry) {
+    const token = readBackupToken()
+    if (!token || readLocalOnlyMode()) return
+    void pushCollectionDirectory("bestiary", token, { version: 1, collections: registry.collections.map((collection) => ({ id: collection.id, name: collection.name, updatedAt: collection.updatedAt, system: collection.system })) })
+  }
 
   /** Troca o bestiário ativo: grava o registro e recarrega a página. */
   function switchBestiary(id: string) {
@@ -168,9 +201,15 @@ export function DmDashboard() {
     const next = renameBestiaryCollection(bestiaryRegistry, id, name)
     setBestiaryRegistry(next)
     void saveBestiaryRegistry(next)
+    syncBestiaryDirectory(next)
   }
 
-  /** Só tira o bestiário do registro (as fichas continuam no IndexedDB, vault e nuvem). Recarrega só se era o ativo. */
+  /**
+   * Só tira o bestiário do registro (as fichas continuam no IndexedDB, vault e nuvem). Recarrega
+   * só se era o ativo. Nunca publica no diretório da nuvem: a remoção é só deste dispositivo (outro
+   * computador pode legitimamente continuar usando o mesmo bestiário), então o diretório — que só
+   * cresce — segue intacto para que ele continue descobrível em qualquer lugar.
+   */
   function deleteBestiaryCollection(id: string) {
     if (!bestiaryRegistry) return
     const wasActive = bestiaryRegistry.activeCollectionId === id
@@ -186,6 +225,31 @@ export function DmDashboard() {
       ? { ...bestiaryRegistry, collections: [...bestiaryRegistry.collections, collection], activeCollectionId: collection.id }
       : { version: 1, collections: [collection], activeCollectionId: collection.id }
     setCreateBestiaryOpen(false)
+    syncBestiaryDirectory(next)
+    void saveBestiaryRegistry(next).then(() => window.location.reload())
+  }
+
+  /** Busca o diretório da nuvem e mostra os bestiários que este dispositivo ainda não conhece. */
+  async function openBestiaryDiscovery() {
+    const token = readBackupToken()
+    const directory = await fetchCloudDirectory("bestiary", token)
+    if (!directory) { setSyncMessage("Não foi possível consultar a nuvem."); return }
+    const known = new Set([...(bestiaryRegistry?.collections.map((collection) => collection.id) ?? []), ...(bestiaryRegistry?.deletedCollectionIds ?? [])])
+    setDiscoveredBestiaries(directory.collections.filter((entry) => !known.has(entry.id)))
+  }
+
+  /**
+   * Recria localmente, com o mesmo id, um bestiário escolhido no diretório da nuvem, e recarrega a
+   * página já apontando para ele — mesmo padrão de `createBestiary`/`switchBestiary`. A sincronização
+   * do conteúdo continua manual: só reabre depois de `ready`, quando a coleção certa já está ativa.
+   */
+  function adoptDiscoveredBestiary(entry: CollectionDirectoryEntry) {
+    const collection = adoptBestiaryCollection(entry.id, entry.name, entry.system ?? "runas-blue")
+    const next: BestiaryRegistry = bestiaryRegistry
+      ? { ...bestiaryRegistry, collections: [...bestiaryRegistry.collections, collection], activeCollectionId: collection.id }
+      : { version: 1, collections: [collection], activeCollectionId: collection.id }
+    setDiscoveredBestiaries(null)
+    try { window.sessionStorage.setItem(PENDING_CLOUD_IMPORT_KEY, "bestiary") } catch { /* sem sessão: o mestre clica em "Sincronizar" manualmente */ }
     void saveBestiaryRegistry(next).then(() => window.location.reload())
   }
 
@@ -386,7 +450,8 @@ export function DmDashboard() {
       return
     }
     if (action === "backup") void uploadBestiary({ manual: true })
-    else void synchronizeFromCloud(token)
+    else if (action === "synchronize") void synchronizeFromCloud(token)
+    else void openBestiaryDiscovery()
   }
 
   function duplicateSheet(entry: BestiaryEntry) {
@@ -406,6 +471,7 @@ export function DmDashboard() {
     setPendingCloudAction(null)
     if (action === "backup") void uploadBestiary({ manual: true })
     if (action === "synchronize") void synchronizeFromCloud(token)
+    if (action === "discover") void openBestiaryDiscovery()
   }
 
   /** Traduz um envio recusado ou falho em uma mensagem que diz o que realmente aconteceu. */
@@ -581,7 +647,7 @@ export function DmDashboard() {
         <div className="top-actions">
           <TopbarMenu status={{ tone: saveStatus === "saving" || saveStatus === "loading" ? "busy" : saveStatus === "error" ? "bad" : "good", label: saveStatus === "saving" ? "Salvando" : saveStatus === "error" ? "Falha local" : saveStatus === "loading" ? "Abrindo bestiário" : "Salvo localmente" }} details={vaultStatus.message ? [{ text: vaultStatus.message, attention: vaultStatus.attention } satisfies TopbarDetail] : []}>
             {(close) => <>
-              {bestiaryRegistry && <BestiarySwitcher collections={bestiaryRegistry.collections} activeId={bestiaryRegistry.activeCollectionId} onSwitch={(id) => { close(); switchBestiary(id) }} onCreateNew={() => { close(); setCreateBestiaryOpen(true) }} onRename={renameBestiary} onDelete={deleteBestiaryCollection} />}
+              {bestiaryRegistry && <BestiarySwitcher collections={bestiaryRegistry.collections} activeId={bestiaryRegistry.activeCollectionId} onSwitch={(id) => { close(); switchBestiary(id) }} onCreateNew={() => { close(); setCreateBestiaryOpen(true) }} onDiscover={() => { close(); requestCloudAction("discover") }} onRename={renameBestiary} onDelete={deleteBestiaryCollection} />}
               <ThemeToggle variant="menu" />
               <button className="topbar-menu-item" onClick={() => setLocalOnly(!localOnly)} title={localOnly ? "Ligar a sincronização com a nuvem" : "Desligar a sincronização com a nuvem: nenhum envio ou importação automática ou manual sai deste dispositivo"}>{localOnly ? <CloudOff size={18} /> : <Cloud size={18} />}<span>{localOnly ? "Modo local (nuvem desligada)" : "Sincronização com a nuvem ligada"}</span></button>
               <button className="topbar-menu-item" onClick={() => { close(); void saveBestiaryToVault(state, true).then((status) => { setVaultStatus(status); setSyncMessage(status.message || "Conecte um vault em Wiki › ⋯ › Obsidian para salvar o bestiário nele.") }) }}><Save size={18} /><span>Salvar bestiário no vault</span></button>
@@ -631,6 +697,7 @@ export function DmDashboard() {
       {batchExportOpen && <BatchExportDialog entries={state.entries} onSendToVtt={vttMesa ? (entries) => void sendToVtt(entries) : undefined} onClose={() => setBatchExportOpen(false)} />}
       {pendingCloudAction && <BackupTokenDialog onClose={() => setPendingCloudAction(null)} onSubmit={submitBackupToken} />}
       {createBestiaryOpen && <CreateBestiaryDialog existingNames={bestiaryRegistry?.collections.map((collection) => collection.name) ?? []} onCreate={createBestiary} onClose={() => setCreateBestiaryOpen(false)} />}
+      {discoveredBestiaries && <CloudDirectoryDialog title="Bestiários na nuvem" introMessage="Encontrados no backup da nuvem deste mestre, mas ainda não neste dispositivo:" emptyMessage="Nenhum bestiário novo encontrado na nuvem." entries={discoveredBestiaries} onClose={() => setDiscoveredBestiaries(null)} onImport={adoptDiscoveredBestiary} />}
       {!ready && <div className="loading-screen"><span className="brand-rune">R</span><p>Abrindo a mesa…</p></div>}
     </main>
   )

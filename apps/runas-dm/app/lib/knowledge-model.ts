@@ -236,6 +236,8 @@ export interface WikiRegistry {
   version: 1
   collections: WikiCollectionMeta[]
   activeCollectionId: string
+  /** Ids de wikis já removidas do seletor deste dispositivo: uma lápide para o diretório da nuvem nunca as ressuscitar. */
+  deletedCollectionIds?: string[]
 }
 
 /** Um dispositivo novo (ou um dispositivo que ainda não tinha o registro) começa só com a wiki padrão. */
@@ -244,11 +246,17 @@ export function createDefaultWikiRegistry(now = Date.now()): WikiRegistry {
     version: 1,
     collections: [{ id: DEFAULT_WIKI_COLLECTION_ID, name: DEFAULT_WIKI_NAME, createdAt: now, updatedAt: now }],
     activeCollectionId: DEFAULT_WIKI_COLLECTION_ID,
+    deletedCollectionIds: [],
   }
 }
 
 export function createWikiCollection(name: string, now = Date.now()): WikiCollectionMeta {
   return { id: createKnowledgeId("wiki"), name: name.trim() || DEFAULT_WIKI_NAME, createdAt: now, updatedAt: now }
+}
+
+/** Recria localmente uma wiki descoberta no diretório da nuvem, preservando o id: é o que faz o backup dela ser encontrado. */
+export function adoptWikiCollection(id: string, name: string, now = Date.now()): WikiCollectionMeta {
+  return { id, name: name.trim() || DEFAULT_WIKI_NAME, createdAt: now, updatedAt: now }
 }
 
 export function renameWikiCollection(registry: WikiRegistry, id: string, name: string, now = Date.now()): WikiRegistry {
@@ -269,7 +277,8 @@ export function removeWikiCollection(registry: WikiRegistry, id: string): WikiRe
   const collections = registry.collections.filter((collection) => collection.id !== id)
   if (collections.length === registry.collections.length) return registry
   const activeCollectionId = registry.activeCollectionId === id ? collections[0].id : registry.activeCollectionId
-  return { ...registry, collections, activeCollectionId }
+  const deletedCollectionIds = registry.deletedCollectionIds?.includes(id) ? registry.deletedCollectionIds : [...(registry.deletedCollectionIds ?? []), id]
+  return { ...registry, collections, activeCollectionId, deletedCollectionIds }
 }
 
 /**
@@ -298,7 +307,10 @@ export function normalizeWikiRegistry(value: unknown): WikiRegistry {
   const activeCollectionId = typeof candidate.activeCollectionId === "string" && collections.some((collection) => collection.id === candidate.activeCollectionId)
     ? candidate.activeCollectionId
     : collections[0].id
-  return { version: 1, collections, activeCollectionId }
+  const deletedCollectionIds = Array.isArray(candidate.deletedCollectionIds)
+    ? [...new Set(candidate.deletedCollectionIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0))]
+    : []
+  return { version: 1, collections, activeCollectionId, deletedCollectionIds }
 }
 
 export function createCampaign(title = "Nova campanha"): CampaignRecord {

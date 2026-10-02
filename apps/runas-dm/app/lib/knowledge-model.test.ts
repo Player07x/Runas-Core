@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, removeWikiCollection, renameWikiCollection, wikiLinkTitles } from "./knowledge-model"
+import { adoptWikiCollection, applyCloudBackup, CAMPAIGN_STATUSES, chronologyEraPages, createDefaultWikiRegistry, createEmptyKnowledgeWorkspace, createKnowledgePage, createWikiCollection, DEFAULT_WIKI_COLLECTION_ID, mergeKnowledgeWorkspaces, normalizeKnowledgeWorkspace, normalizeWikiRegistry, parseList, removeWikiCollection, renameWikiCollection, wikiLinkTitles } from "./knowledge-model"
 
 describe("knowledge model", () => {
   it("mantém os status definidos pelo produto e normaliza referências de encontro", () => {
@@ -323,5 +323,24 @@ describe("registro de wikis", () => {
     expect(removed.activeCollectionId).toBe("w1")
     const onlyOne = normalizeWikiRegistry({ collections: [{ id: "w1", name: "Única", createdAt: 1, updatedAt: 1 }], activeCollectionId: "w1" })
     expect(removeWikiCollection(onlyOne, "w1")).toBe(onlyOne)
+  })
+
+  it("adota uma wiki descoberta no diretório da nuvem preservando o id recebido", () => {
+    const adopted = adoptWikiCollection("wiki-da-nuvem", "Ordem x Caos")
+    expect(adopted).toEqual(expect.objectContaining({ id: "wiki-da-nuvem", name: "Ordem x Caos" }))
+  })
+
+  it("remover acrescenta uma lápide; normalizar preserva e deduplica as lápides existentes", () => {
+    const registry = normalizeWikiRegistry({
+      collections: [{ id: "w1", name: "Ordem x Caos", createdAt: 1, updatedAt: 1 }, { id: "w2", name: "Valknut", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "w2",
+    })
+    const removed = removeWikiCollection(registry, "w2")
+    expect(removed.deletedCollectionIds).toEqual(["w2"])
+    // Já removida: não há o que remover de novo, então nem duplica a lápide.
+    expect(removeWikiCollection(removed, "w2")).toBe(removed)
+
+    const normalized = normalizeWikiRegistry({ ...removed, deletedCollectionIds: ["w2", "w2", "w3", 42, ""] })
+    expect(normalized.deletedCollectionIds).toEqual(["w2", "w3"])
   })
 })

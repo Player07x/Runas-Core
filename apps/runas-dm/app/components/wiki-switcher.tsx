@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, FolderOpen, LibraryBig, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Check, CloudDownload, FolderOpen, LibraryBig, Pencil, Plus, Trash2, X } from "lucide-react"
 import type { WikiCollectionMeta } from "../lib/knowledge-model"
 
 /**
@@ -13,12 +13,13 @@ import type { WikiCollectionMeta } from "../lib/knowledge-model"
  * Excluir tira só o registro do seletor: os dados (IndexedDB, vault, nuvem)
  * continuam intactos, como a Lixeira do sistema — nunca uma remoção definitiva.
  */
-export function WikiSwitcher({ collections, activeId, onSwitch, onCreateNew, onConnectFolder, onRename, onDelete }: {
+export function WikiSwitcher({ collections, activeId, onSwitch, onCreateNew, onConnectFolder, onDiscover, onRename, onDelete }: {
   collections: WikiCollectionMeta[]
   activeId: string
   onSwitch: (id: string) => void
   onCreateNew: () => void
   onConnectFolder: () => void
+  onDiscover: () => void
   onRename: (id: string, name: string) => void
   onDelete: (id: string) => void
 }) {
@@ -50,5 +51,6 @@ export function WikiSwitcher({ collections, activeId, onSwitch, onCreateNew, onC
     </div>
     <button type="button" className="topbar-menu-item" onClick={onCreateNew}><Plus size={18} /><span>Criar nova wiki</span></button>
     <button type="button" className="topbar-menu-item" onClick={onConnectFolder}><FolderOpen size={18} /><span>Conectar pasta existente…</span></button>
+    <button type="button" className="topbar-menu-item" onClick={onDiscover}><CloudDownload size={18} /><span>Procurar na nuvem…</span></button>
   </div>
 }

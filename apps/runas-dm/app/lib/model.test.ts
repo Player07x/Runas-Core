@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createBestiaryCollection, createDefaultBestiaryRegistry, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, removeBestiaryCollection, renameBestiaryCollection, type RunasDmState } from "./model"
+import { adoptBestiaryCollection, createBestiaryCollection, createDefaultBestiaryRegistry, createEmptyRunasDmState, createInitialState, DEFAULT_BESTIARY_COLLECTION_ID, normalizeBestiaryRegistry, normalizeRunasDmState, removeBestiaryCollection, renameBestiaryCollection, type RunasDmState } from "./model"
 
 describe("identidade do bestiário (collectionId)", () => {
   it("um bestiário novo já nasce com o id padrão", () => {
@@ -90,6 +90,25 @@ describe("registro de bestiários", () => {
     expect(removed.activeCollectionId).toBe("b1")
     const onlyOne = normalizeBestiaryRegistry({ collections: [{ id: "b1", name: "Único", system: "runas-blue", createdAt: 1, updatedAt: 1 }], activeCollectionId: "b1" })
     expect(removeBestiaryCollection(onlyOne, "b1")).toBe(onlyOne)
+  })
+
+  it("adota um bestiário descoberto no diretório da nuvem preservando o id e o sistema recebidos", () => {
+    const adopted = adoptBestiaryCollection("bestiario-da-nuvem", "Sagas de Cronos", "cronos")
+    expect(adopted).toEqual(expect.objectContaining({ id: "bestiario-da-nuvem", name: "Sagas de Cronos", system: "cronos" }))
+  })
+
+  it("remover acrescenta uma lápide; normalizar preserva e deduplica as lápides existentes", () => {
+    const registry = normalizeBestiaryRegistry({
+      collections: [{ id: "b1", name: "Feras", system: "runas-blue", createdAt: 1, updatedAt: 1 }, { id: "b2", name: "Sagas de Cronos", system: "cronos", createdAt: 2, updatedAt: 2 }],
+      activeCollectionId: "b2",
+    })
+    const removed = removeBestiaryCollection(registry, "b2")
+    expect(removed.deletedCollectionIds).toEqual(["b2"])
+    // Já removido: não há o que remover de novo, então nem duplica a lápide.
+    expect(removeBestiaryCollection(removed, "b2")).toBe(removed)
+
+    const normalized = normalizeBestiaryRegistry({ ...removed, deletedCollectionIds: ["b2", "b2", "b3", 42, ""] })
+    expect(normalized.deletedCollectionIds).toEqual(["b2", "b3"])
   })
 })
 

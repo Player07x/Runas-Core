@@ -67,6 +67,8 @@ export interface BestiaryRegistry {
   version: 1
   collections: BestiaryCollectionMeta[]
   activeCollectionId: string
+  /** Ids de bestiários já removidos do seletor deste dispositivo: uma lápide para o diretório da nuvem nunca os ressuscitar. */
+  deletedCollectionIds?: string[]
 }
 
 /** Um dispositivo novo (ou um dispositivo que ainda não tinha o registro) começa só com o bestiário padrão, em Livro Azul. */
@@ -75,11 +77,17 @@ export function createDefaultBestiaryRegistry(now = Date.now()): BestiaryRegistr
     version: 1,
     collections: [{ id: DEFAULT_BESTIARY_COLLECTION_ID, name: DEFAULT_BESTIARY_NAME, system: "runas-blue", createdAt: now, updatedAt: now }],
     activeCollectionId: DEFAULT_BESTIARY_COLLECTION_ID,
+    deletedCollectionIds: [],
   }
 }
 
 export function createBestiaryCollection(name: string, system: RulesetId, now = Date.now()): BestiaryCollectionMeta {
   return { id: createId(), name: name.trim() || DEFAULT_BESTIARY_NAME, system, createdAt: now, updatedAt: now }
+}
+
+/** Recria localmente um bestiário descoberto no diretório da nuvem, preservando o id: é o que faz o backup dele ser encontrado. */
+export function adoptBestiaryCollection(id: string, name: string, system: RulesetId, now = Date.now()): BestiaryCollectionMeta {
+  return { id, name: name.trim() || DEFAULT_BESTIARY_NAME, system, createdAt: now, updatedAt: now }
 }
 
 export function renameBestiaryCollection(registry: BestiaryRegistry, id: string, name: string, now = Date.now()): BestiaryRegistry {
@@ -100,7 +108,8 @@ export function removeBestiaryCollection(registry: BestiaryRegistry, id: string)
   const collections = registry.collections.filter((collection) => collection.id !== id)
   if (collections.length === registry.collections.length) return registry
   const activeCollectionId = registry.activeCollectionId === id ? collections[0].id : registry.activeCollectionId
-  return { ...registry, collections, activeCollectionId }
+  const deletedCollectionIds = registry.deletedCollectionIds?.includes(id) ? registry.deletedCollectionIds : [...(registry.deletedCollectionIds ?? []), id]
+  return { ...registry, collections, activeCollectionId, deletedCollectionIds }
 }
 
 /**
@@ -130,7 +139,10 @@ export function normalizeBestiaryRegistry(value: unknown): BestiaryRegistry {
   const activeCollectionId = typeof candidate.activeCollectionId === "string" && collections.some((collection) => collection.id === candidate.activeCollectionId)
     ? candidate.activeCollectionId
     : collections[0].id
-  return { version: 1, collections, activeCollectionId }
+  const deletedCollectionIds = Array.isArray(candidate.deletedCollectionIds)
+    ? [...new Set(candidate.deletedCollectionIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0))]
+    : []
+  return { version: 1, collections, activeCollectionId, deletedCollectionIds }
 }
 
 export function createEmptyCharacter(name = "Nova criatura"): Character {

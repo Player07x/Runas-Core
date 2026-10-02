@@ -96,6 +96,16 @@ A única forma de trazer dados da nuvem é a ação manual "Importar da nuvem", 
 
 Depois de importar, a versão importada passa a ser a base do dispositivo.
 
+### Diretório de wikis/bestiários na nuvem
+
+O registro de wikis/bestiários (`__wiki_registry__`/`__bestiary_registry__`, nomes e ids) é só deste navegador: nunca viajou para a nuvem nem para o vault. Um dispositivo novo nascia só com a coleção `"default"` e não tinha como saber que outras existiam — "Importar da nuvem" só olha a coleção **ativa**, nunca pergunta qual trazer.
+
+`lib/collection-directory.ts` publica, por `kind` (`"knowledge"` e `"bestiary"`), um diretório minúsculo — `{id, name, updatedAt}` (bestiário também guarda `system`) — no mesmo backup versionado, sob o `collectionId` reservado `"__directory__"`. Nenhuma rota nova: a coleção é só mais uma string livre para o servidor, que nunca interpreta o payload.
+
+- **Publicação**: melhor esforço, só com token de backup presente. Acontece ao criar, renomear uma wiki/bestiário, ao conectar uma pasta desconhecida criando uma wiki nova, e uma vez ao abrir (autocura instalações com várias wikis que nunca publicaram um diretório). **Nunca** ao remover do seletor: remover é só deste dispositivo — outro computador pode legitimamente continuar usando a mesma coleção —, então o diretório só cresce, nunca encolhe por uma remoção local.
+- **Fusão**: cada publicação busca o diretório remoto primeiro e funde por `id` (mantém o `updatedAt` mais recente em conflito) antes de gravar; um `409 stale` de outro dispositivo publicando ao mesmo tempo é resolvido buscando de novo e tentando mais algumas vezes (aqui não há diálogo de conflito); um `409 shrink` é seguro de forçar, porque este payload é só um índice de descoberta, nunca a wiki/bestiário em si.
+- **Descoberta**: o botão "Procurar na nuvem…" (seletor de wikis/bestiários) busca o diretório e lista o que ainda não existe localmente (comparado contra o registro e contra `deletedCollectionIds`, uma lápide só deste dispositivo que evita reoferecer, na mesma hora, algo que ele acabou de tirar do próprio seletor). Escolher uma entrada recria a coleção localmente **com o mesmo id** — é o que faz o backup dela ser encontrado — e recarrega a página já com ela ativa. A importação do conteúdo continua manual: a página reabre "Importar da nuvem" (wiki) ou a sincronização (bestiário) sozinha, mas o clique em "Sincronizar"/"Substituir tudo" é do mestre, como em qualquer outro lugar deste documento.
+
 ## Dados do Runas DM dentro do vault (`Runas DM/`)
 
 As notas `.md` guardam o texto das páginas. Tudo o mais — campanhas (estilo, organizador, vínculos, ordem), tags com ícone e cor, eras com anos e calendário, exclusões, o Bestiário e as preferências de interface — só existia no navegador e na nuvem. Por isso o vault ganhou uma pasta visível:
