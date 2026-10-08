@@ -121,6 +121,8 @@ completa está em `docs/obsidian-vault-organization.md`.
 
 ## Wiki: categorias e tags
 
+- Links internos nas notas da Wiki e de Campanhas abrem a nota de destino ao clicar, inclusive entre os dois escopos. `Alt` + passar o mouse (ou clicar) mostra uma prévia com texto e imagens, sem sair da nota atual; soltar `Alt` fecha a prévia. Funciona tanto no editor quanto na leitura das Histórias. Ao seguir um link, alterações pendentes válidas são salvas antes de abrir o destino; uma nota intacta não é regravada.
+
 - A Wiki tem sete categorias fixas: Cronologia, História, Geografia, Personagens, Criaturas, Itens e Organizações. Gráfico é uma visualização, não uma categoria.
 - Fauna e Monstros são migrados para Criaturas; a origem permanece como tag. Categorias antigas de snapshots v2 também viram tags globais, preservando compatibilidade de leitura.
 - Cada categoria abre uma grade de tags. A página de tag oferece busca, ordenação, criação e edição sem duplicar registros. Tags de era aparecem somente em Cronologia.

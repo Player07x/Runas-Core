@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type MouseEvent as ReactMouseEvent } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type MouseEvent as ReactMouseEvent } from "react"
+import { createPortal } from "react-dom"
 import { AlignCenter, AlignLeft, AlignRight, Bold, Eraser, Heading2, ImagePlus, Italic, Link2, List, ListOrdered, Quote, Underline, Unlink } from "lucide-react"
 import { readCachedVaultAsset } from "../lib/vault-assets"
 import type { KnowledgePage } from "../lib/knowledge-model"
+import { resolveWikiPage } from "../lib/wiki-links"
 
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "H1", "H2", "H3", "BLOCKQUOTE", "A", "IMG", "HR", "CODE", "PRE"])
 
@@ -50,26 +52,92 @@ export function wikiTitlesFromRichText(value: string): string[] {
     .filter(Boolean)
 }
 
-/**
- * Leitura do mesmo HTML que o editor grava. Reaproveita a sanitização e a
- * resolução de anexos do vault para que uma página exibida fora do editor
- * (como um evento dentro de uma História) apareça exatamente igual.
- */
-export function RichTextView({ html, className = "", pages = [], onOpenPage }: { html: string; className?: string; pages?: KnowledgePage[]; onOpenPage?: (page: KnowledgePage) => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
+/** O leitor e o editor compartilham o clique e a prévia dos links internos. */
+function useWikiLinks(pages: KnowledgePage[], onOpenPage?: (page: KnowledgePage) => void) {
   const altPressedRef = useRef(false)
+  const hoveredAnchorRef = useRef<HTMLAnchorElement | null>(null)
   const [hoveredPage, setHoveredPage] = useState<{ page: KnowledgePage; x: number; y: number } | null>(null)
-  const safe = useMemo(() => sanitizeRichText(html), [html])
+
+  const resolve = useCallback((anchor: HTMLAnchorElement): KnowledgePage | undefined => {
+    const hrefTitle = anchor.getAttribute("href")?.match(/^#wiki:(.*)$/i)?.[1]
+    let title = anchor.dataset.wikiTitle?.trim() ?? ""
+    if (!title && hrefTitle) {
+      try { title = decodeURIComponent(hrefTitle) } catch { return undefined }
+    }
+    return resolveWikiPage(title, pages)
+  }, [pages])
+
+  const showPreview = useCallback((anchor: HTMLAnchorElement | null) => {
+    const page = anchor && resolve(anchor)
+    if (!anchor || !page) { setHoveredPage(null); return }
+    const rect = anchor.getBoundingClientRect()
+    const width = Math.min(420, window.innerWidth - 32)
+    const height = Math.min(320, window.innerHeight - 32)
+    const x = Math.max(16, Math.min(window.innerWidth - width - 16, rect.left))
+    const y = Math.max(16, Math.min(window.innerHeight - height - 16, rect.bottom + 10))
+    setHoveredPage((current) => current?.page === page && current.x === x && current.y === y ? current : { page, x, y })
+  }, [resolve])
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Alt") altPressedRef.current = true }
+    if (!pages.length) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Alt") { altPressedRef.current = true; showPreview(hoveredAnchorRef.current) }
+    }
     const onKeyUp = (event: KeyboardEvent) => { if (event.key === "Alt") { altPressedRef.current = false; setHoveredPage(null) } }
     window.addEventListener("keydown", onKeyDown)
     window.addEventListener("keyup", onKeyUp)
-    const onBlur = () => { altPressedRef.current = false; setHoveredPage(null) }
+    const onBlur = () => { altPressedRef.current = false; hoveredAnchorRef.current = null; setHoveredPage(null) }
+    const onScroll = () => { hoveredAnchorRef.current = null; setHoveredPage(null) }
     window.addEventListener("blur", onBlur)
-    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", onBlur) }
-  }, [])
+    window.addEventListener("scroll", onScroll, true)
+    window.addEventListener("resize", onScroll)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("blur", onBlur)
+      window.removeEventListener("scroll", onScroll, true)
+      window.removeEventListener("resize", onScroll)
+    }
+  }, [pages.length, showPreview])
+
+  function anchorAt(event: ReactMouseEvent<HTMLDivElement>): HTMLAnchorElement | null {
+    const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[data-wiki-title], a[href^='#wiki:']") : null
+    return anchor && event.currentTarget.contains(anchor) ? anchor : null
+  }
+  function previewAt(event: ReactMouseEvent<HTMLDivElement>) {
+    const anchor = anchorAt(event)
+    hoveredAnchorRef.current = anchor
+    if (event.altKey || altPressedRef.current) showPreview(anchor)
+    else setHoveredPage(null)
+  }
+  const handlers = {
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => {
+      const anchor = anchorAt(event)
+      if (!anchor) return
+      // Um vínculo interno nunca vira um hash sem destino no navegador.
+      event.preventDefault()
+      if (event.altKey || altPressedRef.current) { showPreview(anchor); return }
+      const page = resolve(anchor)
+      if (page && onOpenPage) { setHoveredPage(null); onOpenPage(page) }
+    },
+    onMouseEnter: previewAt,
+    onMouseMove: previewAt,
+    onMouseLeave: () => { hoveredAnchorRef.current = null; setHoveredPage(null) },
+  }
+  const preview = hoveredPage && createPortal(
+    <aside className="wiki-link-preview" role="tooltip" aria-label={`Prévia de ${hoveredPage.page.title}`} style={{ left: hoveredPage.x, top: hoveredPage.y }}>
+      <header><strong>{hoveredPage.page.title}</strong><span>Alt + passar o mouse</span></header>
+      <RichTextView html={hoveredPage.page.contentHtml} />
+    </aside>, document.body,
+  )
+  return { handlers, preview }
+}
+
+/** Leitura do mesmo HTML e dos mesmos anexos que o editor grava. */
+export function RichTextView({ html, className = "", pages = [], onOpenPage }: { html: string; className?: string; pages?: KnowledgePage[]; onOpenPage?: (page: KnowledgePage) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const safe = useMemo(() => sanitizeRichText(html), [html])
+  const { handlers, preview } = useWikiLinks(pages, onOpenPage)
 
   useEffect(() => {
     const container = containerRef.current
@@ -91,25 +159,7 @@ export function RichTextView({ html, className = "", pages = [], onOpenPage }: {
     }
   }, [safe])
 
-  function resolve(anchor: HTMLAnchorElement): KnowledgePage | undefined {
-    const hrefTitle = anchor.getAttribute("href")?.match(/^#wiki:(.*)$/i)?.[1]
-    const title = (anchor.dataset.wikiTitle?.trim() || (hrefTitle ? decodeURIComponent(hrefTitle) : "")).toLocaleLowerCase("pt-BR")
-    return title ? pages.find((page) => page.title.trim().toLocaleLowerCase("pt-BR") === title) : undefined
-  }
-  function previewAt(event: ReactMouseEvent<HTMLDivElement>) {
-    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title], a[href^='#wiki:']")
-    if (!anchor || !(event.altKey || altPressedRef.current)) { setHoveredPage(null); return }
-    const page = resolve(anchor)
-    if (!page) { setHoveredPage(null); return }
-    const rect = anchor.getBoundingClientRect()
-    setHoveredPage({ page, x: Math.min(window.innerWidth - 440, Math.max(16, rect.left)), y: Math.min(window.innerHeight - 260, rect.bottom + 10) })
-  }
-  return <div ref={containerRef} className={`rich-text-content rich-text-view ${className}`} onClick={(event) => {
-    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-wiki-title], a[href^='#wiki:']")
-    const page = anchor && resolve(anchor)
-    if (page && (event.altKey || altPressedRef.current)) { event.preventDefault(); previewAt(event); return }
-    if (page && onOpenPage) { event.preventDefault(); onOpenPage(page) }
-  }} onMouseEnter={previewAt} onMouseMove={previewAt} onMouseLeave={() => setHoveredPage(null)}><div dangerouslySetInnerHTML={{ __html: safe }} />{hoveredPage && <aside className="wiki-link-preview" style={{ left: hoveredPage.x, top: hoveredPage.y }}><header><strong>{hoveredPage.page.title}</strong><span>Alt + passar o mouse</span></header><div dangerouslySetInnerHTML={{ __html: sanitizeRichText(hoveredPage.page.contentHtml) }} /></aside>}</div>
+  return <div ref={containerRef} className={`rich-text-content rich-text-view ${className}`} {...handlers}><div dangerouslySetInnerHTML={{ __html: safe }} />{preview}</div>
 }
 
 type RichTextEditorProps = {
@@ -117,10 +167,12 @@ type RichTextEditorProps = {
   value: string
   onChange: (value: string) => void
   wikiPageTitles?: string[]
+  pages?: KnowledgePage[]
+  onOpenPage?: (page: KnowledgePage) => void
   className?: string
 }
 
-export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], className = "" }: RichTextEditorProps) {
+export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], pages = [], onOpenPage, className = "" }: RichTextEditorProps) {
   const id = useId()
   const editorRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -132,6 +184,7 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
   const [imageWidth, setImageWidth] = useState(25)
   const [imageAlign, setImageAlign] = useState<"left" | "center" | "right">("left")
   const [wikiQuery, setWikiQuery] = useState<string | null>(null)
+  const { handlers: wikiHandlers, preview } = useWikiLinks(pages, onOpenPage)
 
   useEffect(() => {
     const editor = editorRef.current
@@ -405,8 +458,12 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
         aria-multiline="true"
         aria-labelledby={`${id}-label`}
         suppressContentEditableWarning
+        onMouseEnter={wikiHandlers.onMouseEnter}
+        onMouseMove={wikiHandlers.onMouseMove}
+        onMouseLeave={wikiHandlers.onMouseLeave}
         onPaste={(event) => { void pasteContent(event) }}
         onClick={(event) => {
+          wikiHandlers.onClick(event)
           const selectedImage = event.target instanceof HTMLImageElement ? event.target : null
           selectedImageRef.current = selectedImage
           setImageSelected(Boolean(selectedImage))
@@ -431,6 +488,7 @@ export function RichTextEditor({ label, value, onChange, wikiPageTitles = [], cl
         onKeyUp={() => updateWikiSuggestions()}
         onBlur={() => emitCurrentValue(true)}
       />
+      {preview}
       {wikiQuery !== null && <div className="wiki-link-suggestions" role="listbox" aria-label="Páginas para vincular">
         <header><strong>Vincular página</strong><span>Digite o nome ou escolha abaixo</span></header>
         {suggestedWikiTitles.length > 0

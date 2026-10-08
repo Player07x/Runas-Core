@@ -1229,7 +1229,7 @@ input[readonly], textarea[readonly], input:disabled:not([type="checkbox"]), sele
 .knowledge-card > header b.character-status { color: var(--cyan); }
 .knowledge-card > header b.character-status.dead { color: var(--red); }
 .knowledge-card > header b.character-status.unknown { color: var(--muted); }
-.wiki-link-preview { right: auto; bottom: auto; width: min(420px, calc(100vw - 32px)); max-height: min(320px, calc(100vh - 32px)); pointer-events: none; }
+.wiki-link-preview { z-index: 110; right: auto; bottom: auto; width: min(420px, calc(100vw - 32px)); max-height: min(320px, calc(100vh - 32px)); pointer-events: none; }
 .wiki-link-preview > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .wiki-link-preview > header strong { margin: 0; }
 .wiki-link-preview > header span { color: var(--muted); font-size: 9px; white-space: nowrap; }
