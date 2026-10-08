@@ -85,6 +85,7 @@ export function StoryDocument({
       onDelete={(id) => { setEditing(null); if (story.storyEventIds.includes(id)) onDeleteEvent(id) }}
       onClose={() => setEditing(null)}
       onLaunchEncounter={() => undefined}
+      onOpenPage={onOpenPage}
     />
   }
 

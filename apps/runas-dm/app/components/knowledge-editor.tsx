@@ -34,6 +34,7 @@ export function KnowledgeEditor({
   onClose,
   onLaunchEncounter,
   onCreateTag,
+  onOpenPage,
 }: {
   /** `inline` desenha o mesmo editor dentro do documento, sem sobreposição: é como um acontecimento é editado dentro da sua História. */
   variant?: "modal" | "inline"
@@ -49,6 +50,7 @@ export function KnowledgeEditor({
   onClose: () => void
   onLaunchEncounter: (page: KnowledgePage) => void
   onCreateTag?: () => void
+  onOpenPage?: (page: KnowledgePage) => void
 }) {
   useEscapeToClose(onClose)
   void categories
@@ -120,13 +122,24 @@ export function KnowledgeEditor({
   }
 
   function save() {
-    if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && parseCalendarYear(yearText) == null) { setError("Informe um ano inteiro, com ou sem calendário: -4725, 4027 C.E. ou 0 Logi."); return }
-    if (draft.order && !normalizeMissionOrder(draft.order)) { setError("Use uma ordem como 1, 2, 3.1 ou 3.2."); return }
+    if ((draft.kind === "chronology" || isStoryEvent) && yearText.trim() && parseCalendarYear(yearText) == null) { setError("Informe um ano inteiro, com ou sem calendário: -4725, 4027 C.E. ou 0 Logi."); return false }
+    if (draft.order && !normalizeMissionOrder(draft.order)) { setError("Use uma ordem como 1, 2, 3.1 ou 3.2."); return false }
     // A era acompanha o ano: informar um ano reclassifica o registro, e um
     // ano fora de todos os intervalos o deixa honestamente sem era.
     const eventYear = parseCalendarYear(yearText)
     const eraId = eventYear == null ? draft.eraId : eraForYear(eventYear, eras)?.id ?? ""
     onSave({ ...draft, eventYear, eraId, updatedAt: Date.now() })
+    return true
+  }
+
+  function openLinkedPage(target: KnowledgePage) {
+    if (!onOpenPage || target.id === draft.id) return
+    // Seguir um link não descarta o que o mestre acabou de editar, nem
+    // regrava uma nota intacta só porque ela foi consultada.
+    const changed = JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...page, updatedAt: 0 })
+      || yearText !== String(page.eventYear ?? "")
+    if (changed && !save()) return
+    onOpenPage(target)
   }
 
   function saveAndLaunchEncounter() {
@@ -213,7 +226,7 @@ export function KnowledgeEditor({
                 })}</div>
               {draft.encounterCreatures.length > 0 && <button className="primary-button encounter-launch" onClick={saveAndLaunchEncounter}><ExternalLink size={16} /> Salvar e abrir na Mesa</button>}
             </section>
-          </> : <RichTextEditor label="Conteúdo da página" value={draft.contentHtml} onChange={(contentHtml) => patch({ contentHtml })} wikiPageTitles={pages.filter((candidate) => candidate.id !== draft.id).map((candidate) => candidate.title)} className="knowledge-rich-editor" />}
+          </> : <RichTextEditor label="Conteúdo da página" value={draft.contentHtml} onChange={(contentHtml) => patch({ contentHtml })} wikiPageTitles={pages.filter((candidate) => candidate.id !== draft.id).map((candidate) => candidate.title)} pages={pages} onOpenPage={onOpenPage ? openLinkedPage : undefined} className="knowledge-rich-editor" />}
         </main>
 
         <aside>
